@@ -1,0 +1,20 @@
+# Build artifacts — never commit.
+artifacts/
+*.log
+*.tmp
+
+# macOS detritus
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+
+# Editor swap files
+*.swp
+*~
+
+# Per-machine keys / certs (when real signing lands)
+*.p12
+*.cer
+*.keychain-db

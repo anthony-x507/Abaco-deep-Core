@@ -1,0 +1,56 @@
+# macOS
+.DS_Store
+*.app
+*.dmg
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+*.sqlite3
+
+# Node
+node_modules/
+out/
+.vite/
+*.tsbuildinfo
+
+# Build artifacts (project-local)
+artifacts/*
+!artifacts/.gitkeep
+desktop/node_modules/
+desktop/out/
+desktop/dist/
+
+# Secrets
+.env
+.env.local
+.env.prod
+*.pem
+*.key
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Runtime state (local user data)
+runtime/
+logs/
+*.log
+
+# Backups and archives
+*.zip
+*.tar.gz
+*.bundle

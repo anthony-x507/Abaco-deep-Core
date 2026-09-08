@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Update available">
+  <!-- Refresh arrow loop + dot — update indicator. The dot is the badge. -->
+  <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/>
+  <path d="M21 3v5h-5"/>
+  <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/>
+  <path d="M3 21v-5h5"/>
+  <circle cx="19" cy="5" r="2.25" fill="currentColor" stroke="none"/>
+</svg>

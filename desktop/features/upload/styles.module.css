@@ -1,0 +1,186 @@
+/* Upload feature styles.
+ *
+ * Scoped via CSS Modules (see the `.module.css` suffix) so this file is
+ * consumed by the React components without leaking into the global
+ * stylesheet.  The look mirrors the rest of the desktop shell: rounded
+ * corners, soft borders, neutral palette and a single accent colour for
+ * interactive elements.
+ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.uploadButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--abaco-border, #d0d4dc);
+  background: var(--abaco-surface, #ffffff);
+  color: var(--abaco-text, #1f2330);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.uploadButton:hover {
+  background: var(--abaco-surface-hover, #f4f5f9);
+  border-color: var(--abaco-accent, #5b6cff);
+}
+
+.uploadButton:focus-visible {
+  outline: 2px solid var(--abaco-accent, #5b6cff);
+  outline-offset: 2px;
+}
+
+.uploadButton[data-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hiddenInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.dropzone {
+  border: 2px dashed var(--abaco-border, #d0d4dc);
+  border-radius: 12px;
+  padding: 18px;
+  text-align: center;
+  color: var(--abaco-text-muted, #5f6473);
+  background: var(--abaco-surface-soft, #fafbfd);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.dropzone[data-active='true'] {
+  background: var(--abaco-surface-active, #eef1ff);
+  border-color: var(--abaco-accent, #5b6cff);
+  color: var(--abaco-text, #1f2330);
+}
+
+.dropzoneHint {
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.previewList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.previewItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--abaco-border, #d0d4dc);
+  background: var(--abaco-surface, #ffffff);
+  font-size: 12px;
+  max-width: 100%;
+}
+
+.previewThumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--abaco-surface-soft, #f4f5f9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.previewThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.previewMeta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.previewName {
+  font-weight: 500;
+  color: var(--abaco-text, #1f2330);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.previewSub {
+  color: var(--abaco-text-muted, #5f6473);
+  font-size: 11px;
+}
+
+.previewStatus[data-status='failed'] {
+  color: var(--abaco-error, #d8453a);
+}
+
+.previewStatus[data-status='ready'] {
+  color: var(--abaco-success, #2f8f5d);
+}
+
+.previewStatus[data-status='pending'],
+.previewStatus[data-status='uploading'] {
+  color: var(--abaco-text-muted, #5f6473);
+}
+
+.removeButton {
+  background: transparent;
+  border: 0;
+  color: var(--abaco-text-muted, #5f6473);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.removeButton:hover {
+  background: var(--abaco-surface-hover, #f4f5f9);
+  color: var(--abaco-error, #d8453a);
+}
+
+.progress {
+  width: 80px;
+  height: 4px;
+  background: var(--abaco-surface-soft, #f4f5f9);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressBar {
+  height: 100%;
+  background: var(--abaco-accent, #5b6cff);
+  transition: width 120ms ease;
+}

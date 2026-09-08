@@ -1,0 +1,21 @@
+{
+  "_comment": "Documentary template of the auto-updater feed for ABACO Deep Core. electron-updater consumes YAML (latest-mac.yml / latest.yml), not JSON; release-mac.sh builds the real feed from the emitted electron-builder artifacts and merges the per-arch metadata (see desktop/src/dsh-desktop/scripts/merge-mac-update-metadata.mjs). This file is here so the shape of the feed is documented alongside the build pipeline.",
+
+  "version": "0.1.0",
+  "files": [
+    {
+      "url": "abaco-deep-core-mac-arm64-0.1.0.zip",
+      "sha512": "REPLACE_WITH_BASE64_SHA512_OF_ZIP",
+      "size": 0
+    },
+    {
+      "url": "abaco-deep-core-mac-x64-0.1.0.zip",
+      "sha512": "REPLACE_WITH_BASE64_SHA512_OF_ZIP",
+      "size": 0
+    }
+  ],
+  "path": "abaco-deep-core-mac-arm64-0.1.0.zip",
+  "sha512": "REPLACE_WITH_BASE64_SHA512_OF_ARM64_ZIP",
+  "releaseDate": "2026-01-01T00:00:00Z",
+  "stagingPercentage": 100
+}

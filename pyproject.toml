@@ -1,0 +1,33 @@
+[project]
+name = "abaco-deep-core"
+version = "0.1.0-unsigned-dev"
+description = "ABACO Deep Core - desktop shell with Tailscale mesh sync"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Anthony Sanchez" }]
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["abaco_core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["core/tests", "sync/tests", "tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

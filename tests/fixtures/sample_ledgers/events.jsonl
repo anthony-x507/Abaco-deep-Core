@@ -1,0 +1,5 @@
+{"id": "evt-0001", "ts": 1700000000, "node": "node_a", "kind": "create", "payload": {"k": "alpha"}}
+{"id": "evt-0002", "ts": 1700000010, "node": "node_a", "kind": "update", "payload": {"k": "alpha", "v": 1}}
+{"id": "evt-0003", "ts": 1700000020, "node": "node_a", "kind": "update", "payload": {"k": "alpha", "v": 2}}
+{"id": "evt-0004", "ts": 1700000030, "node": "node_b", "kind": "create", "payload": {"k": "beta"}}
+{"id": "evt-0005", "ts": 1700000040, "node": "node_b", "kind": "update", "payload": {"k": "beta", "v": 1}}
