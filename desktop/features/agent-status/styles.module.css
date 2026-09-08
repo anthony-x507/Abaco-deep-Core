@@ -1,0 +1,309 @@
+/* Agent Status — styles.module.css
+ *
+ * Scoped via CSS Modules. Tokens are CSS custom properties; the host
+ * shell may override any of the `--agent-status-*` variables to re-skin
+ * the indicator without touching the components.
+ *
+ * Animations follow the ABACO motion contract (theme.ts):
+ *  - short transitions (~120ms) for state swaps
+ *  - mid-length (~300ms) for fade-outs
+ *  - the pulse-glow runs indefinitely while the agent is busy
+ *  - everything collapses to static states under
+ *    `prefers-reduced-motion: reduce`.
+ */
+
+/* --------------------------------------------------------------------
+ * Local tokens — fall back to the brand defaults so the component
+ * works even if the host shell forgot to import the global theme.
+ * ------------------------------------------------------------------ */
+.root {
+    --agent-status-bg:        #16204A;
+    --agent-status-thinking:  #22D3EE;
+    --agent-status-tool:      #7C3AED;
+    --agent-status-streaming: #A78BFA;
+    --agent-status-done:      #10B981;
+    --agent-status-error:     #F472B6;
+
+    --agent-status-radius:    12px;
+    --agent-status-pad-y:     10px;
+    --agent-status-pad-x:     14px;
+    --agent-status-gap:       10px;
+    --agent-status-font-size: 13px;
+    --agent-status-font:      'SF Pro Text', -apple-system, system-ui, sans-serif;
+
+    /* Inherit from host CSS variables when available. */
+    --agent-status-accent: var(--agent-status-thinking);
+    --agent-status-glow:   var(--agent-status-thinking);
+
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    pointer-events: none; /* purely informational; clicks pass through */
+    user-select: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--agent-status-gap);
+    padding: var(--agent-status-pad-y) var(--agent-status-pad-x);
+    border-radius: var(--agent-status-radius);
+    background: var(--agent-status-bg);
+    color: #F8FAFC;
+    font-family: var(--agent-status-font);
+    font-size: var(--agent-status-font-size);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    line-height: 1;
+    white-space: nowrap;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.40),
+        0 0 0 1px var(--agent-status-accent),
+        0 0 18px var(--agent-status-glow);
+
+    /* Default transition for state swaps (colour + glow). */
+    transition:
+        background-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+        box-shadow   200ms cubic-bezier(0.16, 1, 0.3, 1),
+        color        200ms cubic-bezier(0.16, 1, 0.3, 1),
+        opacity      300ms cubic-bezier(0.16, 1, 0.3, 1),
+        transform    300ms cubic-bezier(0.16, 1, 0.3, 1);
+
+    /* Idle = hidden. The component sets data-visible="true" to reveal. */
+    opacity: 0;
+    transform: translate(-50%, 8px);
+}
+
+[data-position='top'] {
+    top: 16px;
+    bottom: auto;
+}
+
+[data-position='bottom'] {
+    bottom: 16px;
+    top: auto;
+}
+
+[data-variant='glass'] {
+    background: rgba(22, 32, 74, 0.62);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+[data-visible='true'] {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    pointer-events: auto;
+}
+
+/* Per-state accent colour. The glow matches the accent for cohesion. */
+[data-accent='thinking'] {
+    --agent-status-accent: var(--agent-status-thinking);
+    --agent-status-glow:   var(--agent-status-thinking);
+    animation: pulse-glow 1800ms ease-in-out infinite;
+}
+
+[data-accent='streaming'] {
+    --agent-status-accent: var(--agent-status-streaming);
+    --agent-status-glow:   var(--agent-status-streaming);
+    animation: pulse-glow 1800ms ease-in-out infinite;
+}
+
+[data-accent='tool'] {
+    --agent-status-accent: var(--agent-status-tool);
+    --agent-status-glow:   var(--agent-status-tool);
+    animation: pulse-glow 1800ms ease-in-out infinite;
+}
+
+[data-accent='done'] {
+    --agent-status-accent: var(--agent-status-done);
+    --agent-status-glow:   var(--agent-status-done);
+    animation: none;
+}
+
+[data-accent='error'] {
+    --agent-status-accent: var(--agent-status-error);
+    --agent-status-glow:   var(--agent-status-error);
+    animation: shake 360ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+/* --------------------------------------------------------------------
+ * Label
+ * ------------------------------------------------------------------ */
+.label {
+    display: inline-block;
+    color: inherit;
+}
+
+/* Truncate very long tool names / error messages. */
+.label[data-overflow='true'] {
+    max-width: 42ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* --------------------------------------------------------------------
+ * Spinner — the circle is styled via stroke-dasharray so the CSS
+ * handles the rotation; the React side just passes currentColor.
+ * ------------------------------------------------------------------ */
+.spinner {
+    width: 16px;
+    height: 16px;
+    color: var(--agent-status-accent);
+    animation: spin 900ms linear infinite;
+    transform-origin: 50% 50%;
+    flex-shrink: 0;
+}
+
+.spinner circle {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    /* 2πr ≈ 50.27 for r=8 — subtract 38 to leave a visible gap. */
+    stroke-dasharray: 38 100;
+}
+
+[data-accent='done'] .spinner,
+[data-accent='error'] .spinner {
+    animation: none;
+}
+
+/* --------------------------------------------------------------------
+ * Check / error / wrench glyphs share a 16×16 box.
+ * ------------------------------------------------------------------ */
+.glyph {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: var(--agent-status-accent);
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* --------------------------------------------------------------------
+ * Animated dots — three spans whose `animation-delay` staggers them.
+ * ------------------------------------------------------------------ */
+.dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+}
+
+.dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.25;
+    animation: dot-bounce 1200ms ease-in-out infinite;
+}
+
+.dot:nth-child(1) { animation-delay: 0ms; }
+.dot:nth-child(2) { animation-delay: 180ms; }
+.dot:nth-child(3) { animation-delay: 360ms; }
+
+/* --------------------------------------------------------------------
+ * Streaming progress bar — indeterminate when `progress` is missing.
+ * ------------------------------------------------------------------ */
+.progressTrack {
+    width: 120px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.progressFill {
+    height: 100%;
+    background: var(--agent-status-accent);
+    border-radius: inherit;
+    transition: width 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.progressFill[data-indeterminate='true'] {
+    width: 38% !important;
+    animation: progress-slide 1400ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+/* --------------------------------------------------------------------
+ * Elapsed-time chip (small, right-aligned).
+ * ------------------------------------------------------------------ */
+.elapsed {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: rgba(248, 250, 252, 0.65);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    padding-left: 6px;
+    border-left: 1px solid rgba(255, 255, 255, 0.14);
+    margin-left: 2px;
+}
+
+/* --------------------------------------------------------------------
+ * Keyframes
+ * ------------------------------------------------------------------ */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes dot-bounce {
+    0%, 60%, 100% {
+        opacity: 0.25;
+        transform: translateY(0);
+    }
+    30% {
+        opacity: 1;
+        transform: translateY(-3px);
+    }
+}
+
+@keyframes pulse-glow {
+    0%, 100% {
+        box-shadow:
+            0 8px 32px rgba(0, 0, 0, 0.40),
+            0 0 0 1px var(--agent-status-accent),
+            0 0 12px var(--agent-status-glow);
+    }
+    50% {
+        box-shadow:
+            0 8px 32px rgba(0, 0, 0, 0.40),
+            0 0 0 1px var(--agent-status-accent),
+            0 0 26px var(--agent-status-glow);
+    }
+}
+
+@keyframes progress-slide {
+    0%   { transform: translateX(-110%); }
+    100% { transform: translateX(310%); }
+}
+
+@keyframes shake {
+    10%, 90%  { transform: translate(-50%, 0) translateX(-1px); }
+    20%, 80%  { transform: translate(-50%, 0) translateX( 2px); }
+    30%, 50%, 70% { transform: translate(-50%, 0) translateX(-4px); }
+    40%, 60%      { transform: translate(-50%, 0) translateX( 4px); }
+}
+
+/* --------------------------------------------------------------------
+ * Reduced motion — kill all loops and transitions.
+ * ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+    .root,
+    [data-accent='thinking'],
+    [data-accent='streaming'],
+    [data-accent='tool'],
+    [data-accent='error'] {
+        animation: none !important;
+        transition: opacity 1ms linear;
+    }
+
+    .spinner,
+    .dot,
+    .progressFill[data-indeterminate='true'] {
+        animation: none !important;
+    }
+}
