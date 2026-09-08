@@ -1,44 +1,181 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480" role="img" aria-label="ABACO DEEP HARNES">
+<!--
+  ABACO DEEP HARNESS — Logo principal
+  Recreation vectorial del logo 3D basado en el render original.
+
+  Características:
+  - A geométrica con planos triangulares facetados (estilo sci-fi).
+  - Paleta azul metálico con reflejos cálidos rosados.
+  - Pedestal gris con el nombre debajo en plata pulida.
+  - Sin elementos externos: solo SVG nativo, escalable sin pérdida.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480" role="img" aria-label="ABACO DEEP HARNESS">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0B1020"/>
-      <stop offset="100%" stop-color="#16204A"/>
+    <!-- Fondo navy con sutil vignette -->
+    <radialGradient id="bg" cx="50%" cy="55%" r="65%">
+      <stop offset="0%"  stop-color="#1B2548"/>
+      <stop offset="65%" stop-color="#0E142B"/>
+      <stop offset="100%" stop-color="#070A18"/>
+    </radialGradient>
+
+    <!-- Panel frontal de la A: azul metálico con brillo superior -->
+    <linearGradient id="plate-front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#3D6FB2"/>
+      <stop offset="55%" stop-color="#1E3F73"/>
+      <stop offset="100%" stop-color="#0E2147"/>
     </linearGradient>
-    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#22D3EE"/>
-      <stop offset="100%" stop-color="#7C3AED"/>
+
+    <!-- Panel derecho: cara iluminada con reflejo cálido -->
+    <linearGradient id="plate-right" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"  stop-color="#2A4F87"/>
+      <stop offset="60%" stop-color="#1A2E55"/>
+      <stop offset="100%" stop-color="#070C1F"/>
     </linearGradient>
+
+    <!-- Panel izquierdo: cara en sombra con leve reflejo cálido abajo -->
+    <linearGradient id="plate-left" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"  stop-color="#D9A48B"/>  <!-- warm rim -->
+      <stop offset="35%" stop-color="#7A6A8B"/>
+      <stop offset="100%" stop-color="#1B2548"/>
+    </linearGradient>
+
+    <!-- Highlight superior (cuspide) -->
+    <linearGradient id="plate-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#A6C0E4"/>
+      <stop offset="100%" stop-color="#3F6AA6"/>
+    </linearGradient>
+
+    <!-- Borde metálico -->
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"  stop-color="#7989B0"/>
+      <stop offset="50%" stop-color="#C9D3E8"/>
+      <stop offset="100%" stop-color="#5A6488"/>
+    </linearGradient>
+
+    <!-- Sombra del pedestal -->
+    <linearGradient id="pedestal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#7A8597"/>
+      <stop offset="55%" stop-color="#3A4452"/>
+      <stop offset="100%" stop-color="#181D26"/>
+    </linearGradient>
+
+    <linearGradient id="pedestal-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#9AA4B6"/>
+      <stop offset="100%" stop-color="#4F5868"/>
+    </linearGradient>
+
+    <!-- Halo central -->
+    <filter id="soft-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
   </defs>
 
-  <!-- Rounded square background -->
-  <rect width="480" height="480" rx="96" ry="96" fill="url(#bg)"/>
+  <!-- Fondo -->
+  <rect width="480" height="480" rx="48" fill="url(#bg)"/>
 
-  <!-- Stylised "A" — large triangular mark with internal crossbar triangle -->
-  <g transform="translate(240 180)">
-    <path d="M -120 200 L 0 -160 L 120 200 L 80 200 L 60 140 L -60 140 L -80 200 Z M -36 96 L 36 96 L 0 0 Z"
-          fill="url(#mark)" stroke="#F8FAFC" stroke-width="2"/>
+  <!-- Halo detrás del pedestal -->
+  <ellipse cx="240" cy="378" rx="180" ry="18" fill="#000" opacity="0.45" filter="url(#soft-glow)"/>
 
-    <!-- "ABACO DEEP HARNES" headline inside the A -->
-    <text x="0" y="74" text-anchor="middle"
-          font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif"
-          font-weight="900" font-size="22" fill="#F8FAFC"
-          letter-spacing="2">ABACO</text>
-    <text x="0" y="104" text-anchor="middle"
-          font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif"
-          font-weight="700" font-size="14" fill="#22D3EE"
-          letter-spacing="3">DEEP HARNES</text>
+  <!-- ====== Pedestal ====== -->
+  <g>
+    <!-- Cara superior del pedestal -->
+    <path d="M 78 348 L 240 332 L 402 348 L 240 364 Z" fill="url(#pedestal-top)"/>
+    <!-- Cara frontal -->
+    <path d="M 78 348 L 402 348 L 402 392 L 78 392 Z" fill="url(#pedestal)"/>
+    <!-- Texto en el pedestal -->
+    <text x="240" y="380" text-anchor="middle"
+          font-family="-apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif"
+          font-weight="500" font-size="22" fill="#E1E6F0"
+          letter-spacing="6">Abaco</text>
+    <text x="240" y="404" text-anchor="middle"
+          font-family="-apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif"
+          font-weight="400" font-size="14" fill="#8C95A8"
+          letter-spacing="3">Deep Harness</text>
   </g>
 
-  <!-- Subtitle "DEEP HARNES" below the A -->
-  <text x="240" y="380" text-anchor="middle"
-        font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif"
-        font-weight="700" font-size="36" fill="#22D3EE"
-        letter-spacing="8">DEEP HARNES</text>
+  <!-- ====== Letra A geométrica facetada ======
+       Centrada en (240, 200), altura total ~280 -->
+  <g transform="translate(240 200)">
 
-  <!-- Tagline -->
-  <text x="240" y="420" text-anchor="middle"
-        font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif"
-        font-weight="500" font-size="14" fill="#94A3B8"
-        letter-spacing="4">AGENTIC DESKTOP</text>
+    <!-- Sombra suave debajo del logo -->
+    <ellipse cx="0" cy="140" rx="84" ry="10" fill="#000" opacity="0.35" filter="url(#soft-glow)"/>
+
+    <!-- Cara IZQUIERDA (en sombra + reflejo cálido inferior) -->
+    <path d="M -8 -130
+             L -68 110
+             L -28 110
+             L -22 80
+             L 22 80
+             L 28 110
+             L 68 110
+             L 8 -130
+             L 30 -130
+             L 60 70
+             L 30 70
+             L 0 -40
+             L -30 70
+             L -60 70
+             L -30 -130 Z"
+          fill="url(#plate-left)"/>
+    <!-- Triángulos decorativos internos a la izquierda -->
+    <path d="M -16 -60 L -32 50 L -8 50 L 4 -40 Z" fill="#5C7AAB" opacity="0.55"/>
+    <path d="M 4 -40 L -8 50 L 8 50 L 16 -30 Z" fill="#8AA3CC" opacity="0.45"/>
+    <path d="M -50 70 L -60 70 L -32 50 L -28 70 Z" fill="#C58A78" opacity="0.6"/>
+
+    <!-- Cara DERECHA (iluminada) -->
+    <path d="M 8 -130
+             L 68 110
+             L 28 110
+             L 22 80
+             L -22 80
+             L -28 110
+             L -68 110
+             L -8 -130
+             L -30 -130
+             L -60 70
+             L -30 70
+             L 0 -40
+             L 30 70
+             L 60 70
+             L 30 -130 Z"
+          fill="url(#plate-right)"/>
+    <!-- Triángulos decorativos internos a la derecha -->
+    <path d="M 16 -60 L 32 50 L 8 50 L -4 -40 Z" fill="#4A6E9F" opacity="0.7"/>
+    <path d="M -4 -40 L 8 50 L -8 50 L -16 -30 Z" fill="#2A4B7C" opacity="0.6"/>
+    <path d="M 50 70 L 60 70 L 32 50 L 28 70 Z" fill="#161B2A" opacity="0.7"/>
+
+    <!-- Cara FRONTAL (la que se ve de frente, azul vivo) -->
+    <path d="M -8 -130 L 8 -130 L 60 70 L 30 70 L 16 30 L -16 30 L -30 70 L -60 70 Z"
+          fill="url(#plate-front)"/>
+    <!-- Hueco central triangular (hueco de la A) -->
+    <path d="M -16 30 L 16 30 L 0 -30 Z" fill="#0A1230"/>
+    <!-- Brillo en el filo frontal superior -->
+    <path d="M -8 -130 L 8 -130 L 4 -100 L -4 -100 Z" fill="url(#plate-top)"/>
+
+    <!-- Borde metálico completo (todo el contorno de la A) -->
+    <path d="M -8 -130
+             L 8 -130
+             L 68 110
+             L 28 110
+             L 22 80
+             L 16 30
+             L -16 30
+             L -22 80
+             L -28 110
+             L -68 110 Z"
+          fill="none" stroke="url(#edge)" stroke-width="2" stroke-linejoin="round"/>
+
+    <!-- Borde del hueco interior -->
+    <path d="M -16 30 L 16 30 L 0 -30 Z" fill="none" stroke="url(#edge)" stroke-width="1.5"/>
+
+    <!-- Línea diagonal decorativa del medio (las barras estructurales) -->
+    <line x1="-50" y1="70" x2="50" y2="70" stroke="url(#edge)" stroke-width="2" opacity="0.85"/>
+    <line x1="-22" y1="80" x2="22" y2="80" stroke="url(#edge)" stroke-width="2" opacity="0.85"/>
+
+    <!-- Highlight superior (cúspide iluminada) -->
+    <path d="M -8 -130 L 8 -130 L 14 -90 L -14 -90 Z" fill="#D9E4F4" opacity="0.7"/>
+  </g>
+
+  <!-- Reflejo sutil en el piso -->
+  <ellipse cx="240" cy="448" rx="160" ry="6" fill="#22D3EE" opacity="0.06"/>
 </svg>
