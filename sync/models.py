@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from .config import DEFAULT_SYNC_PORT
+
 
 @dataclass(frozen=True)
 class NodeIdentity:
@@ -18,7 +20,12 @@ class NodeIdentity:
 
 @dataclass(frozen=True)
 class Peer:
-    """A known node in the Tailscale mesh."""
+    """A known node in the Tailscale mesh.
+
+    The mesh-wide convention is that every node serves sync on
+    ``DEFAULT_SYNC_PORT``; a peer that advertises a different listener may
+    set ``reachable_host`` and ``reachable_port`` to override it.
+    """
 
     node_id: str
     hostname: str
@@ -26,6 +33,17 @@ class Peer:
     tailscale_hostname: str | None
     last_seen_at: str
     is_online: bool
+    reachable_host: str | None = None
+    reachable_port: int | None = None
+
+    @property
+    def endpoint(self) -> str | None:
+        """Return this peer's full sync base URL, or None when unreachable."""
+        if self.reachable_host and self.reachable_port:
+            return f"http://{self.reachable_host}:{self.reachable_port}"
+        if self.tailscale_ip:
+            return f"http://{self.tailscale_ip}:{DEFAULT_SYNC_PORT}"
+        return None
 
 
 @dataclass(frozen=True)

@@ -28,7 +28,12 @@ class SyncAPI:
 
     def get_state(self) -> dict[str, Any]:
         """Return node ID and per-ledger summary state."""
-        return {"node_id": self.identity.node_id, "ledgers": {name: self.ledgers.state(name) for name in self.ledgers.root.glob("*.jsonl")}}
+        ledgers = {
+            path.stem: self.ledgers.state(path.stem)
+            for path in self.ledgers.root.glob("*.jsonl")
+            if path.stem
+        }
+        return {"node_id": self.identity.node_id, "ledgers": ledgers}
 
     def pull(self, envelope: SyncEnvelope) -> dict[str, Any]:
         """Merge incoming records and return the resulting records."""
@@ -37,13 +42,14 @@ class SyncAPI:
 
     def push(self, peer: Peer, records: list[dict], ledger_name: str = "events") -> dict[str, Any]:
         """Push records to one peer and return its response."""
-        if not peer.tailscale_ip:
-            return {"ok": False, "error": "peer has no Tailscale address"}
+        endpoint = peer.endpoint
+        if not endpoint:
+            return {"ok": False, "error": "peer has no reachable endpoint"}
         from datetime import datetime, timezone
         from .mesh_server import sign_envelope
         envelope = SyncEnvelope(self.identity.node_id, peer.node_id, ledger_name, "push", None, tuple(records), "", datetime.now(timezone.utc).isoformat())
         envelope = SyncEnvelope(**{**envelope.__dict__, "signature": sign_envelope(envelope, self.client.secret)})
-        result = self.client.push(f"http://{peer.tailscale_ip}", envelope)
+        result = self.client.push(endpoint, envelope)
         return {"ok": True, "records": result}
 
     def broadcast(self, records: list[dict], ledger_name: str = "events") -> dict[str, Any]:
