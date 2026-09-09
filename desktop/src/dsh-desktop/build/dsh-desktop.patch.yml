@@ -65,19 +65,6 @@
     - id: abaco-theme
       name: abaco-theme
 
-# Brand metadata + minimal style overrides. Complements the upstream
-# dsh-desktop-client-ui (PNG wordmark swap) with structured metadata and
-# fine-grained tweaks.
-- insert:
-    - id: abaco-brand
-      name: abaco-brand
-
-# Per-Mac device identity. Generates a UUID on first run, stores it in
-# macOS Keychain (via the secure-store seam) and exposes it on ctx.abacoDevice.
-- insert:
-    - id: abaco-device-identity
-      name: abaco-device-identity
-
 # TTS / STT with multi-provider registry (Web Speech / OpenAI / Edge /
 # ElevenLabs / Deepgram). Adds mic button to composer, speak button to AI
 # messages, and a settings panel.
@@ -87,23 +74,16 @@
 
 # Document upload with client-side text extraction (PDF / DOCX / TXT / MD /
 # CSV / JSON / YAML). Injects upload button into composer, document cards
-# above input, and augments submit with extracted text.
+# above input.
 - insert:
     - id: abaco-documents
       name: abaco-documents
 
-# Cloud sync skeleton. Backend lands in Fase 3 (Fly.io + Postgres + GH OAuth).
-- insert:
-    - id: abaco-cloud-sync
-      name: abaco-cloud-sync
-
-# First-run onboarding wizard. Skeleton — placeholder rendered when the
-# abaco-onboarding:completed flag is missing.
-- insert:
-    - id: abaco-onboarding
-      name: abaco-onboarding
-
-# Opt-in feature flags (telemetry, beta channel, verbose logs).
-- insert:
-    - id: abaco-experimental
-      name: abaco-experimental
+# NOTE: abaco-brand, abaco-device-identity, abaco-cloud-sync, abaco-onboarding
+# and abaco-experimental are TEMPORARILY DISABLED. Their host-half index.js
+# assigned ctx.abacoBrand/ctx.abacoSync directly and read ctx['secureStore'],
+# which Cordis rejects ("cannot set property ... without provide" / "cannot get
+# property ... without inject") and broke the whole plugin tree at boot
+# ("Startup recovery - plugin failed during startup"). They must be re-wired
+# with ctx.provide(...)/inject before being re-enabled. voice and documents
+# carry their own localStorage-backed fallbacks and do not depend on them.
