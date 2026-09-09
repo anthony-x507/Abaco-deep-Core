@@ -34,7 +34,10 @@ class FileStorage:
     def __init__(self, data_dir: Path = DEFAULT_DATA_DIR) -> None:
         self.data_dir = Path(data_dir)
         self.metadata_path = self.data_dir / "metadata.jsonl"
-        self._lock = threading.Lock()
+        # RLock: store_bytes() holds the lock while calling _append_metadata(),
+        # which acquires the same lock again (nested). A plain Lock() would
+        # self-deadlock on every write.
+        self._lock = threading.RLock()
 
     # ------------------------------------------------------------------ write
 

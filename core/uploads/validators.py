@@ -57,7 +57,12 @@ def sanitize_filename(original: str) -> str:
     """Return a safe display filename. Strips control chars and path separators."""
     if not original or not original.strip():
         raise InvalidFilenameError("filename is empty")
-    cleaned = _FILENAME_FORBIDDEN.sub("_", original).strip().strip(".")
+    # Strip separators/control chars, then only TRAILING dots (Windows forbids
+    # names ending in "."). Never strip leading dots: stripping both ends would
+    # mangle the preserved ".." of path-traversal names like "../../etc/passwd"
+    # into "_.._etc_passwd". After separator replacement the result is a single
+    # path component (".._.._etc_passwd"), so it cannot escape its directory.
+    cleaned = _FILENAME_FORBIDDEN.sub("_", original).strip().rstrip(".")
     if len(cleaned) > 255:
         cleaned = cleaned[:255]
     if not cleaned:
@@ -83,6 +88,23 @@ def safe_join_under(root: str, *parts: str) -> str:
     return candidate
 
 
+def _is_path_traversal_attempt(name: str) -> bool:
+    """True when the RAW filename tries to escape the upload directory.
+
+    Must be checked before ``sanitize_filename`` replaces separators: a name
+    like ``../../etc/passwd`` would otherwise become the harmless-looking
+    single component ``.._.._etc_passwd``. Reject:
+
+    * any ``..`` path segment (e.g. ``../../etc/passwd``, ``..\\..\\boot.ini``),
+    * absolute paths (leading ``/`` or ``\\``, or a Windows drive root).
+    """
+    if not name:
+        return False
+    if name.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:[/\\]", name):
+        return True
+    return re.search(r"(?:^|[/\\])\.\.(?:[/\\]|$)", name) is not None
+
+
 def validate_upload(
     *,
     filename: str,
@@ -92,11 +114,16 @@ def validate_upload(
     """Validate the upload inputs and return the sanitized filename.
 
     Raises:
-        InvalidFilenameError: filename is empty or has control chars.
+        InvalidFilenameError: filename is empty, has control chars, or
+            attempts path traversal (".." segments or an absolute path).
         FileTooLargeError: size_bytes > MAX_FILE_BYTES.
         UnsupportedMimeTypeError: mime_type not allowed.
     """
 
+    if _is_path_traversal_attempt(filename):
+        raise InvalidFilenameError(
+            f"filename must not contain path traversal: {filename!r}"
+        )
     safe_name = sanitize_filename(filename)
     if size_bytes < 0:
         raise FileTooLargeError("negative size")
