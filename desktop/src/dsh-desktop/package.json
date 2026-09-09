@@ -1,6 +1,6 @@
 {
   "name": "abaco-deep-harnes",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "ABACO DEEP HARNES — a cross-platform desktop shell for DeepSeek Harness.",
   "private": true,
   "type": "module",

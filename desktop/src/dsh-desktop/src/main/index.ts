@@ -896,10 +896,10 @@ function ensureTray(): void {
 
   const locale = harnessLocale()
   tray = new Tray(desktopIconPath())
-  tray.setToolTip('DSH Desktop')
+  tray.setToolTip('ABACO Deep Core')
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: locale === 'zh' ? '显示 DSH Desktop' : 'Show DSH Desktop', click: restoreMainWindow },
+      { label: locale === 'zh' ? '显示 ABACO Deep Core' : 'Show ABACO Deep Core', click: restoreMainWindow },
       { type: 'separator' },
       { label: locale === 'zh' ? '退出' : 'Exit', click: () => app.quit() }
     ])
@@ -1115,7 +1115,7 @@ async function quarantineInstalledLaunchAgentsForUpdate(dshHome: string): Promis
   }
   if (result.failures.length > 0) {
     for (const failure of result.failures) runtime.note(`[desktop] pre-update launch agent: ${failure}`)
-    throw new Error('Unable to stop background services before replacing DSH Desktop.')
+    throw new Error('Unable to stop background services before replacing ABACO Deep Core.')
   }
 }
 
@@ -1344,7 +1344,7 @@ function registerHarnessHandlers(): void {
   ipcMain.removeHandler('harness:restart')
   ipcMain.handle('harness:restart', async (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
-      throw new Error('Harness restart is only available from the DSH Desktop window.')
+      throw new Error('Harness restart is only available from the ABACO Deep Core window.')
     }
     if (runtime.snapshot().phase !== 'ready') {
       throw new Error('Harness is not ready to restart.')
@@ -1367,7 +1367,7 @@ function registerHarnessHandlers(): void {
   ipcMain.handle('desktop-menu:execute', async (event, command: unknown) => {
     assertTrustedDesktopMenuEvent(event)
     if (!isDesktopMenuCommand(command)) {
-      throw new Error('Unknown DSH Desktop menu command.')
+      throw new Error('Unknown ABACO Deep Core menu command.')
     }
     const zoomFactor = await executeDesktopMenuCommand(command)
     return zoomFactor === undefined ? { ok: true } : { ok: true, zoomFactor }
@@ -1400,7 +1400,7 @@ function registerHarnessHandlers(): void {
   ipcMain.handle('desktop-titlebar:set-theme', (event, isDark: unknown) => {
     assertTrustedMainWindowEvent(event)
     if (typeof isDark !== 'boolean') {
-      throw new Error('The DSH Desktop titlebar theme must be a boolean.')
+      throw new Error('The ABACO Deep Core titlebar theme must be a boolean.')
     }
     if (process.platform === 'win32' && mainWindow) {
       applyWindowChromeTheme(mainWindow, isDark)
@@ -1433,7 +1433,7 @@ function assertTrustedDesktopMenuEvent(event: IpcMainInvokeEvent): void {
     event.sender === windowsMenuView.webContents &&
     event.senderFrame === windowsMenuView.webContents.mainFrame
   if (!fromMainWindow && !fromWindowsMenu) {
-    throw new Error('This action is only available from the DSH Desktop window.')
+    throw new Error('This action is only available from the ABACO Deep Core window.')
   }
 }
 
@@ -1455,7 +1455,7 @@ function assertTrustedMainWindowEvent(event: IpcMainInvokeEvent): void {
     event.sender !== mainWindow.webContents ||
     event.senderFrame !== mainWindow.webContents.mainFrame
   ) {
-    throw new Error('This action is only available from the main DSH Desktop window.')
+    throw new Error('This action is only available from the main ABACO Deep Core window.')
   }
 }
 
@@ -1490,8 +1490,8 @@ async function showAbout(window: BrowserWindow): Promise<void> {
   const checkForUpdatesLabel = locale === 'zh' ? '检查更新' : 'Check for Updates'
   const result = await dialog.showMessageBox(window, {
     type: 'info',
-    title: 'DSH Desktop',
-    message: locale === 'zh' ? '关于 DSH Desktop' : 'About DSH Desktop',
+    title: 'ABACO Deep Core',
+    message: locale === 'zh' ? '关于 ABACO Deep Core' : 'About ABACO Deep Core',
     detail: aboutDetail(
       app.getVersion(),
       bundledHarnessVersion(app.getAppPath()),
@@ -1611,7 +1611,7 @@ async function waitForPluginRecoveryAction(options: {
 
 function showUnexpectedError(error: unknown): void {
   const message = error instanceof Error ? error.stack ?? error.message : String(error)
-  dialog.showErrorBox('DSH Desktop encountered an error', message)
+  dialog.showErrorBox('ABACO Deep Core encountered an error', message)
 }
 
 async function showPluginRecovery(options?: {
@@ -2422,7 +2422,7 @@ function installMenu(): void {
           label: app.name,
           submenu: [
             {
-              label: isChinese ? '关于 DSH Desktop' : 'About DSH Desktop',
+              label: isChinese ? '关于 ABACO Deep Core' : 'About ABACO Deep Core',
               click: () => {
                 if (mainWindow && !mainWindow.isDestroyed()) {
                   void showAbout(mainWindow).catch(showUnexpectedError)
@@ -2530,7 +2530,7 @@ async function showMobilePairing(): Promise<void> {
     const options: MessageBoxOptions = {
       type: 'info',
       message: 'Harness is still starting.',
-      detail: 'Wait until DSH Desktop is ready, then connect your phone again.',
+      detail: 'Wait until ABACO Deep Core is ready, then connect your phone again.',
       buttons: ['OK']
     }
     await (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options))
