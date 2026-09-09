@@ -11,9 +11,9 @@ from pathlib import Path
 
 from core.pairing.devices import (
     ALLOWED_DEVICE_TYPES,
-    DEFAULT_NODE_PERMISSIONS,
-    DEFAULT_PERMISSIONS,
     DEFAULT_SESSION_TTL_SECONDS,
+    NODE_PERMISSIONS,
+    REMOTE_CONTROL_PERMISSIONS,
     DeviceStore,
 )
 from core.pairing.errors import DeviceStoreError, UnknownDeviceError
@@ -33,21 +33,12 @@ class TestDeviceStore(unittest.TestCase):
         self.assertEqual(self.store.device_count(), 0)
         self.assertEqual(self.store.list_devices(), ())
 
-    def test_add_phone_uses_default_permissions(self) -> None:
+    def test_add_phone_uses_remote_control_permissions(self) -> None:
         device = self.store.add_device(device_name="iPhone de Anthony", device_type="ios")
         self.assertEqual(device.device_type, "ios")
-        self.assertEqual(device.permissions, DEFAULT_PERMISSIONS)
+        self.assertEqual(device.permissions, REMOTE_CONTROL_PERMISSIONS)
         self.assertIsNone(device.node_id)
         self.assertEqual(self.store.device_count(), 1)
-
-    def test_add_node_uses_extended_permissions(self) -> None:
-        device = self.store.add_device(
-            device_name="MacBook Pro",
-            device_type="mac",
-            node_id="mac-1",
-        )
-        self.assertEqual(device.permissions, DEFAULT_NODE_PERMISSIONS)
-        self.assertEqual(device.node_id, "mac-1")
 
     def test_add_device_persists_to_disk(self) -> None:
         self.store.add_device(device_name="Pixel 8", device_type="android")
@@ -108,6 +99,78 @@ class TestDeviceStore(unittest.TestCase):
 
     def test_get_device_returns_none_for_unknown(self) -> None:
         self.assertIsNone(self.store.get_device("dev-missing"))
+
+
+class TestPermissionEscalationGuard(unittest.TestCase):
+    """device_type (client-controlled) must never grant node permissions."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "devices.json"
+        self.store = DeviceStore(self.path)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_no_device_type_escalates_to_node_permissions(self) -> None:
+        # Every type a client could claim — including desktop node types —
+        # yields the limited remote-control set and nothing more.
+        for device_type in ("ios", "android", "mac", "windows", "linux"):
+            with self.subTest(device_type=device_type):
+                device = self.store.add_device(
+                    device_name="fake",
+                    device_type=device_type,
+                    node_id="claimed-node-id",
+                )
+                self.assertEqual(device.permissions, REMOTE_CONTROL_PERMISSIONS)
+                self.assertNotIn("read_files", device.permissions)
+                self.assertNotIn("write_files", device.permissions)
+
+    def test_node_permissions_require_explicit_grant(self) -> None:
+        # Elevated access is available only to callers that explicitly
+        # pass NODE_PERMISSIONS (authenticated node-side flows).
+        device = self.store.add_device(
+            device_name="MacBook Pro",
+            device_type="mac",
+            node_id="mac-1",
+            permissions=NODE_PERMISSIONS,
+        )
+        self.assertEqual(device.permissions, NODE_PERMISSIONS)
+        self.assertIn("read_files", device.permissions)
+
+    def test_invalid_permission_tokens_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self.store.add_device(
+                device_name="x", device_type="ios", permissions=("read files",)
+            )
+        with self.assertRaises(ValueError):
+            self.store.add_device(
+                device_name="x", device_type="ios", permissions=("",)
+            )
+
+
+class TestDeviceStoreFilePermissions(unittest.TestCase):
+    def test_store_file_is_owner_only(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX mode bits are not meaningful on Windows")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "devices.json"
+            store = DeviceStore(path)
+            store.add_device(device_name="A", device_type="ios")
+            store.issue_session("dev-1")  # session tokens are in this file
+            mode = path.stat().st_mode & 0o777
+            self.assertEqual(mode, 0o600)
+
+    def test_pre_existing_loose_file_is_tightened(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX mode bits are not meaningful on Windows")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "devices.json"
+            path.write_text("", encoding="utf-8")
+            os.chmod(path, 0o644)
+            DeviceStore(path)  # opening should tighten permissions
+            mode = path.stat().st_mode & 0o777
+            self.assertEqual(mode, 0o600)
 
 
 class TestDeviceStoreSessionTokens(unittest.TestCase):
@@ -195,10 +258,16 @@ class TestModuleConstants(unittest.TestCase):
             frozenset({"ios", "android", "mac", "windows", "linux"}),
         )
 
-    def test_default_permissions_present(self) -> None:
-        self.assertIn("read_chat", DEFAULT_PERMISSIONS)
-        self.assertIn("send_messages", DEFAULT_PERMISSIONS)
-        self.assertIn("write_files", DEFAULT_NODE_PERMISSIONS)
+    def test_remote_control_permissions_never_include_file_access(self) -> None:
+        self.assertIn("read_chat", REMOTE_CONTROL_PERMISSIONS)
+        self.assertIn("send_messages", REMOTE_CONTROL_PERMISSIONS)
+        self.assertNotIn("read_files", REMOTE_CONTROL_PERMISSIONS)
+        self.assertNotIn("write_files", REMOTE_CONTROL_PERMISSIONS)
+        self.assertNotIn("write_tickets", REMOTE_CONTROL_PERMISSIONS)
+
+    def test_node_permissions_are_an_explicit_grant_only(self) -> None:
+        self.assertIn("read_files", NODE_PERMISSIONS)
+        self.assertIn("write_files", NODE_PERMISSIONS)
 
     def test_default_session_ttl_is_thirty_days(self) -> None:
         self.assertEqual(DEFAULT_SESSION_TTL_SECONDS, 30 * 24 * 60 * 60)

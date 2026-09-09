@@ -8,9 +8,16 @@ the rest of the system can rely on consistent error semantics:
 * Already used → :class:`UsedPairingCodeError` (→ HTTP 409)
 * Wrong secret → :class:`SecretMismatchError` (→ HTTP 401)
 
-It also enforces a per-IP rate limit on the verification endpoint so a
-brute force scan of the 40-bit code space is impractical even though
-each code carries a 256-bit secret.
+It also enforces per-IP rate limits so a brute force scan of the 40-bit
+code space is impractical even though each code carries a 256-bit
+secret.  Rate limits are bucketed so different endpoints never share a
+budget:
+
+* ``"verify"`` — attempts against ``POST /api/pairing/verify``
+  (:data:`RATE_LIMIT_MAX_ATTEMPTS` per window).
+* ``"mint"`` — attempts against ``POST /api/pairing/code``
+  (:data:`MINT_RATE_LIMIT_MAX_ATTEMPTS` per window), so a LAN attacker
+  cannot flood the desktop with pointless QR codes.
 
 The pairing code registry is held in memory under a lock.  The store
 itself does not need to be persistent: codes live for 5 minutes and a
@@ -46,20 +53,52 @@ RATE_LIMIT_MAX_ATTEMPTS: int = 5
 #: Window over which :data:`RATE_LIMIT_MAX_ATTEMPTS` is counted.
 RATE_LIMIT_WINDOW_SECONDS: int = 60
 
+#: Default rate limit for code minting: at most this many mint attempts
+#: per IP per ``MINT_RATE_LIMIT_WINDOW_SECONDS``.
+MINT_RATE_LIMIT_MAX_ATTEMPTS: int = 10
+
+#: Window over which :data:`MINT_RATE_LIMIT_MAX_ATTEMPTS` is counted.
+MINT_RATE_LIMIT_WINDOW_SECONDS: int = 60
+
+
+def _bucket_defaults(bucket: str, limit: int | None, window: int | None) -> tuple[int, int]:
+    """Resolve rate-limit parameters for ``bucket``.
+
+    Explicit ``limit``/``window`` overrides win; otherwise the defaults
+    for the named bucket are used (``"verify"`` vs ``"mint"``).
+    """
+
+    if limit is None:
+        limit = (
+            MINT_RATE_LIMIT_MAX_ATTEMPTS
+            if bucket == "mint"
+            else RATE_LIMIT_MAX_ATTEMPTS
+        )
+    if window is None:
+        window = (
+            MINT_RATE_LIMIT_WINDOW_SECONDS
+            if bucket == "mint"
+            else RATE_LIMIT_WINDOW_SECONDS
+        )
+    return limit, window
+
 
 class PairingCodeRegistry:
     """Thread-safe registry of in-flight pairing codes.
 
     The registry exposes the small set of operations the API needs:
     registering a freshly minted code, fetching one for the QR, and
-    consuming one when the phone verifies it.
+    consuming one when the phone verifies it.  It also owns the per-IP
+    rate-limit budgets for the two public pairing endpoints (see the
+    module docstring for the bucket semantics).
     """
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._codes: dict[str, PairingCode] = {}
         self._secrets: dict[str, str] = {}
-        self._attempts: dict[str, Deque[float]] = {}
+        #: bucket name -> caller ip -> timestamps of recorded attempts.
+        self._attempts: dict[str, dict[str, Deque[float]]] = {}
 
     # ------------------------------------------------------------------
     # Producer side
@@ -92,11 +131,23 @@ class PairingCodeRegistry:
     # Rate limiting
     # ------------------------------------------------------------------
 
-    def check_rate_limit(self, ip: str, *, clock=None) -> None:
+    def check_rate_limit(
+        self,
+        ip: str,
+        *,
+        bucket: str = "verify",
+        limit: int | None = None,
+        window_seconds: int | None = None,
+        clock=None,
+    ) -> None:
         """Raise :class:`RateLimitedError` if ``ip`` exceeded the budget.
 
         Args:
             ip: Caller IP (or any stable per-caller identifier).
+            bucket: Which budget to charge — ``"verify"`` (default) or
+                ``"mint"``.
+            limit: Optional override of the bucket's max attempts.
+            window_seconds: Optional override of the bucket's window.
             clock: Optional callable returning either ``float`` seconds
                 (monotonic style, default) or ``datetime`` instances
                 (wall-clock style, used by tests that already drive a
@@ -104,27 +155,35 @@ class PairingCodeRegistry:
                 to a monotonic offset anchored at the Unix epoch.
         """
 
+        max_attempts, window = _bucket_defaults(bucket, limit, window_seconds)
         moment = _to_moment(clock)
-        window_start = moment - RATE_LIMIT_WINDOW_SECONDS
+        window_start = moment - window
         with self._lock:
-            bucket = self._attempts.setdefault(ip, deque())
-            while bucket and bucket[0] < window_start:
-                bucket.popleft()
-            if len(bucket) >= RATE_LIMIT_MAX_ATTEMPTS:
-                oldest = bucket[0]
-                retry_after = max(1, int(RATE_LIMIT_WINDOW_SECONDS - (moment - oldest)))
+            bucket_ips = self._attempts.setdefault(bucket, {})
+            stamps = bucket_ips.setdefault(ip, deque())
+            while stamps and stamps[0] < window_start:
+                stamps.popleft()
+            if len(stamps) >= max_attempts:
+                oldest = stamps[0]
+                retry_after = max(1, int(window - (moment - oldest)))
                 raise RateLimitedError(
                     f"too many pairing attempts from {ip}",
                     retry_after_seconds=retry_after,
                 )
 
-    def record_attempt(self, ip: str, *, clock=None) -> None:
-        """Record that ``ip`` just attempted a verify call."""
+    def record_attempt(
+        self,
+        ip: str,
+        *,
+        bucket: str = "verify",
+        clock=None,
+    ) -> None:
+        """Record that ``ip`` just attempted a call in ``bucket``."""
 
         moment = _to_moment(clock)
         with self._lock:
-            bucket = self._attempts.setdefault(ip, deque())
-            bucket.append(moment)
+            bucket_ips = self._attempts.setdefault(bucket, {})
+            bucket_ips.setdefault(ip, deque()).append(moment)
 
     # ------------------------------------------------------------------
     # Verification
@@ -153,10 +212,10 @@ class PairingCodeRegistry:
         """
 
         normalised = normalise_code(code)
-        self.check_rate_limit(ip, clock=clock)
+        self.check_rate_limit(ip, bucket="verify", clock=clock)
         # Always record the attempt — even malformed codes count, so an
         # attacker cannot probe the code space with malformed inputs.
-        self.record_attempt(ip, clock=clock)
+        self.record_attempt(ip, bucket="verify", clock=clock)
         with self._lock:
             record = self._codes.get(normalised)
             stored_secret = self._secrets.get(normalised)
@@ -243,6 +302,8 @@ def _to_moment(clock) -> float:
 
 
 __all__ = [
+    "MINT_RATE_LIMIT_MAX_ATTEMPTS",
+    "MINT_RATE_LIMIT_WINDOW_SECONDS",
     "PairingCodeRegistry",
     "RATE_LIMIT_MAX_ATTEMPTS",
     "RATE_LIMIT_WINDOW_SECONDS",

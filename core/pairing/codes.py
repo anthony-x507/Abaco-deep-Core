@@ -8,8 +8,18 @@ endpoint URL.
 The code uses an alphabet that excludes visually ambiguous characters
 (``0``, ``O``, ``1``, ``I``) so that a user reading it off the screen
 can re-type it if the camera scan fails.  The secret, by contrast, is
-a 32-byte random value rendered as hex; it travels in the QR payload
-and proves the scanner actually saw the QR rather than guessing.
+a 32-byte random value rendered as hex; **it travels in the QR payload**
+and proves the scanner actually saw the QR rather than guessing.  The
+secret is the only thing that lets a phone complete the pairing, so the
+QR payload rendered here (see :func:`build_challenge` /
+:func:`challenge_to_json`) always carries it — a phone that scans the QR
+has everything it needs to call ``/api/pairing/verify``.
+
+Because the secret is visible to anyone who can see the QR, the module
+bounds its value: codes are single-use, expire after a short TTL, and a
+successful redemption only ever yields the limited remote-control
+permission set (never node file access).  See
+:mod:`core.pairing.models` for the full security model.
 """
 
 from __future__ import annotations
@@ -133,7 +143,13 @@ def build_challenge(
     host: str,
     node_id: str,
 ) -> PairingChallenge:
-    """Serialise a code into the JSON payload embedded in the QR."""
+    """Serialise a code into the JSON payload embedded in the QR.
+
+    The payload carries the full handshake material — the short
+    ``code`` **and** the one-time ``secret`` — so a phone that scans
+    the QR can complete ``/api/pairing/verify`` without any manual
+    transcription step.
+    """
 
     if not endpoint.startswith(("http://", "https://", "abaco://")):
         raise ValueError("endpoint must be an http(s) or abaco:// URL")
@@ -141,6 +157,7 @@ def build_challenge(
         v=CHALLENGE_SCHEMA_VERSION,
         host=host,
         code=code.code,
+        secret=code.secret,
         endpoint=endpoint,
         expires_at=code.expires_at,
         node_id=node_id,
@@ -155,6 +172,7 @@ def challenge_to_json(challenge: PairingChallenge) -> str:
             "v": challenge.v,
             "host": challenge.host,
             "code": challenge.code,
+            "secret": challenge.secret,
             "endpoint": challenge.endpoint,
             "expires_at": challenge.expires_at,
             "node_id": challenge.node_id,
@@ -168,7 +186,10 @@ def challenge_from_json(payload: str) -> PairingChallenge:
     """Parse the JSON a phone receives after scanning the QR.
 
     Validates the schema version and the basic shape of the payload;
-    detailed validation of the embedded URL happens upstream.
+    detailed validation of the embedded URL happens upstream.  The
+    ``secret`` field is required: since schema version ``1`` the QR is
+    the full handshake payload and a challenge without a secret cannot
+    complete the pairing.
     """
 
     try:
@@ -187,6 +208,7 @@ def challenge_from_json(payload: str) -> PairingChallenge:
             v=version,
             host=str(data["host"]),
             code=normalise_code(str(data["code"])),
+            secret=str(data["secret"]),
             endpoint=str(data["endpoint"]),
             expires_at=str(data["expires_at"]),
             node_id=str(data["node_id"]),

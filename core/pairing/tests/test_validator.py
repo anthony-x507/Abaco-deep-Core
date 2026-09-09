@@ -17,6 +17,8 @@ from core.pairing.errors import (
 )
 from core.pairing.models import PairingCode
 from core.pairing.validator import (
+    MINT_RATE_LIMIT_MAX_ATTEMPTS,
+    MINT_RATE_LIMIT_WINDOW_SECONDS,
     RATE_LIMIT_MAX_ATTEMPTS,
     RATE_LIMIT_WINDOW_SECONDS,
     PairingCodeRegistry,
@@ -185,6 +187,56 @@ class TestRateLimit(unittest.TestCase):
         with self.assertRaises(InvalidPairingCodeError):
             self.registry.verify(
                 code="ZZZZZZZZ", secret="x", ip=ip, clock=self.frozen
+            )
+
+
+class TestMintRateLimit(unittest.TestCase):
+    """The mint budget is separate from the verify budget."""
+
+    def setUp(self) -> None:
+        self.registry = PairingCodeRegistry()
+        self.frozen = _Clock(datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc))
+
+    def test_blocks_after_mint_budget(self) -> None:
+        ip = "100.0.0.50"
+        for _ in range(MINT_RATE_LIMIT_MAX_ATTEMPTS):
+            self.registry.record_attempt(ip, bucket="mint", clock=self.frozen)
+        with self.assertRaises(RateLimitedError) as ctx:
+            self.registry.check_rate_limit(ip, bucket="mint", clock=self.frozen)
+        self.assertGreater(ctx.exception.retry_after_seconds, 0)
+        self.assertLessEqual(
+            ctx.exception.retry_after_seconds, MINT_RATE_LIMIT_WINDOW_SECONDS
+        )
+
+    def test_mint_window_resets(self) -> None:
+        ip = "100.0.0.51"
+        for _ in range(MINT_RATE_LIMIT_MAX_ATTEMPTS):
+            self.registry.record_attempt(ip, bucket="mint", clock=self.frozen)
+        self.frozen.advance(timedelta(seconds=MINT_RATE_LIMIT_WINDOW_SECONDS + 1))
+        self.registry.check_rate_limit(ip, bucket="mint", clock=self.frozen)  # no raise
+
+    def test_mint_and_verify_budgets_are_independent(self) -> None:
+        # Exhaust the verify budget for this IP ...
+        ip = "100.0.0.52"
+        for _ in range(RATE_LIMIT_MAX_ATTEMPTS):
+            with self.assertRaises(InvalidPairingCodeError):
+                self.registry.verify(
+                    code="ZZZZZZZZ", secret="x", ip=ip, clock=self.frozen
+                )
+        with self.assertRaises(RateLimitedError):
+            self.registry.verify(
+                code="ZZZZZZZZ", secret="x", ip=ip, clock=self.frozen
+            )
+        # ... but the mint budget for the same IP is still untouched.
+        self.registry.check_rate_limit(ip, bucket="mint", clock=self.frozen)
+
+    def test_custom_bucket_limit_is_honoured(self) -> None:
+        ip = "100.0.0.53"
+        self.registry.record_attempt(ip, bucket="mint", clock=self.frozen)
+        self.registry.record_attempt(ip, bucket="mint", clock=self.frozen)
+        with self.assertRaises(RateLimitedError):
+            self.registry.check_rate_limit(
+                ip, bucket="mint", limit=2, window_seconds=60, clock=self.frozen
             )
 
 

@@ -7,6 +7,22 @@ relational database here because:
 * We want zero external dependencies and atomic file replacement via
   ``os.replace`` is enough to guarantee consistency on crash.
 
+Security invariants
+-------------------
+
+* **Permissions are never inferred from client input.**  The store does
+  not look at ``device_type`` (or anything else a device says about
+  itself) to decide what the device may do.  A freshly paired device
+  always receives the limited :data:`REMOTE_CONTROL_PERMISSIONS` set;
+  elevated node-style permissions (file access) can only be obtained by
+  *explicitly* passing them to :meth:`DeviceStore.add_device`, which is
+  reserved for authenticated node-side flows.
+* **The on-disk store contains session tokens**, so the JSON file is
+  written with mode ``0o600`` and its location is configurable (see
+  ``core.pairing.api.create_app`` / the ``ABACO_PAIRING_STORE_PATH``
+  environment variable) instead of being dumped world-readable into
+  ``/tmp``.
+
 The :class:`DeviceStore` is intentionally synchronous and process-local;
 the API layer wraps it in a thread lock when serving concurrent
 requests.
@@ -29,18 +45,28 @@ from core.pairing.errors import DeviceStoreError, UnknownDeviceError
 from core.pairing.models import PairedDevice, SessionToken
 
 
-#: Default permissions granted to a freshly paired phone.  Read-only chat
-#: access keeps the surface small while still proving the link works.
-DEFAULT_PERMISSIONS: tuple[str, ...] = (
+#: Permissions granted to any device paired through the QR bootstrap.
+#: This is the *only* grant the public pairing endpoints ever produce:
+#: limited remote-control access (chat + tickets, read-mostly) and
+#: **no** node file access.  It applies regardless of the
+#: ``device_type`` the client reports — a phone claiming to be a
+#: ``windows`` machine gets exactly the same set as one claiming
+#: ``ios``.
+REMOTE_CONTROL_PERMISSIONS: tuple[str, ...] = (
     "read_chat",
     "send_messages",
     "read_tickets",
 )
 
-#: Default permissions granted when the peer is another node (Mac/PC)
-#: rather than a phone.  Nodes get full read/write access because they
-#: run the same client and need parity with the desktop.
-DEFAULT_NODE_PERMISSIONS: tuple[str, ...] = (
+#: Permissions reserved for genuine node-to-node peers (Mac/PC clients
+#: that run the same desktop software and need parity with the node).
+#:
+#: This set is **never applied automatically**.  It is only meaningful
+#: when passed explicitly to :meth:`DeviceStore.add_device` by an
+#: authenticated caller; deriving it from a client-supplied
+#: ``device_type`` would let any phone escalate itself to full node
+#: access, so that inference is deliberately absent.
+NODE_PERMISSIONS: tuple[str, ...] = (
     "read_chat",
     "send_messages",
     "read_tickets",
@@ -51,6 +77,8 @@ DEFAULT_NODE_PERMISSIONS: tuple[str, ...] = (
 
 
 #: Canonical set of accepted :attr:`PairedDevice.device_type` values.
+#: Validation here is purely a metadata sanity check; it has no bearing
+#: on the permissions a device receives.
 ALLOWED_DEVICE_TYPES: frozenset[str] = frozenset(
     {"ios", "android", "mac", "windows", "linux"}
 )
@@ -62,6 +90,11 @@ ALLOWED_DEVICE_TYPES: frozenset[str] = frozenset(
 DEFAULT_SESSION_TTL_SECONDS: int = 30 * 24 * 60 * 60  # 30 days
 
 
+#: POSIX mode applied to the on-disk store (owner read/write only) so
+#: that session tokens are not readable by other local users.
+_STORE_FILE_MODE: int = 0o600
+
+
 def _now_iso_z() -> str:
     """Return ``datetime.now(UTC)`` as an ISO-8601 string with ``Z``."""
 
@@ -70,6 +103,28 @@ def _now_iso_z() -> str:
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z")
     )
+
+
+def _validate_permissions(permissions: Iterable[str]) -> tuple[str, ...]:
+    """Validate and freeze a permission set.
+
+    Permissions must be non-empty ``[a-z0-9_]`` identifier strings.
+    This is a sanity check against typos or accidental injection of
+    arbitrary whitespace/markup; it is *not* an access-control boundary
+    (the boundary is *who* is allowed to pass elevated sets, which is
+    enforced by the callers of :meth:`DeviceStore.add_device`).
+    """
+
+    validated: list[str] = []
+    for permission in permissions:
+        token = str(permission)
+        if not token or any(not (c.islower() or c.isdigit() or c == "_") for c in token):
+            raise ValueError(
+                "permissions must be non-empty [a-z0-9_] identifiers, "
+                f"got {token!r}"
+            )
+        validated.append(token)
+    return tuple(validated)
 
 
 def _device_from_dict(payload: dict[str, object]) -> PairedDevice:
@@ -110,7 +165,8 @@ class DeviceStore:
     The store keeps the entire state in memory and flushes to disk on
     every mutation.  This is acceptable because the dataset is small and
     we want crash-resilience: a successful ``os.replace`` means the new
-    state is durable.
+    state is durable.  The file is written with mode ``0o600`` so the
+    session tokens it contains are not exposed to other local users.
 
     Args:
         path: Where the JSON document lives.  Parent directories are
@@ -124,10 +180,27 @@ class DeviceStore:
         self._devices: dict[str, PairedDevice] = {}
         self._sessions: dict[str, SessionToken] = {}
         self._load()
+        # A store created over a pre-existing file with overly broad
+        # permissions (e.g. a leftover 0644 dump) is tightened on open.
+        self._restrict_permissions()
 
     # ------------------------------------------------------------------
     # Persistence helpers
     # ------------------------------------------------------------------
+
+    def _restrict_permissions(self) -> None:
+        """Best-effort ``0o600`` on the store file (POSIX only).
+
+        ``os.replace`` already preserves the ``0o600`` mode of the
+        ``mkstemp`` temporary file, so fresh writes are safe; this is a
+        defensive sweep for pre-existing files and non-POSIX quirks.
+        """
+
+        try:
+            if os.name != "nt" and self._path.exists():
+                os.chmod(self._path, _STORE_FILE_MODE)
+        except OSError:  # pragma: no cover - best effort on odd filesystems
+            pass
 
     def _load(self) -> None:
         """Load the JSON document from disk if it exists."""
@@ -158,7 +231,13 @@ class DeviceStore:
         }
 
     def _flush(self) -> None:
-        """Atomically write the in-memory state to disk."""
+        """Atomically write the in-memory state to disk.
+
+        The document is written through a ``mkstemp`` temporary file
+        (mode ``0o600`` by construction) which is then atomically
+        ``os.replace``-d over the target, so readers never observe a
+        half-written file and the final file is never world-readable.
+        """
 
         payload = {
             "version": 1,
@@ -172,16 +251,16 @@ class DeviceStore:
             "sessions": [asdict(session) for session in self._sessions.values()],
         }
         serialised = json.dumps(payload, indent=2, sort_keys=True)
-        # ``NamedTemporaryFile`` with ``delete=False`` lets us ``os.replace``
-        # it on top of the target atomically on POSIX and Windows.
         directory = self._path.parent
         fd, tmp_name = tempfile.mkstemp(
             prefix=".devices-", suffix=".json.tmp", dir=directory
         )
         try:
+            os.chmod(tmp_name, _STORE_FILE_MODE)  # explicit, not umask-dependent
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(serialised)
             os.replace(tmp_name, self._path)
+            self._restrict_permissions()
         except OSError as exc:
             # Best-effort cleanup of the stray temp file.
             try:
@@ -228,11 +307,19 @@ class DeviceStore:
         Args:
             device_name: Human-readable name reported by the phone.
             device_type: One of ``ios``, ``android``, ``mac``, ``windows``,
-                ``linux``.  Raises :class:`ValueError` for any other value.
+                ``linux``.  Raises :class:`ValueError` for any other
+                value.  Used for display/logging only — permissions are
+                **never** derived from it.
             node_id: For Mac/PC peer pairings, the peer's node_id.
+                Descriptive metadata only.
             public_key: Optional PEM-encoded key for future E2E.
-            permissions: Override the default permission set.  ``None``
-                selects the appropriate default based on ``device_type``.
+            permissions: Explicit capability set for the device.  When
+                ``None`` the limited
+                :data:`REMOTE_CONTROL_PERMISSIONS` set is granted —
+                regardless of ``device_type``.  Elevated sets such as
+                :data:`NODE_PERMISSIONS` must be passed explicitly by
+                an authenticated caller; nothing a client reports about
+                itself can escalate a device.
 
         Returns:
             The newly created :class:`PairedDevice` with a fresh UUID.
@@ -242,14 +329,11 @@ class DeviceStore:
             raise ValueError(
                 f"device_type must be one of {sorted(ALLOWED_DEVICE_TYPES)}"
             )
-        if permissions is None:
-            chosen_permissions = (
-                DEFAULT_NODE_PERMISSIONS
-                if device_type in {"mac", "windows", "linux"}
-                else DEFAULT_PERMISSIONS
-            )
-        else:
-            chosen_permissions = tuple(permissions)
+        chosen_permissions = (
+            REMOTE_CONTROL_PERMISSIONS
+            if permissions is None
+            else _validate_permissions(permissions)
+        )
         now = _now_iso_z()
         device = PairedDevice(
             device_id=f"dev-{uuid.uuid4()}",
@@ -388,8 +472,8 @@ class DeviceStore:
 
 __all__ = [
     "ALLOWED_DEVICE_TYPES",
-    "DEFAULT_NODE_PERMISSIONS",
-    "DEFAULT_PERMISSIONS",
     "DEFAULT_SESSION_TTL_SECONDS",
     "DeviceStore",
+    "NODE_PERMISSIONS",
+    "REMOTE_CONTROL_PERMISSIONS",
 ]

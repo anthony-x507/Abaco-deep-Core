@@ -35,6 +35,66 @@ module.exports = {
   compression: 'maximum',
   artifactName: 'abaco-deep-core-${os}-${arch}-${version}.${ext}',
 
+  // What goes inside the .app payload (Contents/Resources/app/). Passing
+  // `--config build/electron-builder.dev.cjs` (see make.sh) REPLACES the
+  // fork's package.json "build" section, so the resource/`files` policy the
+  // fork declares there (desktop/src/dsh-desktop/package.json) is ignored
+  // unless re-declared here. Without `files`, electron-builder defaulted to
+  // copying the whole dev tree (src/, test/, build/, docs/, .claude, …) into
+  // the bundle and shipped the runtime resources only at app/build/* — but the
+  // packaged main process looks them up at Contents/Resources/* (see below).
+  //
+  // The production dependency closure is still collected from package.json
+  // (dev deps like `electron` are pruned; `node`, `@deepseek-ai/dsh`,
+  // `dsh-web-frontend`, `dsh-desktop-market-installer`, `pnpm` are kept).
+  files: [
+    'out/**/*',
+    'node_modules/**/*',
+    'package.json',
+    '!**/*.map',
+    '!**/node_modules/@mistralai/mistralai/src/**'
+  ],
+
+  // Runtime files the packaged main resolves at process.resourcesPath
+  // (Contents/Resources/) — desktop/src/dsh-desktop/src/main/index.ts:
+  //   desktopResourcePath(...) -> splash.html, safe-mode.html,
+  //       plugin-recovery.html, windows-menu.html, dsh-desktop.patch.yml,
+  //       dsh-desktop-safe.patch.yml   (index.ts:485,1036,1590,1894,2597-2598)
+  //   harnessNodeEntryPath()   -> harness-node-entry.mjs (index.ts:595)
+  //   desktopIconPath()        -> icon.png (tray/dock/app icon, index.ts:605)
+  // splash.html / safe-mode.html / plugin-recovery.html reference
+  // dsh-loader*.gif / community-wechat-qr.png relatively, so those must sit in
+  // the same directory. harness-node-entry.mjs statically imports
+  // ./windows-child-process-hide.mjs (and windows-hidden-console.mjs on
+  // Windows), so both siblings must ship next to it.
+  //
+  // Sources are the Electron package's own build/ folder (the same 13-file map
+  // the fork declares in its package.json "build".extraResources). Absolute
+  // `from` paths keep this independent of electron-builder's CWD.
+  extraResources: [
+    { from: path.join(electronPackageDir, 'build', 'app-icon.png'), to: 'icon.png' },
+    { from: path.join(electronPackageDir, 'build', 'harness-node-entry.mjs'), to: 'harness-node-entry.mjs' },
+    { from: path.join(electronPackageDir, 'build', 'windows-hidden-console.mjs'), to: 'windows-hidden-console.mjs' },
+    { from: path.join(electronPackageDir, 'build', 'windows-child-process-hide.mjs'), to: 'windows-child-process-hide.mjs' },
+    { from: path.join(electronPackageDir, 'build', 'dsh-desktop.patch.yml'), to: 'dsh-desktop.patch.yml' },
+    { from: path.join(electronPackageDir, 'build', 'dsh-desktop-safe.patch.yml'), to: 'dsh-desktop-safe.patch.yml' },
+    { from: path.join(electronPackageDir, 'build', 'splash.html'), to: 'splash.html' },
+    { from: path.join(electronPackageDir, 'build', 'dsh-loader.gif'), to: 'dsh-loader.gif' },
+    { from: path.join(electronPackageDir, 'build', 'dsh-loader-dark.gif'), to: 'dsh-loader-dark.gif' },
+    { from: path.join(electronPackageDir, 'build', 'plugin-recovery.html'), to: 'plugin-recovery.html' },
+    { from: path.join(electronPackageDir, 'build', 'safe-mode.html'), to: 'safe-mode.html' },
+    { from: path.join(electronPackageDir, 'build', 'community-wechat-qr.png'), to: 'community-wechat-qr.png' },
+    { from: path.join(electronPackageDir, 'build', 'windows-menu.html'), to: 'windows-menu.html' }
+  ],
+
+  // NOTE — ABACO Python backend (core/, sync/, pyproject.toml) is intentionally
+  // NOT bundled yet: the desktop main has no code path that consumes a bundled
+  // python-core, so embedding it would ship dead weight and make every build
+  // hard-fail if those dirs are absent. When the launcher wiring lands, add
+  // e.g. { from: path.join(repoRoot, 'core'), to: 'python-core/core' } /
+  // { from: path.join(repoRoot, 'sync'), to: 'python-core/sync' } /
+  // { from: path.join(repoRoot, 'pyproject.toml'), to: 'python-core/pyproject.toml' }
+
   // Auto-updater feed -------------------------------------------------------
   // electron-updater reads `latest-mac.yml` (and a per-channel copy) from
   // this generic endpoint. We point at the GitHub `latest/download` redirect

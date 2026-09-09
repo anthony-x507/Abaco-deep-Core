@@ -115,6 +115,41 @@ class TestChallengeSerialization(unittest.TestCase):
         decoded = challenge_from_json(payload)
         self.assertEqual(decoded, challenge)
 
+    def test_challenge_carries_secret(self) -> None:
+        """The QR payload is the full handshake: code *and* secret.
+
+        A phone that scans the QR (and nothing else) must be able to
+        complete ``/verify`` — that is only possible if the secret
+        travels inside the challenge payload.
+        """
+        code = self._code()
+        challenge = build_challenge(
+            code=code,
+            endpoint="http://100.x.x.x:8765/api/pairing/verify",
+            host="abaco://node-x.tailscale-host",
+            node_id="node-x",
+        )
+        self.assertEqual(challenge.secret, code.secret)
+        payload = json.loads(challenge_to_json(challenge))
+        self.assertEqual(payload["code"], code.code)
+        self.assertEqual(payload["secret"], code.secret)
+        self.assertEqual(payload["endpoint"], "http://100.x.x.x:8765/api/pairing/verify")
+
+    def test_rejects_challenge_without_secret(self) -> None:
+        """A v1 payload without a secret is not a usable challenge."""
+        payload = json.dumps(
+            {
+                "v": 1,
+                "host": "h",
+                "code": "ABC23456",
+                "endpoint": "http://x/api",
+                "expires_at": "2026-01-01T00:05:00Z",
+                "node_id": "n",
+            }
+        )
+        with self.assertRaises(InvalidPairingCodeError):
+            challenge_from_json(payload)
+
     def test_rejects_wrong_version(self) -> None:
         payload = json.dumps(
             {
