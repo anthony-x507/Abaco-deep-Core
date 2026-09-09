@@ -12,13 +12,13 @@ sessions in the `abaco-deep-core` project.
 * Always keep the original data: compactors move records to a
   timestamped archive file and leave a deterministic summary behind.
 * Emit `system.compaction.{started,completed,failed}` events through
-  `abaco_core.events.envelope` so every run is auditable.
+  `core.events.envelope` so every run is auditable.
 
 ## Layout
 
 | File | Purpose |
 |------|---------|
-| `__init__.py`           | Public API; auto-injects `abaco_core` into `sys.path`. |
+| `__init__.py`           | Public API; re-exports the submodule surface (self-contained, no `sys.path` mutation). |
 | `errors.py`             | `CompactionError`, `InvalidPolicyError`, `PathSafetyError`, `SchedulerError`. |
 | `models.py`             | Frozen dataclasses (`CompactionPolicy`, `CompactionResult`, `SessionTurn`, `TicketArchivalRule`, `CompactionTrigger`). |
 | `policies.py`           | `size_based_policy`, `time_based_policy`, `count_based_policy` factories. |
@@ -88,10 +88,12 @@ Each compaction emits:
   timestamps),
 * `system.compaction.failed` (payload: error type, message).
 
-Events are emitted through `abaco_core.events.envelope.create_event`
-and appended to the supplied `AppendOnlyEventLedger`.  If no ledger is
-passed, the event envelope is returned so callers (and tests) can
-inspect it.
+Events are emitted through `core.events.envelope.create_event` (the
+in-repo mirror of the `abaco_core.events.envelope` contract) and
+appended to any supplied ledger object exposing `.append(event)` (e.g.
+`abaco_core.events.ledger.AppendOnlyEventLedger` when running embedded
+next to the full ABACO Python Core package).  If no ledger is passed,
+the event envelope is returned so callers (and tests) can inspect it.
 
 ## Safety
 

@@ -1,15 +1,18 @@
 """Audit events emitted by the compaction module.
 
 The compactors emit three event types using
-:func:`abaco_core.events.envelope.create_event`:
+:func:`core.events.envelope.create_event` (the in-repo mirror of the
+``abaco_core.events.envelope`` contract):
 
 * ``system.compaction.started``
 * ``system.compaction.completed``
 * ``system.compaction.failed``
 
 The emitter accepts an optional *ledger* so callers can route the event
-through an existing :class:`abaco_core.events.ledger.AppendOnlyEventLedger`
-or have it returned as a plain envelope for tests.
+through any object exposing an ``append(event)`` method (e.g. the
+``abaco_core.events.ledger.AppendOnlyEventLedger`` when running embedded
+next to the full ABACO Python Core package) or have it returned as a
+plain envelope for tests.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.compaction.models import CompactionResult
+from core.events.envelope import create_event
 
 
 def _build_payload(
@@ -57,14 +61,12 @@ def emit_compaction_started(
         correlation_id: Optional correlation id propagated from the
             trigger (e.g. an API request).
         extras: Additional keys merged into the payload.
-        ledger: Optional :class:`AppendOnlyEventLedger` instance.  When
-            provided the event is appended; otherwise the envelope is
-            returned so the caller can handle it.
+        ledger: Optional object exposing an ``append(event)`` method
+            (e.g. an ``abaco_core.events.ledger.AppendOnlyEventLedger``
+            when running embedded).  When provided the event is
+            appended; otherwise the envelope is returned so the caller
+            can handle it.
     """
-
-    # Import here so that importing this module does not require
-    # ``abaco_core`` at module-load time when running standalone tests.
-    from abaco_core.events.envelope import create_event
 
     payload = _build_payload(
         policy_name=policy_name,
@@ -96,8 +98,6 @@ def emit_compaction_completed(
     ledger: object | None = None,
 ) -> Any:
     """Emit ``system.compaction.completed``."""
-
-    from abaco_core.events.envelope import create_event
 
     payload = _build_payload(
         policy_name=result.policy_name,
@@ -141,8 +141,6 @@ def emit_compaction_failed(
     ledger: object | None = None,
 ) -> Any:
     """Emit ``system.compaction.failed``."""
-
-    from abaco_core.events.envelope import create_event
 
     payload = _build_payload(
         policy_name=policy_name,

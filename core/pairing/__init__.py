@@ -36,37 +36,7 @@ Quickstart::
 
 from __future__ import annotations
 
-import os
-import sys
-from pathlib import Path
-
-
-def _ensure_abaco_core_importable() -> None:
-    """Insert the project root on ``sys.path`` if needed.
-
-    The pairing module follows the same convention as
-    :mod:`core.compaction`: it lives at ``<root>/core/pairing`` and may
-    be imported by tooling that does not know about the sibling
-    ``abaco_core`` package.
-    """
-
-    if "abaco_core" in sys.modules:
-        return
-    here = Path(__file__).resolve()
-    for ancestor in here.parents:
-        if (ancestor / "abaco_core" / "__init__.py").is_file():
-            ancestor_str = str(ancestor)
-            if ancestor_str not in sys.path:
-                sys.path.insert(0, ancestor_str)
-            return
-    fallback = os.environ.get("ABACO_CORE_PARENT")
-    if fallback and fallback not in sys.path:
-        sys.path.insert(0, fallback)
-
-
-_ensure_abaco_core_importable()
-
-from core.pairing.codes import (  # noqa: E402
+from core.pairing.codes import (
     CHALLENGE_SCHEMA_VERSION,
     CODE_ALPHABET,
     CODE_LENGTH,
@@ -79,14 +49,14 @@ from core.pairing.codes import (  # noqa: E402
     generate_code,
     normalise_code,
 )
-from core.pairing.devices import (  # noqa: E402
+from core.pairing.devices import (
     ALLOWED_DEVICE_TYPES,
     DEFAULT_NODE_PERMISSIONS,
     DEFAULT_PERMISSIONS,
     DEFAULT_SESSION_TTL_SECONDS,
     DeviceStore,
 )
-from core.pairing.errors import (  # noqa: E402
+from core.pairing.errors import (
     DeviceStoreError,
     ExpiredPairingCodeError,
     InvalidPairingCodeError,
@@ -96,13 +66,13 @@ from core.pairing.errors import (  # noqa: E402
     UnknownDeviceError,
     UsedPairingCodeError,
 )
-from core.pairing.models import (  # noqa: E402
+from core.pairing.models import (
     PairingChallenge,
     PairingCode,
     PairedDevice,
     SessionToken,
 )
-from core.pairing.validator import (  # noqa: E402
+from core.pairing.validator import (
     PairingCodeRegistry,
     RATE_LIMIT_MAX_ATTEMPTS,
     RATE_LIMIT_WINDOW_SECONDS,

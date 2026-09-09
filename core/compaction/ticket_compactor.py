@@ -6,9 +6,10 @@ Tickets that have been in a terminal state (``closed``, ``cancelled``,
 ledger keeps the last ``keep_recent`` records untouched, mirroring the
 behaviour of :class:`LedgerCompactor` for regular event ledgers.
 
-The compactor operates on a JSONL file that stores one
-:class:`~abaco_core.tickets.models.TicketRecord` per line.  It does
-*not* depend on :mod:`abaco_core.tickets` directly - any line with the
+The compactor operates on a JSONL file that stores one ticket record
+per line.  When running embedded next to ABACO Python Core, those lines
+mirror the shape of an ``abaco_core.tickets.models.TicketRecord``, but
+this module never imports ``abaco_core.tickets`` - any line with the
 keys ``status`` and ``updated_at`` is treated as a ticket - so the
 module remains usable in isolation.
 """
