@@ -207,10 +207,25 @@ export class LanMobileBridge {
         // the renderers in step without polling either of them.
         .finally(() => this.syncConnected())
     })
-    await new Promise<void>((resolve, reject) => {
-      this.server?.once('error', reject)
-      this.server?.listen(this.options.port ?? 0, '0.0.0.0', resolve)
-    })
+    const requestedPort = this.options.port ?? 0
+    const listen = (port: number): Promise<void> =>
+      new Promise<void>((resolve, reject) => {
+        this.server?.once('error', reject)
+        this.server?.listen(port, '0.0.0.0', resolve)
+      })
+    try {
+      await listen(requestedPort)
+    } catch (error) {
+      // Another instance of this desktop shell (e.g. the stock DSH Desktop)
+      // may already hold the fixed LAN-bridge port. Falling back to an
+      // OS-assigned ephemeral port keeps the pairing surface functional and
+      // lets the app open instead of surfacing an EADDRINUSE error box.
+      if (requestedPort === 0 || (error as NodeJS.ErrnoException | undefined)?.code !== 'EADDRINUSE') {
+        throw error
+      }
+      console.warn(`[lan-mobile-bridge] port ${requestedPort} is already in use; using an ephemeral port`)
+      await listen(0)
+    }
     this.port = (this.server.address() as AddressInfo).port
     this.syncConnected()
     return this.snapshot()

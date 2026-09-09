@@ -7,12 +7,16 @@ window.__ModuleLoader__.load({
 
     const React = require('react')
 
-    // ── ABACO brand (replaces DeepSeek BrandWordmark / FishLogo) ──────────
+    // ── ABACO brand (replaces the upstream DeepSeek wordmark artwork and
+    // fish-logo primitives that used to occupy these seats) ────────────────
     // Inline SVG of the stylized 3D "A" monolith (navy/blue + warm rim),
     // matching desktop/brand/logo.svg but without the backing rectangle so it
     // works as a transparent brand mark in the sidebar and conversation hero.
+    // ViewBox: 170 x 260 user units. Each mount gets unique gradient ids and
+    // an explicit pixel size (the slots give no width/height context, and a
+    // bare <svg> would fall back to the 300x150 replaced-element default).
     const ABACO_A_SVG = [
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-80 -140 170 260" role="img" aria-label="ABACO">',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-80 -140 170 260" role="img" aria-label="ABACO" {sizing}>',
       '<defs>',
       '<linearGradient id="abacoFront" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3D6FB2"/><stop offset="100%" stop-color="#0E2147"/></linearGradient>',
       '<linearGradient id="abacoRight" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#2A4F87"/><stop offset="100%" stop-color="#070C1F"/></linearGradient>',
@@ -30,11 +34,18 @@ window.__ModuleLoader__.load({
       '</g>',
       '</svg>'
     ].join('')
+
     // Unique gradient ids per mount (multiple brand marks can be on page).
     let gradientSeq = 0
-    function abacoMarkSvg() {
+    /**
+     * @param height - rendered height in px; width follows the 170:260 viewBox.
+     * @returns ABACO emblem svg markup with unique gradient ids.
+     */
+    function abacoMarkSvg(height) {
       const seq = ++gradientSeq
-      return ABACO_A_SVG.replace(/abacoFront/g, `abacoFront${seq}`)
+      const width = Math.round((height * 170) / 260)
+      return ABACO_A_SVG.replace('{sizing}', `width="${width}" height="${height}"`)
+        .replace(/abacoFront/g, `abacoFront${seq}`)
         .replace(/abacoRight/g, `abacoRight${seq}`)
         .replace(/abacoLeft/g, `abacoLeft${seq}`)
         .replace(/abacoEdge/g, `abacoEdge${seq}`)
@@ -48,43 +59,64 @@ window.__ModuleLoader__.load({
       style.id = STYLE_ID
       style.dataset.plugin = 'dsh-desktop-client-ui'
       style.textContent = `
-        .abacoBrandName{display:flex;align-items:center;gap:7px;color:inherit;text-decoration:none}
-        .abacoBrandName .abacoName{font-weight:700;letter-spacing:.06em;font-size:13px;line-height:1}
-        .abacoBrandName .abacoSub{font-size:8px;letter-spacing:.22em;opacity:.65;margin-top:1px}
+        .abacoBrandMark {
+          display: inline-flex;
+          align-items: center;
+          flex: none;
+          line-height: 0;
+          -webkit-user-drag: none;
+          user-select: none;
+        }
+        .abacoBrandMark svg {
+          display: block;
+          flex: none;
+        }
+        .abacoBrandName {
+          display: inline-flex;
+          align-items: center;
+          height: 24px;
+          white-space: nowrap;
+          color: inherit;
+          font-size: 18px;
+          font-weight: 600;
+          line-height: 24px;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+        }
+        body[data-ds-dark-theme] .abacoBrandMark {
+          filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.28));
+        }
       `
       document.head.appendChild(style)
     }
 
-    function DesktopBrandMark() {
-      // The 3D "A" monolith as the sidebar brand mark.
+    function slotSize(props, fallback) {
+      return props && typeof props.size === 'number' ? props.size : fallback
+    }
+
+    function DesktopBrandMark(props) {
+      // The 3D "A" monolith as the sidebar brand mark (wide and rail seats).
+      const size = slotSize(props, 24)
       return React.createElement('span', {
         className: 'abacoBrandMark',
-        style: { display: 'inline-flex', alignItems: 'center' },
-        dangerouslySetInnerHTML: { __html: abacoMarkSvg() },
+        style: { width: `${Math.round((size * 170) / 260)}px`, height: `${size}px` },
+        dangerouslySetInnerHTML: { __html: abacoMarkSvg(size) }
       })
     }
 
     function DesktopBrandName() {
-      // "ABACO / DEEP CORE" wordmark next to the mark (no DeepSeek wordmark).
-      return React.createElement(
-        'span',
-        { className: 'abacoBrandName' },
-        React.createElement('span', { className: 'abacoName', dangerouslySetInnerHTML: { __html: abacoMarkSvg() } }),
-        React.createElement(
-          'span',
-          { style: { display: 'flex', flexDirection: 'column', lineHeight: 1.1 } },
-          React.createElement('span', { className: 'abacoName' }, 'ABACO'),
-          React.createElement('span', { className: 'abacoSub' }, 'DEEP CORE')
-        )
-      )
+      // "ABACO" wordmark next to the mark (no DeepSeek wordmark artwork).
+      return React.createElement('span', { className: 'abacoBrandName' }, 'ABACO')
     }
 
-    function ConversationBrandMark() {
-      // Hero brand mark on empty/conversation screens.
+    function ConversationBrandMark(props) {
+      // Hero brand mark on empty/conversation screens (slot requests size 34).
+      const size = slotSize(props, 34)
+      const extraClass = props && typeof props.className === 'string' ? ` ${props.className}` : ''
       return React.createElement('span', {
-        className: 'abacoHeroMark',
-        style: { display: 'inline-flex', alignItems: 'center' },
-        dangerouslySetInnerHTML: { __html: abacoMarkSvg() },
+        className: `abacoBrandMark${extraClass}`,
+        style: { width: `${Math.round((size * 170) / 260)}px`, height: `${size}px` },
+        dangerouslySetInnerHTML: { __html: abacoMarkSvg(size) }
       })
     }
 

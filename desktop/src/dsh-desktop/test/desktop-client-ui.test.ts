@@ -10,8 +10,13 @@ interface Registration {
   component: (props: Record<string, unknown>) => unknown
 }
 
+interface ElementLike {
+  type: unknown
+  props: Record<string, unknown>
+}
+
 describe('DSH Desktop client slot occupants', () => {
-  it('registers one occupant per brand seat and keeps the official name mark-free', async () => {
+  it('registers one occupant per brand seat and renders the ABACO emblem', async () => {
     const source = await readFile(
       path.join(projectRoot, 'packages', 'dsh-desktop-client-ui', 'client.js'),
       'utf8'
@@ -41,26 +46,22 @@ describe('DSH Desktop client slot occupants', () => {
     })
 
     expect(definition).toBeDefined()
+
+    // The plugin must not need the DeepSeek primitives anymore.
+    const seenRequires: string[] = []
     const createElement = (
       type: unknown,
       props: Record<string, unknown> | null,
       ...children: unknown[]
-    ): { type: unknown; props: Record<string, unknown> } => ({
-      type,
-      props: { ...props, children }
-    })
-    const BrandWordmark = vi.fn()
-    const FishLogo = vi.fn()
+    ): ElementLike => ({ type, props: { ...props, children } })
     const plugin = definition!.factory((id) => {
+      seenRequires.push(id)
       if (id === 'react') {
         return {
           createElement,
           useEffect: (effect: () => void | (() => void)) => effect(),
           useState: (initial: unknown) => [initial, vi.fn()]
         }
-      }
-      if (id === '@deepseek-ai/dsh-client-ui-primitives') {
-        return { BrandWordmark, FishLogo }
       }
       throw new Error(`Unexpected client dependency: ${id}`)
     })
@@ -84,6 +85,7 @@ describe('DSH Desktop client slot occupants', () => {
     }
     plugin.apply({ slots })
 
+    expect(seenRequires).toEqual(['react'])
     expect(plugin.inject).toEqual(['slots'])
     expect(registrations.map(({ config }) => config.name)).toEqual([
       'sidebar.brand.mark',
@@ -92,22 +94,36 @@ describe('DSH Desktop client slot occupants', () => {
     ])
     expect(appended).toHaveLength(1)
 
-    const sidebarName = registrations.find(
-      ({ config }) => config.name === 'sidebar.brand.name'
-    )!.component({}) as { type: unknown; props: Record<string, unknown> }
-    expect(sidebarName.type).toBe(BrandWordmark)
-    expect(sidebarName.props.includeMark).toBe(false)
+    const markHtml = (name: string, props: Record<string, unknown>): string => {
+      const element = registrations.find(({ config }) => config.name === name)!.component(
+        props
+      ) as ElementLike
+      const inner = element.props.dangerouslySetInnerHTML as { __html: string }
+      return inner.__html
+    }
 
     const sidebarMark = registrations.find(
       ({ config }) => config.name === 'sidebar.brand.mark'
-    )!.component({ size: 24 }) as { type: unknown; props: Record<string, unknown> }
-    expect(sidebarMark.type).toBe('svg')
-    expect(sidebarMark.props.height).toBe(17)
+    )!.component({ size: 24 }) as ElementLike
+    expect(sidebarMark.type).toBe('span')
+    expect(sidebarMark.props.className).toBe('abacoBrandMark')
+    expect((sidebarMark.props.style as { width: string; height: string }).height).toBe('24px')
+    expect(markHtml('sidebar.brand.mark', { size: 24 })).toContain('aria-label="ABACO"')
+    expect(markHtml('sidebar.brand.mark', { size: 24 })).toContain('height="24"')
+
+    const sidebarName = registrations.find(
+      ({ config }) => config.name === 'sidebar.brand.name'
+    )!.component({}) as ElementLike
+    expect(sidebarName.type).toBe('span')
+    expect(sidebarName.props.className).toBe('abacoBrandName')
+    expect(sidebarName.props.children).toEqual(['ABACO'])
 
     const heroMark = registrations.find(
       ({ config }) => config.name === 'conversation.hero.brand.mark'
-    )!.component({ size: 48 }) as { type: unknown; props: Record<string, unknown> }
-    expect(heroMark.type).toBe(FishLogo)
-    expect(heroMark.props.size).toBe(48)
+    )!.component({ size: 48, className: 'heroFish' }) as ElementLike
+    expect(heroMark.type).toBe('span')
+    expect(heroMark.props.className).toBe('abacoBrandMark heroFish')
+    expect((heroMark.props.style as { width: string; height: string }).height).toBe('48px')
+    expect(markHtml('conversation.hero.brand.mark', { size: 48 })).toContain('height="48"')
   })
 })

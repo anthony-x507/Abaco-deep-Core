@@ -1183,3 +1183,26 @@ describe('pairing token boundary and desktop origin hardening', () => {
     expect(noHeaders.status).toBe(200)
   })
 })
+
+describe('LAN mobile bridge fixed-port fallback', () => {
+  it('falls back to an ephemeral port when the requested port is already in use', async () => {
+    // Occupy a port the way another desktop shell instance would (e.g. the
+    // stock DSH Desktop holds the 43127 LAN-bridge seat on 0.0.0.0).
+    const occupier = createServer(() => {})
+    servers.push(occupier)
+    await new Promise<void>((resolve) => occupier.listen(0, '0.0.0.0', resolve))
+    const occupiedPort = (occupier.address() as AddressInfo).port
+
+    const bridge = new LanMobileBridge({
+      harnessUrl: () => 'http://127.0.0.1:9999',
+      port: occupiedPort
+    })
+    bridges.push(bridge)
+    const snapshot = await bridge.start()
+
+    expect(snapshot.running).toBe(true)
+    expect(snapshot.port).not.toBe(occupiedPort)
+    const response = await fetch(`http://127.0.0.1:${snapshot.port}/`)
+    expect(response.status).toBe(200)
+  })
+})
