@@ -492,17 +492,22 @@ function attachWindowsMenuView(window: BrowserWindow): void {
 
 function configureAppIdentity(): void {
   if (developmentBuild) {
-    app.setName('DSH Desktop Dev')
-    app.setPath('userData', join(app.getPath('appData'), 'dsh-desktop-dev'))
+    app.setName('ABACO Deep Core Dev')
+    app.setPath('userData', join(app.getPath('appData'), 'abaco-deep-core-dev'))
     return
   }
 
-  app.setName('DSH Desktop')
-  // Keep the historical lowercase directory stable across product-name and
-  // branding changes. Harness stores workspaces, sessions, credentials, and
-  // custom presets below userData, so deriving this path from app.getName()
-  // would make an ordinary upgrade look like a fresh installation.
-  app.setPath('userData', join(app.getPath('appData'), 'dsh-desktop'))
+  app.setName('ABACO Deep Core')
+  // Keep a fixed lowercase directory stable across product-name and branding
+  // changes. Harness stores workspaces, sessions, credentials, and custom
+  // presets below userData, so deriving this path from app.getName() would
+  // make an ordinary upgrade look like a fresh installation. The directory is
+  // deliberately distinct from the upstream DSH Desktop profile
+  // (`dsh-desktop`): the single-instance lock, logs, GPU fallback state,
+  // launch root, and every harness profile path are derived from userData, so
+  // this separation keeps ABACO Deep Core from sharing a profile or colliding
+  // with a concurrently installed DSH Desktop app.
+  app.setPath('userData', join(app.getPath('appData'), 'abaco-deep-core'))
 }
 
 async function syncNativeTheme(window: BrowserWindow): Promise<void> {

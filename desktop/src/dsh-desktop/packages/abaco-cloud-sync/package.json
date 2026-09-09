@@ -11,6 +11,12 @@
     "./package.json": "./package.json"
   },
   "license": "MIT",
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
   }
