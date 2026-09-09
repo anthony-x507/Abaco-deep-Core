@@ -336,9 +336,9 @@ window.__ModuleLoader__.load({
       injectStyle()
       const store = createStore()
 
-      // Attach to ctx so other plugins can read it
-      ctx.abaco = ctx.abaco || {}
-      ctx.abaco.documents = store
+      // NOTE: do NOT attach to ctx.abaco — Cordis rejects reading/writing
+      // undeclared ctx properties ("cannot get property 'abaco' without
+      // inject"). The store is captured by closure and passed to components.
 
       // Upload button → right accessory of the composer tool row
       ctx.slots.inject('conversation.input.right', () =>

@@ -631,12 +631,10 @@ window.__ModuleLoader__.load({
 
     let abacoCtx = null
 
-    // ctx.abaco.store is contributed by abaco-device-identity's client half.
-    // Fall back to a localStorage shim so voice still works when that plugin
-    // is not mounted.
+    // NOTE: do not read ctx.abaco.* — Cordis rejects accessing undeclared ctx
+    // properties ("cannot get property ... without inject"). The store falls
+    // back to window.__abaco_ctx and then to a localStorage shim below.
     function resolveStore() {
-      const direct = abacoCtx && abacoCtx.abaco && abacoCtx.abaco.store
-      if (direct && typeof direct.get === 'function') return direct
       const legacy = typeof window !== 'undefined' && window.__abaco_ctx && window.__abaco_ctx.store
       if (legacy && typeof legacy.get === 'function') return legacy
       // localStorage-backed shim (same key contract).
