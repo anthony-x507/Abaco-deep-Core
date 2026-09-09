@@ -1,6 +1,6 @@
 [project]
 name = "abaco-deep-core"
-version = "0.1.0-unsigned-dev"
+version = "0.1.0"
 description = "ABACO Deep Core - desktop shell with Tailscale mesh sync"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -10,6 +10,11 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "pydantic>=2.0",
+    # Required at runtime for multipart/form-data uploads (core/voice,
+    # core/uploads) and for QR pairing codes (core/pairing, needs the
+    # PIL image backend to render PNGs).
+    "python-multipart>=0.0.9",
+    "qrcode[pil]>=7.4",
 ]
 
 [project.optional-dependencies]
@@ -22,12 +27,20 @@ dev = [
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
+# NOTE: this checkout may be embedded inside the larger `abaco_core` Python
+# package, which lives one directory up and is NOT part of this
+# distribution. The packages defined here (`core.*`, `sync.*`) are
+# self-contained and never import the outer package; embedding integration
+# happens at the caller level (e.g. callers pass real ledger objects into
+# the `core.compaction` event emitters).
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["abaco_core*"]
+include = ["core*", "sync*"]
+namespaces = true
 
 [tool.pytest.ini_options]
-testpaths = ["core/tests", "sync/tests", "tests"]
+# Tests live in per-subpackage dirs (core/*/tests), not core/tests.
+testpaths = ["core", "sync", "tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
