@@ -1,0 +1,23 @@
+{
+  "name": "abaco-brand",
+  "version": "0.1.0",
+  "description": "ABACO DEEP HARNES brand identity. Complements the logo PNG swap with metadata, taglines, and About dialog content.",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": ["@deepseek-ai/dsh-client-ui-sidebar"],
+      "platform": "web"
+    }
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

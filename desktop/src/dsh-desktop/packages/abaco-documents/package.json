@@ -1,0 +1,29 @@
+{
+  "name": "abaco-documents",
+  "version": "0.1.0",
+  "description": "Upload PDF / DOCX / TXT / MD / CSV documents. Client-side text extraction, injects as text content into the composer.",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38",
+    "mammoth": "^1.8.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

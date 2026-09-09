@@ -1,0 +1,17 @@
+{
+  "name": "abaco-experimental",
+  "version": "0.1.0",
+  "description": "Opt-in feature flags for ABACO DEEP HARNES (telemetry, beta channels, advanced diagnostics).",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

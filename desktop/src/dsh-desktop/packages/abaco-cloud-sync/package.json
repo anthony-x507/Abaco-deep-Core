@@ -1,0 +1,17 @@
+{
+  "name": "abaco-cloud-sync",
+  "version": "0.1.0",
+  "description": "Sync settings, presets, sessions across Macs (skeleton — backend lands in Fase 3).",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

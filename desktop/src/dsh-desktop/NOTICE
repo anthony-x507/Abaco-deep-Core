@@ -1,0 +1,40 @@
+ABACO DEEP HARNES
+Copyright (c) 2026 Anthony Sanchez
+
+This product includes software developed by third parties:
+
+--------------------------------------------------------------------
+
+DSH Desktop (forked base)
+Copyright (c) 2026 DataElement
+https://github.com/DataElement/dsh-desktop
+Licensed under the MIT License (see LICENSE in upstream repo).
+
+ABACO DEEP HARNES is a derivative work of DSH Desktop, modified and
+rebranded by Anthony Sanchez. The original copyright notice and license
+terms from DataElement are preserved in this distribution per the
+requirements of the MIT License.
+
+Modifications from upstream include (non-exhaustive):
+  * Rebranded to "ABACO DEEP HARNES" (name, bundle ID, app icon,
+    splash, safe-mode, plugin-recovery surfaces, marketing assets).
+  * Repointed to https://github.com/anthony-x507/Abaco-deep-Harnes.
+  * Reserved Cordis plugin namespace for ABACO-specific plugins
+    (cloud sync, device identity, onboarding — Phase 3+).
+
+--------------------------------------------------------------------
+
+DeepSeek Harness (engine)
+https://github.com/deepseek-ai/deepseek-harness
+Licensed under its respective upstream license. DeepSeek Harness
+trademarks and branding remain the property of DeepSeek AI.
+
+Cordis plugin framework
+Copyright (c) 2024–2026 DeepSeek AI contributors
+Licensed under the MIT License.
+
+--------------------------------------------------------------------
+
+This NOTICE file is provided to satisfy the attribution clauses of
+the MIT License and is not itself a license. For full license terms,
+see the LICENSE file in this repository.
