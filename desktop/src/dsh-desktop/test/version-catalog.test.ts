@@ -9,13 +9,19 @@ import {
 } from '../src/main/update/version-catalog'
 
 describe('version-catalog constants', () => {
-  it('points the stable feed and index at the dshdesktop domain', () => {
-    expect(STABLE_FEED_URL).toBe('https://dshdesktop.com/updates/latest/')
-    expect(VERSION_INDEX_URL).toBe('https://dshdesktop.com/updates/versions.json')
+  it('points the stable feed and index at the ABACO GitHub release feed', () => {
+    expect(STABLE_FEED_URL).toBe(
+      'https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download'
+    )
+    expect(VERSION_INDEX_URL).toBe(
+      'https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download/versions.json'
+    )
   })
 
   it('builds a per-version archive feed url with a trailing slash', () => {
-    expect(archiveFeedUrl('1.2.3')).toBe('https://dshdesktop.com/updates/archive/1.2.3/')
+    expect(archiveFeedUrl('1.2.3')).toBe(
+      'https://github.com/anthony-x507/Abaco-deep-Core/releases/download/v1.2.3/'
+    )
   })
 })
 
@@ -54,14 +60,14 @@ describe('parseVersionIndex', () => {
   it('keeps well-formed entries and drops the rest', () => {
     const raw = {
       versions: [
-        { version: '1.2.3', tag: 'v1.2.3', archiveUrl: 'https://dshdesktop.com/updates/archive/1.2.3/' },
+        { version: '1.2.3', tag: 'v1.2.3', archiveUrl: 'https://github.com/anthony-x507/Abaco-deep-Core/releases/download/v1.2.3/' },
         { version: '', tag: 'v0', archiveUrl: 'x' },
         { nope: true },
         42
       ]
     }
     expect(parseVersionIndex(raw)).toEqual([
-      { version: '1.2.3', tag: 'v1.2.3', archiveUrl: 'https://dshdesktop.com/updates/archive/1.2.3/' }
+      { version: '1.2.3', tag: 'v1.2.3', archiveUrl: 'https://github.com/anthony-x507/Abaco-deep-Core/releases/download/v1.2.3/' }
     ])
   })
 

@@ -1,7 +1,7 @@
 {
   "name": "abaco-deep-harnes",
   "version": "0.3.0",
-  "description": "ABACO DEEP HARNES — a cross-platform desktop shell for DeepSeek Harness.",
+  "description": "ABACO DEEP HARNES — the ABACO desktop shell and agent harness client (cross-platform).",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -16,7 +16,8 @@
   },
   "homepage": "https://github.com/anthony-x507/Abaco-deep-Harnes#readme",
   "keywords": [
-    "deepseek",
+    "abaco",
+    "harnes",
     "harness",
     "electron",
     "desktop",
@@ -309,7 +310,7 @@
     "koffi": "3.1.5"
   },
   "build": {
-    "appId": "io.github.anthony-x507.abaco-deep-harnes",
+    "appId": "io.abaco.deepcore",
     "productName": "ABACO DEEP HARNES",
     "asar": false,
     "npmRebuild": false,
@@ -378,10 +379,6 @@
         "to": "safe-mode.html"
       },
       {
-        "from": "build/community-wechat-qr.png",
-        "to": "community-wechat-qr.png"
-      },
-      {
         "from": "build/windows-menu.html",
         "to": "windows-menu.html"
       }
@@ -389,7 +386,9 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://dshdesktop.com/updates/latest/"
+        "url": "https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download",
+        "channel": "latest",
+        "useMultipleRangeRequest": false
       }
     ],
     "detectUpdateChannel": false,

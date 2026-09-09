@@ -216,7 +216,7 @@ export class LanMobileBridge {
     try {
       await listen(requestedPort)
     } catch (error) {
-      // Another instance of this desktop shell (e.g. the stock DSH Desktop)
+      // Another instance of this desktop shell (e.g. the vanilla upstream app)
       // may already hold the fixed LAN-bridge port. Falling back to an
       // OS-assigned ephemeral port keeps the pairing surface functional and
       // lets the app open instead of surfacing an EADDRINUSE error box.

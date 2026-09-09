@@ -2,13 +2,20 @@ import type { AvailableRelease } from '../../shared/contracts'
 
 export type { AvailableRelease }
 
-export const STABLE_FEED_URL = 'https://dshdesktop.com/updates/latest/'
-export const VERSION_INDEX_URL = 'https://dshdesktop.com/updates/versions.json'
+export const STABLE_FEED_URL =
+  'https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download'
+// The release pipeline must attach `versions.json` to the release for the
+// version picker to resolve. It lives at the `latest/download` redirect, which
+// GitHub serves from the most recent release's assets.
+export const VERSION_INDEX_URL =
+  'https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download/versions.json'
 
 const INDEX_TIMEOUT_MS = 8_000
 
+// Each tagged GitHub release carries its own `latest-mac.yml` + zips, so a
+// specific version resolves to that tag's download directory.
 export function archiveFeedUrl(version: string): string {
-  return `https://dshdesktop.com/updates/archive/${version}/`
+  return `https://github.com/anthony-x507/Abaco-deep-Core/releases/download/v${version}/`
 }
 
 /** Split "1.2.3-rc.1" into ([1,2,3], "rc.1"). Non-numeric segments read as 0. */

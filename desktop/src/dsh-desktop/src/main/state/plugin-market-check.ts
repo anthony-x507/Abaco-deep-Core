@@ -239,7 +239,7 @@ export async function fetchPluginManifestFromRegistry(
         signal: controller.signal,
         headers: {
           accept: 'application/json',
-          'user-agent': 'dsh-desktop'
+          'user-agent': 'abaco-deep-harnes'
         }
       }).finally(() => clearTimeout(timer))
 

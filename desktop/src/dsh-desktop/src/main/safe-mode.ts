@@ -317,7 +317,7 @@ export function buildSafeModeViewModel(options: {
   if (options.locale === 'zh') {
     return {
       locale: 'zh',
-      brand: 'ABACO Deep Core',
+      brand: 'ABACO DEEP HARNES',
       badge: '安全模式',
       heading: '',
       summary: '部分第三方插件可能导致系统异常。安全模式会暂时停用所有第三方插件，确保基础功能正常使用，但不会删除插件。如需恢复正常模式，可尝试卸载近期安装的插件后重启。',
@@ -346,7 +346,7 @@ export function buildSafeModeViewModel(options: {
       restartConfirm: blockingGroups > 0
         ? `仍有 ${blockingGroups} 组阻断问题。退出后会重新启用第三方插件，可能再次启动失败。仍然退出安全模式吗？`
         : undefined,
-      quitLabel: '退出 ABACO Deep Core',
+      quitLabel: '退出 ABACO DEEP HARNES',
       notice: options.notice,
       noticeTone: options.noticeTone,
       upgradeAllLabel: upgradeReadyCount > 0
@@ -359,7 +359,7 @@ export function buildSafeModeViewModel(options: {
 
   return {
     locale: 'en',
-    brand: 'ABACO Deep Core',
+    brand: 'ABACO DEEP HARNES',
     badge: 'Safe Mode',
     heading: '',
     summary: 'Some third-party plugins may cause startup problems. Safe Mode temporarily disables all of them while the Agent remains available; the plugins are not deleted. Remove a recently installed plugin, then restart to try again.',
@@ -388,7 +388,7 @@ export function buildSafeModeViewModel(options: {
     restartConfirm: blockingGroups > 0
       ? `${blockingGroups} blocking group${blockingGroups === 1 ? '' : 's'} remain. Third-party plugins will be enabled again and startup may fail. Exit Safe Mode anyway?`
       : undefined,
-    quitLabel: 'Quit ABACO Deep Core',
+    quitLabel: 'Quit ABACO DEEP HARNES',
     notice: options.notice,
     noticeTone: options.noticeTone,
     upgradeAllLabel: upgradeReadyCount > 0

@@ -1,4 +1,4 @@
-# Brand assets — ABACO DEEP HARNESS
+# Brand assets — ABACO DEEP HARNES
 
 Logo vectorial recreado a partir del render 3D original.
 
@@ -6,7 +6,7 @@ Logo vectorial recreado a partir del render 3D original.
 
 - **Letra "A"**: geométrica facetada estilo sci-fi.
 - **Paleta**: azul metálico (`#3D6FB2` → `#1E3F73` → `#0E2147`) con reflejos cálidos rosados (`#D9A48B`) en el lado izquierdo, simulando luz cinematográfica.
-- **Pedestal**: gris oscuro con el nombre "Abaco Deep Harness" en plateado (`#E1E6F0`).
+- **Pedestal**: gris oscuro con el nombre "Abaco Deep Harnes" en plateado (`#E1E6F0`).
 - **Borde metálico**: gradiente `#7989B0` → `#C9D3E8` → `#5A6488` para los contornos.
 
 ## Archivos

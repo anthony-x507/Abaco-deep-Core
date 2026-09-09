@@ -2,7 +2,7 @@ const packageJson = require('./package.json')
 
 module.exports = {
   ...packageJson.build,
-  appId: 'io.github.anthony-x507.abaco-deep-harnes.dev',
+  appId: 'io.abaco.deepcore.dev',
   productName: 'ABACO DEEP HARNES Dev',
   directories: {
     ...packageJson.build.directories,

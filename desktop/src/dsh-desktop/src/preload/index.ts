@@ -430,7 +430,7 @@ function render(): void {
   const status = currentStatus
   const card = element('aside', 'card')
   card.setAttribute('aria-live', 'polite')
-  card.setAttribute('aria-label', locale === 'zh' ? 'ABACO Deep Core 更新' : 'ABACO Deep Core update')
+  card.setAttribute('aria-label', locale === 'zh' ? 'ABACO DEEP HARNES 更新' : 'ABACO DEEP HARNES update')
 
   const row = element('div', 'row')
   const badge = element('span', status.phase === 'error' ? 'badge warning' : 'badge')
@@ -665,12 +665,12 @@ function renderAbout(): void {
   const card = element('div', 'about-card')
   card.setAttribute('role', 'dialog')
   card.setAttribute('aria-modal', 'true')
-  card.setAttribute('aria-label', zh ? '关于 ABACO Deep Core' : 'About ABACO Deep Core')
+  card.setAttribute('aria-label', zh ? '关于 ABACO DEEP HARNES' : 'About ABACO DEEP HARNES')
 
   // Header row with Title and Close '×'
   const header = element('div', 'about-header')
   const title = element('h2', 'about-title')
-  title.textContent = zh ? '关于 ABACO Deep Core' : 'About ABACO Deep Core'
+  title.textContent = zh ? '关于 ABACO DEEP HARNES' : 'About ABACO DEEP HARNES'
   header.appendChild(title)
 
   const closeBtn = button('×', 'about-close')
@@ -686,7 +686,7 @@ function renderAbout(): void {
   // Body content matching user's screenshot
   const body = element('div', 'about-body')
   const line1 = element('p', 'about-line')
-  line1.textContent = `${zh ? 'ABACO Deep Core 版本： ' : 'ABACO Deep Core version: '}${info.desktopVersion}`
+  line1.textContent = `${zh ? 'ABACO DEEP HARNES 版本： ' : 'ABACO DEEP HARNES version: '}${info.desktopVersion}`
   body.appendChild(line1)
 
   const line2 = element('p', 'about-line')
@@ -694,7 +694,7 @@ function renderAbout(): void {
   body.appendChild(line2)
 
   const hint = element('p', 'about-hint')
-  hint.textContent = zh ? 'Harness 随 ABACO Deep Core 更新。' : 'Harness is updated with ABACO Deep Core.'
+  hint.textContent = zh ? 'Harness 随 ABACO DEEP HARNES 更新。' : 'Harness is updated with ABACO DEEP HARNES.'
   body.appendChild(hint)
   card.appendChild(body)
 

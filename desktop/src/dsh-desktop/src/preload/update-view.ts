@@ -109,15 +109,15 @@ export function updateMessage(status: UpdateStatus, locale: UpdateLocale): strin
     case 'available':
       return zh
         ? `发现新版本${version}，是否更新？`
-        : `ABACO Deep Core${version} is available. Update now?`
+        : `ABACO DEEP HARNES${version} is available. Update now?`
     case 'downloading': {
       const percent = Math.round(status.percent ?? 0)
       return zh ? `正在下载更新 ${percent}%` : `Downloading update ${percent}%`
     }
     case 'downloaded':
-      return zh ? `ABACO Deep Core${version} 已下载完成` : `ABACO Deep Core${version} is ready to install`
+      return zh ? `ABACO DEEP HARNES${version} 已下载完成` : `ABACO DEEP HARNES${version} is ready to install`
     case 'up-to-date':
-      return zh ? 'ABACO Deep Core 已是最新版本' : 'ABACO Deep Core is up to date'
+      return zh ? 'ABACO DEEP HARNES 已是最新版本' : 'ABACO DEEP HARNES is up to date'
     case 'unsupported':
       return zh ? '当前版本不支持自动更新' : 'Automatic updates are unavailable in this build'
     case 'error':

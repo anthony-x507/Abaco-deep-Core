@@ -36,7 +36,7 @@ export function aboutDetail(
 ): string {
   const harness = harnessVersion ?? (locale === 'zh' ? '未知' : 'Unknown')
   if (locale === 'zh') {
-    return `ABACO Deep Core 版本：${desktopVersion}\n内置 Harness 版本：${harness}\n\nHarness 随 ABACO Deep Core 更新。`
+    return `ABACO DEEP HARNES 版本：${desktopVersion}\n内置 Harness 版本：${harness}\n\nHarness 随 ABACO DEEP HARNES 更新。`
   }
-  return `ABACO Deep Core version: ${desktopVersion}\nBundled Harness version: ${harness}\n\nHarness is updated with ABACO Deep Core.`
+  return `ABACO DEEP HARNES version: ${desktopVersion}\nBundled Harness version: ${harness}\n\nHarness is updated with ABACO DEEP HARNES.`
 }

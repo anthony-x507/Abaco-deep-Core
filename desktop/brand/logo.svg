@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  ABACO DEEP HARNESS — Logo principal
+  ABACO DEEP HARNES — Logo principal
   Recreation vectorial del logo 3D basado en el render original.
 
   Características:
@@ -9,7 +9,7 @@
   - Pedestal gris con el nombre debajo en plata pulida.
   - Sin elementos externos: solo SVG nativo, escalable sin pérdida.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480" role="img" aria-label="ABACO DEEP HARNESS">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480" role="img" aria-label="ABACO DEEP HARNES">
   <defs>
     <!-- Fondo navy con sutil vignette -->
     <radialGradient id="bg" cx="50%" cy="55%" r="65%">
@@ -90,7 +90,7 @@
     <text x="240" y="404" text-anchor="middle"
           font-family="-apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif"
           font-weight="400" font-size="14" fill="#8C95A8"
-          letter-spacing="3">Deep Harness</text>
+          letter-spacing="3">Deep Harnes</text>
   </g>
 
   <!-- ====== Letra A geométrica facetada ======

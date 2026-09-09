@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  ABACO DEEP HARNESS — Wordmark horizontal.
+  ABACO DEEP HARNES — Wordmark horizontal.
   Misma paleta y forma que logo.svg pero en formato horizontal
   para encabezados, README y firmas.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-label="ABACO DEEP HARNESS">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-label="ABACO DEEP HARNES">
   <defs>
     <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%"  stop-color="#1B2548"/>
@@ -54,6 +54,6 @@
     <text x="0" y="-10" font-family="-apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif"
           font-weight="700" font-size="86" fill="url(#text-grad)" letter-spacing="6">ABACO</text>
     <text x="0" y="86" font-family="-apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif"
-          font-weight="400" font-size="46" fill="#9CA8C8" letter-spacing="14">DEEP HARNESS</text>
+          font-weight="400" font-size="46" fill="#9CA8C8" letter-spacing="14">DEEP HARNES</text>
   </g>
 </svg>

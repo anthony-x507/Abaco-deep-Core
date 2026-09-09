@@ -45,8 +45,12 @@ function compare(a, b) {
 }
 
 /**
- * Turn a list of `releases/archive/<name>` directory names into the version
- * index the desktop client reads from `dshdesktop.com/updates/versions.json`.
+ * Turn a list of version names into the index the desktop client's version
+ * picker reads. The ABACO feeds are hosted on GitHub Releases (owner
+ * anthony-x507, repo Abaco-deep-Core): `versions.json` must be attached as an
+ * asset of the latest release so the client can resolve it at
+ * `https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download/versions.json`.
+ * Each archive URL points at the matching tagged release's download directory.
  * Non-semver names are dropped; the rest sort newest first.
  */
 export function buildVersionIndex(archiveDirNames) {
@@ -56,7 +60,7 @@ export function buildVersionIndex(archiveDirNames) {
     .map((version) => ({
       version,
       tag: `v${version}`,
-      archiveUrl: `https://dshdesktop.com/updates/archive/${version}/`
+      archiveUrl: `https://github.com/anthony-x507/Abaco-deep-Core/releases/download/v${version}/`
     }))
   return { generatedAt: new Date().toISOString(), versions }
 }

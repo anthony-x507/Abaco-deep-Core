@@ -1,5 +1,5 @@
 /**
- * electron-builder config for ABACO Deep Core — UNSIGNED macOS builds.
+ * electron-builder config for ABACO DEEP HARNES — UNSIGNED macOS builds.
  *
  * This config intentionally disables code signing and notarization so the
  * project can ship to internal testers / multiple Macs before the Apple
@@ -27,7 +27,7 @@ const electronPackageDir = path.join(desktopDir, 'src', 'dsh-desktop');
 module.exports = {
   // Project metadata --------------------------------------------------------
   appId: 'io.abaco.deepcore',
-  productName: 'ABACO Deep Core',
+  productName: 'ABACO DEEP HARNES',
   copyright: 'Copyright © 2026 Anthony Sanchez',
 
   // Packaging layout --------------------------------------------------------
@@ -63,8 +63,8 @@ module.exports = {
   //   harnessNodeEntryPath()   -> harness-node-entry.mjs (index.ts:595)
   //   desktopIconPath()        -> icon.png (tray/dock/app icon, index.ts:605)
   // splash.html / safe-mode.html / plugin-recovery.html reference
-  // dsh-loader*.gif / community-wechat-qr.png relatively, so those must sit in
-  // the same directory. harness-node-entry.mjs statically imports
+  // dsh-loader*.gif relatively, so those must sit in the same directory.
+  // harness-node-entry.mjs statically imports
   // ./windows-child-process-hide.mjs (and windows-hidden-console.mjs on
   // Windows), so both siblings must ship next to it.
   //
@@ -83,7 +83,6 @@ module.exports = {
     { from: path.join(electronPackageDir, 'build', 'dsh-loader-dark.gif'), to: 'dsh-loader-dark.gif' },
     { from: path.join(electronPackageDir, 'build', 'plugin-recovery.html'), to: 'plugin-recovery.html' },
     { from: path.join(electronPackageDir, 'build', 'safe-mode.html'), to: 'safe-mode.html' },
-    { from: path.join(electronPackageDir, 'build', 'community-wechat-qr.png'), to: 'community-wechat-qr.png' },
     { from: path.join(electronPackageDir, 'build', 'windows-menu.html'), to: 'windows-menu.html' }
   ],
 
@@ -119,7 +118,7 @@ module.exports = {
   extraMetadata: {
     main: './out/main/index.js',
     name: 'abaco-deep-core',
-    productName: 'ABACO Deep Core'
+    productName: 'ABACO DEEP HARNES'
   },
 
   mac: {
@@ -136,7 +135,7 @@ module.exports = {
     // (exported as GKPMCWHU2H) supplies the team id to @electron/notarize.
     notarize: true,
     extendInfo: {
-      NSHumanReadableCopyright: 'ABACO Deep Core — Anthony Sanchez'
+      NSHumanReadableCopyright: 'ABACO DEEP HARNES — Anthony Sanchez'
     }
   },
 
