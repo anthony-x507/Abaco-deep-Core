@@ -63,23 +63,18 @@ module.exports = {
   },
 
   mac: {
-    // Zips only — easier for unsigned downloads on multiple Macs.
-    // Switch to `[{ target: 'dmg', arch: ['arm64', 'x64'] }]` (or include both)
-    // once we have signing + notarization.
     target: [
+      { target: 'dmg', arch: ['arm64', 'x64'] },
       { target: 'zip', arch: ['arm64', 'x64'] }
     ],
     icon: path.join(desktopDir, 'brand', 'icon.icns'),
     category: 'public.app-category.developer-tools',
-
-    // No signing — required until we ship a Developer ID Application cert.
-    hardenedRuntime: false,
-    gatekeeperAssess: false,
-    identity: null,
-
-    // No notarization — required while unsigned.
-    notarize: false,
-
+    hardenedRuntime: true,
+    gatekeeperAssess: true,
+    identity: 'Anthony Sanchez (GKPMCWHU2H)',
+    // notarize is a boolean in electron-builder 26. APPLE_TEAM_ID env
+    // (exported as GKPMCWHU2H) supplies the team id to @electron/notarize.
+    notarize: true,
     extendInfo: {
       NSHumanReadableCopyright: 'ABACO Deep Core — Anthony Sanchez'
     }
