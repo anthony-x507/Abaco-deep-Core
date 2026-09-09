@@ -79,8 +79,11 @@ def backup_data_dir(
     target_dir = Path(backup_dir) if backup_dir else default_backup_dir(source)
     target_dir.mkdir(parents=True, exist_ok=True)
 
+    # Microsecond precision keeps archive names unique even when several
+    # backups are created within the same second (otherwise each call
+    # would silently overwrite the previous archive).
     timestamp = (
-        datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     )
     backup_id = f"backup-{timestamp}"
     archive_path = target_dir / f"{backup_id}.zip"

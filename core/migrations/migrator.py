@@ -55,6 +55,31 @@ class MigrationResult:
 
 _REGISTRY: list[Migration] = []
 
+# Built-in migrations shipped with the codebase (registered at import
+# time below). They are kept separate from user registrations so that
+# ``clear_registry()`` can drop user migrations without losing the
+# default upgrade path (``0.0.0`` -> ``current_version()``).
+_BUILTINS: list[Migration] = []
+
+
+def _register_builtin(
+    from_version: str,
+    to_version: str,
+    apply: MigrationStep,
+    *,
+    description: str = "",
+) -> None:
+    """Register a migration that is part of the shipped upgrade path."""
+
+    migration = Migration(
+        from_version=from_version,
+        to_version=to_version,
+        apply=apply,
+        description=description,
+    )
+    _BUILTINS.append(migration)
+    _REGISTRY.append(migration)
+
 
 def register(
     from_version: str,
@@ -80,9 +105,10 @@ def register(
 
 
 def clear_registry() -> None:
-    """Empty the registry. Tests only."""
+    """Drop user-registered migrations; keep the built-in ones. Tests only."""
 
     _REGISTRY.clear()
+    _REGISTRY.extend(_BUILTINS)
 
 
 def registered_migrations() -> tuple[Migration, ...]:
@@ -159,7 +185,7 @@ def _noop_migration(data_dir: Path) -> None:
 
 
 # 0.0.0 -> 0.1.0: initial schema, no data manipulation needed yet.
-register(
+_register_builtin(
     "0.0.0",
     "0.1.0",
     _noop_migration,

@@ -17,7 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .migrations import migrate, read_schema_version, current_version, MigrationResult
+# `core.migrations` has no `migrations` submodule: the migration runner
+# lives in `.migrator` (exported as `run`, aliased to `migrate` here to
+# match the package-level API) and version tracking in `.schema_version`.
+from .migrator import run as migrate, MigrationResult
+from .schema_version import read_schema_version, current_version
 
 
 @dataclass(frozen=True)
