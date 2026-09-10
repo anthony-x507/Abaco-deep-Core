@@ -98,6 +98,19 @@
     - id: abaco-browser
       name: abaco-browser
 
+# Layer 2 (durable memory) of the 3-layer context system. A host-plane row, so
+# one faceted sidecar store under <DSH_HOME>/abaco-memory/ serves every agent
+# and every preset. It registers the abaco_memory_set/get/forget/list tools and
+# one dynamic system-prompt section ("abaco:durable-memory") whose `text` is a
+# FUNCTION re-evaluated on each assembly — which is why the memory survives
+# compaction: the compaction contract only ever replaces user/message surfaces,
+# never the system prompt. Config is resolved in the plugin, not here: every
+# default is the production one, and a bad value degrades to that default
+# instead of failing the mount. Nothing is written to the session log.
+- insert:
+    - id: abaco-memory
+      name: abaco-memory
+
 # Layer 1 of the 3-layer context system: the working window and its summary
 # policy. `compaction-basic` freezes its policy at construction and reads it
 # from its composition row, so the only supported way to change WHEN the agent
