@@ -49,11 +49,11 @@ Las tres capas son **ortogonales**: 1 es automática y destructiva del detalle; 
 | Hecho | Cita |
 |---|---|
 | Único motor es el stock | `desktop/src/dsh-desktop/build/dsh-desktop.patch.yml` (fila `compaction-basic`); no existe paquete propio de motor |
-| `thresholdRatio` default 0.8 | `$DSH_NM/dsh-compaction-basic/lib/index.js:13` |
-| `retainRatio` default 0.16 | `$DSH_NM/dsh-compaction-basic/lib/index.js:15` |
-| `maxTokens` default 8192 | `$DSH_NM/dsh-compaction-basic/lib/index.js:70` |
-| Se dispara solo desde `agent/pre-step` | `$DSH_NM/dsh-compaction-basic/lib/index.js:781-783` (`compactIfNeeded(agent, "pressure", signal)`) |
-| Segundo disparo por overflow | `$DSH_NM/dsh-compaction-basic/lib/index.js:814` (`"context-overflow"`) |
+| `thresholdRatio` default 0.8 | `$DSH_NM/dsh-compaction-basic/lib/index.js:15` |
+| `retainRatio` default 0.16 | `$DSH_NM/dsh-compaction-basic/lib/index.js:17` |
+| `maxTokens` default 8192 | `$DSH_NM/dsh-compaction-basic/lib/index.js:72` |
+| Se dispara solo desde `agent/pre-step` | `$DSH_NM/dsh-compaction-basic/lib/index.js:782-784` (`compactIfNeeded(agent, "pressure", signal)`) |
+| Segundo disparo por overflow | `$DSH_NM/dsh-compaction-basic/lib/index.js:815` (`"context-overflow"`) |
 
 **El preset `abaco` nunca se activó.** El repo lo define con 0.6/0.08/16384:
 
@@ -101,8 +101,8 @@ Las tres capas son **ortogonales**: 1 es automática y destructiva del detalle; 
 
 | Principio | Estado | Evidencia |
 |---|---|---|
-| **A** 90% | **NO CUMPLIDO** | corre 0.8 (`:13`); el preset ABACO dice 0.6 (`agent.cordis.yml:195`) y no está montado. Objetivo fijado por el lock **§8**: 0.90 — ni 0.8 ni 0.6 |
-| **B** balas de una línea | **PARCIAL** | el stock ya lo pide en `$DSH_NM/dsh-compaction-basic/lib/index.js:221` ("Use terse bullets, not prose paragraphs") |
+| **A** 90% | **NO CUMPLIDO** | corre 0.8 (`:15`); el preset ABACO dice 0.6 (`agent.cordis.yml:195`) y no está montado. Objetivo fijado por el lock **§8**: 0.90 — ni 0.8 ni 0.6 |
+| **B** balas de una línea | **PARCIAL** | el stock ya lo pide en `$DSH_NM/dsh-compaction-basic/lib/index.js:223` ("Use terse bullets, not prose paragraphs") |
 | **C** primer permiso | **NO IMPLEMENTADO** | ninguna rama ni servicio de aprobación en el camino de compactación |
 | **D** errores literales | **NO IMPLEMENTADO** | el pruner **no lee `isError`**: 0 ocurrencias en `$DSH_NM/dsh-compaction-tool-result-pruner/lib/index.js`; el campo existe en `$DSH_NM/dsh-llm/lib/types/message.js:78` |
 
@@ -114,9 +114,9 @@ Las tres capas son **ortogonales**: 1 es automática y destructiva del detalle; 
 
 **Comportamiento exigido.** Al alcanzar el 90% de la ventana del modelo enrutado, el sistema compacta sin intervención del usuario. Por debajo del 90%, no compacta.
 
-**Estado.** Corre 0.8, no 0.9. Dos fuentes de configuración en conflicto: el stock (`:13`) y el preset ABACO, que pide **0.6** (`agent.cordis.yml:195`) — más agresivo que el requisito.
+**Estado.** Corre 0.8, no 0.9. Dos fuentes de configuración en conflicto: el stock (`:15`) y el preset ABACO, que pide **0.6** (`agent.cordis.yml:195`) — más agresivo que el requisito.
 
-**RESUELTO — el lock §8 (antes "decisión requerida, bloqueante").** Esta sección pedía una decisión de producto entre el 90% del dueño y el 60% del preset, y advertía que la spec debía enmendarse antes de implementar. **La decisión ya está tomada y es 0.90 / 0.12 / 8192.** Valores muertos, no candidatos: el `0.80` de fábrica del stock (`:13`), el `0.16` de fábrica (`:15`), y el `0.60 / 0.08 / 16384` del archivo muerto (`agent.cordis.yml:192-197`). El "60%" citado arriba queda como **histórico del archivo muerto**; no es una alternativa viva. Ver §8.1 y §8.9.
+**RESUELTO — el lock §8 (antes "decisión requerida, bloqueante").** Esta sección pedía una decisión de producto entre el 90% del dueño y el 60% del preset, y advertía que la spec debía enmendarse antes de implementar. **La decisión ya está tomada y es 0.90 / 0.12 / 8192.** Valores muertos, no candidatos: el `0.80` de fábrica del stock (`:15`), el `0.16` de fábrica (`:17`), y el `0.60 / 0.08 / 16384` del archivo muerto (`agent.cordis.yml:192-197`). El "60%" citado arriba queda como **histórico del archivo muerto**; no es una alternativa viva. Ver §8.1 y §8.9.
 
 **Punto de enganche.** La fila `compaction-basic` de la composición (`agent.cordis.yml:192-197`), o la fila equivalente del host si se opta por política global. **No** se añade fila nueva: `compaction` ya está registrado y un segundo registro del mismo servicio en el mismo realm lanza error.
 
@@ -130,11 +130,11 @@ Las tres capas son **ortogonales**: 1 es automática y destructiva del detalle; 
 
 **Comportamiento exigido (fijado por el lock §8.3).** Todo checkpoint se emite como balas densas de **una línea** por sección, en orden **FIFO**; nunca prosa, nunca narrativa.
 
-**Estado.** El stock ya lo instruye (`$DSH_NM/dsh-compaction-basic/lib/index.js:221`) **pero se contradice** en `:248` ("Write concise English engineering prose"). La contradicción está en el mismo prompt y es la causa probable de que salga prosa.
+**Estado.** El stock ya lo instruye (`$DSH_NM/dsh-compaction-basic/lib/index.js:223`) **pero se contradice** en `:250` ("Write concise English engineering prose"). La contradicción está en el mismo prompt y es la causa probable de que salga prosa.
 
 **Punto de enganche.** El prompt de compactación (`COMPACTION_INSTRUCTION`, `$DSH_NM/dsh-compaction-basic/lib/index.js:219-252`), vía plantilla propia en el motor de fase 3, o parche puntual si se hace antes.
 
-**Qué crear/modificar.** Eliminar la instrucción de prosa de `:248` conservando su parte útil (preservar rutas, comandos, errores, identificadores, valores numéricos) y reformularla como regla de bala. Plantilla propia en fase 3.
+**Qué crear/modificar.** Eliminar la instrucción de prosa de `:250` conservando su parte útil (preservar rutas, comandos, errores, identificadores, valores numéricos) y reformularla como regla de bala. Plantilla propia en fase 3.
 
 **Verificación observable.** Test automático sobre la salida del compactador: (1) ninguna sección contiene un párrafo > 200 caracteres sin salto; (2) toda línea no vacía de cada sección empieza por `- ` (o es encabezado `## `); (3) se preservan los literales exigidos. **Criterio:** 0 violaciones en N=10 checkpoints. Es verificable sin juicio humano — es un parser, no una opinión.
 
@@ -144,7 +144,7 @@ Las tres capas son **ortogonales**: 1 es automática y destructiva del detalle; 
 
 **Estado.** No implementado en ninguna parte (ni stock ni ABACO).
 
-**Punto de enganche.** Antes de la llamada en `$DSH_NM/dsh-compaction-basic/lib/index.js:781-783`: el listener de `agent/pre-step` es el único camino de presión. Un motor propio (fase 3) puede envolver `compactIfNeeded`. **Alternativa de bajo coste:** interceptar en el punto donde ya se consulta el pruner por `ctx.get` (`:868`), para no duplicar el registro del servicio `compaction`.
+**Punto de enganche.** Antes de la llamada en `$DSH_NM/dsh-compaction-basic/lib/index.js:782-784`: el listener de `agent/pre-step` es el único camino de presión. Un motor propio (fase 3) puede envolver `compactIfNeeded`. **Alternativa de bajo coste:** interceptar en el punto donde ya se consulta el pruner por `ctx.get` (`:869`), para no duplicar el registro del servicio `compaction`.
 
 **Estado a persistir.** Necesita un flag por sesión ("ya se pidió permiso / ya se autorizó"), que debe sobrevivir a la compactación misma. **Candidato natural: capa 2** (memoria durable, ámbito `session`) — cierra el círculo entre capas y evita inventar otro almacén.
 
@@ -162,7 +162,7 @@ Las tres capas son **ortogonales**: 1 es automática y destructiva del detalle; 
 1. **Truncado mecánico:** `pruneSession`, `$DSH_NM/dsh-compaction-tool-result-pruner/lib/index.js:136-150`. Se invoca desde el motor vía `ctx.get("toolResultPruner")` en `$DSH_NM/dsh-compaction-basic/lib/index.js:868-885`. Añadir guarda: si `event.data.message.content[0].isError === true`, no truncar.
 2. **Reescritura por LLM:** el prompt de compactación (`:219-252`), cuya sección "Errors and Fixes" hoy invita a condensar. Debe exigir transcripción literal del mensaje de error.
 
-**Qué crear/modificar.** Guarda `isError` en el pruner (parche del fork o subclase propia en fase 3) + regla literal en la plantilla. **Ojo:** una guarda en el pruner del stock solo cubre la ruta del motor; si el error entra por el camino de overflow (`:814`), hay que verificarlo por separado.
+**Qué crear/modificar.** Guarda `isError` en el pruner (parche del fork o subclase propia en fase 3) + regla literal en la plantilla. **Ojo:** una guarda en el pruner del stock solo cubre la ruta del motor; si el error entra por el camino de overflow (`:815`), hay que verificarlo por separado.
 
 **Verificación observable.** Test determinista: sesión sintética con una tool que devuelve un error de cadena conocida (> thresholdChars, p. ej. 9000 caracteres con un marcador único en el carácter 8500). Tras forzar la compactación, el marcador **sigue presente** en la sesión y el texto del error es byte-idéntico. **Criterio:** el marcador del carácter 8500 aparece; y en el test gemelo con `isError: false`, ese mismo marcador **desaparece** (prueba de que la guarda discrimina y no simplemente desactiva el pruner).
 
@@ -179,7 +179,7 @@ Origen: `docs/PLAN-TRABAJO.md:85-90` y `:126-129`.
 
 **Carga de la policy (requisito del lock).** El evento debe registrar **si la policy cargó o no** (línea `thresholdRatio`/`retainRatio` efectivos en el arranque). Sin ese dato no se puede distinguir "no compactó porque no hizo falta" de "no compactó porque la config no cargó" — que es exactamente la ambigüedad del riesgo R5.
 
-**Dos alertas obligatorias (requisito del lock).** (1) **Alerta si `used_after >= used_before`**: la compactación ocurrió y no liberó ventana. (2) **Alerta si el motor desactiva la compactación** para una ruta — el caso de `TargetPressureConfigError` degradado a warning (§8.7): **nunca silencioso**. Hoy el motor solo escribe una línea de `warn` una vez por `targetKey` (`$DSH_NM/dsh-compaction-basic/lib/index.js:787-791`) y la UI no muestra nada: eso no cumple.
+**Dos alertas obligatorias (requisito del lock).** (1) **Alerta si `used_after >= used_before`**: la compactación ocurrió y no liberó ventana. (2) **Alerta si el motor desactiva la compactación** para una ruta — el caso de `TargetPressureConfigError` degradado a warning (§8.7): **nunca silencioso**. Hoy el motor solo escribe una línea de `warn` una vez por `targetKey` (`$DSH_NM/dsh-compaction-basic/lib/index.js:788-792`) y la UI no muestra nada: eso no cumple.
 
 **Registro (tres sitios, obligatorio).** (1) fila en `desktop/src/dsh-desktop/build/dsh-desktop.patch.yml` (patrón en `:111-126`); (2) dependencia en `desktop/src/dsh-desktop/patches/@deepseek-ai+dsh+0.1.2-rc.1.patch:22-23`; (3) `packages/<pkg>` en `desktop/src/dsh-desktop/package.json:285-287`.
 
@@ -233,9 +233,9 @@ Origen: `docs/PLAN-TRABAJO.md:85-90` y `:126-129`.
 | R2 | **Doble registro del servicio `compaction`** | Error de arranque por servicio duplicado; la compactación deja de funcionar **entera** (ni stock ni propio). Síntoma: ninguna compactación ocurre y la ventana desborda hasta el overflow. |
 | R3 | **Leer un servicio no declarado en `inject`** | Excepción al cargar el plugin. Síntoma: el plugin no aparece en el roster; la telemetría (o el motor) simplemente no emite nada. |
 | R4 | **Bucle de peticiones de permiso (C)** — el rechazo no detiene el reintento | El usuario ve la solicitud de permiso **repetida en cada turno** y la sesión se vuelve inusable. Síntoma: N solicitudes para 1 sesión, en vez de 1. |
-| R5 | **Config de presión inválida en runtime** — `retainTokens ≥ thresholdTokens` para el modelo enrutado | **CORREGIDO — ver §8.7.** Es warning-only **solo** por la ruta de capacidad por modelo: `resolveCompactSpec` lanza `TargetPressureConfigError` (`$DSH_NM/dsh-compaction-basic/lib/index.js:108,111`, invocado en `:882`) y el listener de `agent/pre-step` lo captura con `instanceof` (`:786-791`), registra **un** `warn` por `targetKey` y sigue. Síntoma: sesiones larguísimas sin un solo checkpoint, invisible en la UI. |
+| R5 | **Config de presión inválida en runtime** — `retainTokens ≥ thresholdTokens` para el modelo enrutado | **CORREGIDO — ver §8.7.** Es warning-only **solo** por la ruta de capacidad por modelo: `resolveCompactSpec` lanza `TargetPressureConfigError` (`$DSH_NM/dsh-compaction-basic/lib/index.js:108,113`, invocado en `:883`) y el listener de `agent/pre-step` lo captura con `instanceof` (`:787-792`), registra **un** `warn` por `targetKey` y sigue. Síntoma: sesiones larguísimas sin un solo checkpoint, invisible en la UI. |
 | R11 | **Config de presión inválida en LOAD — es fatal, no warning** | `validateRatioRetention` (definida en **`:134`**, throw en **`:135`**) lanza un **`Error` normal**, no `TargetPressureConfigError`, desde `resolveConfig` (**`:58`**, que la llama en **`:64`** para los defaults y **`:66`** para cada `modelPolicies[i]`), que corre en el constructor del motor (**`:769`**). No lo cubre el `instanceof` de `:786`. El loader lo envuelve en `updateError("apply", …)` (`cordis-plugin-loader/lib/index.js:534`), `Group.update` lo recoge como fallo único y lo **relanza** (`:87-91`) y hace **rollback de todo el grupo** (`:94-112`). Precedente exacto en este repo: `3ddbe73` ("the throw took the whole plugin tree down with it, which is why the app fell back to Safe Mode instead of booting"). Síntoma: la app no arranca / cae a Safe Mode. **Aplica a cualquier `modelPolicies` cuyo `thresholdRatio` quede ≤ `retainRatio` heredado (0.12)** — ver §8.8. |
-| R12 | **Span resumido contra presupuesto de resumen** — con el lock, el tramo compactable a 1M es ~780k tokens para un resumen de ≤8192 (≈95:1) | No es un fallo del motor (no hay guarda que relacione `maxTokens` con el aire disponible; `maxTokens` solo se usa como opción del stream en `:296` y se registra en `:313`). Síntoma esperable: resumen que pierde detalle del tramo viejo. Se detecta con la alerta `used_after` de §8.5 y con el criterio de done 5; **no se corrige bajando el umbral sin preguntar** (§8.6.6). |
+| R12 | **Span resumido contra presupuesto de resumen** — con el lock, el tramo compactable a 1M es ~780k tokens para un resumen de ≤8192 (≈95:1) | No es un fallo del motor (no hay guarda que relacione `maxTokens` con el aire disponible; `maxTokens` solo se usa como opción del stream en `:298` y se registra en `:315`). Síntoma esperable: resumen que pierde detalle del tramo viejo. Se detecta con la alerta `used_after` de §8.5 y con el criterio de done 5; **no se corrige bajando el umbral sin preguntar** (§8.6.6). |
 | R6 | **Salida de subagente sin tope** (hueco de §2.3) | La ventana viva se llena de golpe tras una delegación (`$DSH_NM/dsh-subagent/lib/index.js:1725-1742`, sin paso por `tools/post-execute`). Síntoma: salto brusco de uso de contexto seguido de compactación inmediata, o fallo por overflow. |
 | R7 | **Spill no durable** (`mkdtempSync(tmpdir())`, `$DSH_NM/dsh-spill-local/lib/index.js:35`) | Tras reiniciar, las referencias de spill apuntan a ficheros **borrados** por el SO. Síntoma: el agente cita una ruta que ya no existe. |
 | R8 | **Errores preservados literalmente inflan el contexto (D)** | Al no truncar errores, un error de 9000 caracteres se conserva entero. Síntoma: la ventana se llena más rápido y A dispara antes; contrapresión legítima que debe medirse con fase 0, no resolverse desactivando D. |
@@ -250,13 +250,13 @@ Origen: `docs/PLAN-TRABAJO.md:85-90` y `:126-129`.
 
 **Correcciones a la auditoría recibida:** (1) `settings.yaml` **sí** contiene `agent-presets` (`:11-12`, `default: cordis`); (2) `$DSH_HOME/abaco-memory/` no existe como directorio (no es "0 ficheros"); (3) `$DSH_HOME` real es `…/dsh-desktop/harness`, no `~/.dsh`; (4) el marcador documentado por el propio preset es `.agent-presets/.abaco-context.json`, no `.abaco-context-default.json` — **ambos ausentes**, y `$DSH_HOME/.agent-presets/` no existe.
 
-**[INFERIDO]:** que la causa principal de la prosa en los checkpoints sea la línea `:248`; que el flag de C deba vivir en capa 2; que R5 sea la explicación de sesiones largas sin compactar en el pasado.
+**[INFERIDO]:** que la causa principal de la prosa en los checkpoints sea la línea `:250`; que el flag de C deba vivir en capa 2; que R5 sea la explicación de sesiones largas sin compactar en el pasado.
 
 **[NO VERIFICADO — requiere ejecutar la app]:** (a) el servicio exacto del stack de aprobación y su API (`ctx.get(...)` / nombre en la composición) — **bloqueante para C**; comprobar con `grep` en las composiciones del host y con el Inspect Provider de servicios; (b) que la inyección de `abaco:durable-memory` funcione de extremo a extremo, dado que nunca hubo una entrada que inyectar; (c) que el preset `abaco` monte correctamente una vez creado el marcador; (d) que la primera compactación real ocurra y que `used_after < used_before` (criterios de done 3, 4 y 5 del §8.6 — solo se pueden cerrar ejecutando la app con la fase 0 instalada).
 
 **Cerrado desde la revisión anterior (ya no son incógnitas):**
 - **El `contextWindow` del modelo enrutado** — **VERIFICADO**: `1_000_000` tokens. Ver §8.8.
-- **Si el camino de overflow pasa por el pruner o por la validación de proporción** — **VERIFICADO**: `compactIfNeeded` con `trigger === "context-overflow"` (`$DSH_NM/dsh-compaction-basic/lib/index.js:869-877`) **sí** llama a `prune.pruneSession` (`:871`) pero **nunca** llama a `resolveCompactSpec`: usa `selectCompactableRange(..., 0)` y compacta. Es decir, el overflow **salta** el umbral y la validación de proporción por completo; la conclusión de §3.D se mantiene (hay que verificar aparte la guarda de `isError` en esa ruta).
+- **Si el camino de overflow pasa por el pruner o por la validación de proporción** — **VERIFICADO**: `compactIfNeeded` con `trigger === "context-overflow"` (`$DSH_NM/dsh-compaction-basic/lib/index.js:869-877`) **sí** llama a `prune.pruneSession` (`:872`) pero **nunca** llama a `resolveCompactSpec`: usa `selectCompactableRange(..., 0)` y compacta. Es decir, el overflow **salta** el umbral y la validación de proporción por completo; la conclusión de §3.D se mantiene (hay que verificar aparte la guarda de `isError` en esa ruta).
 
 **Método de comprobación propuesto para (a)–(d):** arrancar la app con la telemetría de fase 0 instalada, escribir una entrada real vía `abaco_memory_set`, y observar el system prompt ensamblado; para (a), inspeccionar los servicios del realm con el Inspect Provider antes de escribir código.
 
@@ -281,20 +281,20 @@ maxOverflowRetries: 1
 
 | Clave | Valor | Qué es | Dónde vive hoy el valor a matar |
 |---|---|---|---|
-| `thresholdRatio` | **0.90** | Fracción del window enrutado que dispara | stock `0.8` (`$DSH_NM/dsh-compaction-basic/lib/index.js:13`); preset `0.6` (`agent.cordis.yml:195`) |
-| `retainRatio` | **0.12** | Fracción del window que queda **verbatim** | stock `0.16` (`:15`); preset `0.08` (`agent.cordis.yml:196`) |
-| `auto` | **true** | Compactación automática entre pasos | ya es el default (`:74`) |
+| `thresholdRatio` | **0.90** | Fracción del window enrutado que dispara | stock `0.8` (`$DSH_NM/dsh-compaction-basic/lib/index.js:15`); preset `0.6` (`agent.cordis.yml:195`) |
+| `retainRatio` | **0.12** | Fracción del window que queda **verbatim** | stock `0.16` (`:17`); preset `0.08` (`agent.cordis.yml:196`) |
+| `auto` | **true** | Compactación automática entre pasos | ya es el default (`:76`) |
 | `maxTokens` | **8192** | Presupuesto del **LLM de resumen** | preset `16384` (`agent.cordis.yml:197`) |
-| `compactionRetries` | **1** | Reintentos de la propia compactación | ya es el default (`:71`) |
-| `maxOverflowRetries` | **1** | Reintentos en recuperación por overflow | ya es el default (`:72`) |
+| `compactionRetries` | **1** | Reintentos de la propia compactación | ya es el default (`:73`) |
+| `maxOverflowRetries` | **1** | Reintentos en recuperación por overflow | ya es el default (`:74`) |
 
 ### 8.2 Qué significa el trigger
 
 - Se **mide** `used / contextWindow` del **modelo enrutado** (no de un modelo fijo).
 - **Disparo automático** cuando `used >= floor(contextWindow × 0.90)`.
 - La compactación **resume lo viejo** y deja la **cola reciente verbatim = `retainRatio` 0.12 del window**.
-- El par de tokens se calcula en `resolveCompactSpec` (`$DSH_NM/dsh-compaction-basic/lib/index.js:109-111`): `thresholdTokens = floor(contextWindow * thresholdRatio)`, `retainTokens = retainRatio === undefined ? policy.retainTokens : floor(contextWindow * retainRatio)`.
-- **La proporción es válida**: la propia línea `:111` exige `retainTokens < thresholdTokens`, y 0.12 < 0.90 lo cumple para todo window. ✅
+- El par de tokens se calcula en `resolveCompactSpec` (`$DSH_NM/dsh-compaction-basic/lib/index.js:111-112`): `thresholdTokens = floor(contextWindow * thresholdRatio)`, `retainTokens = retainRatio === undefined ? policy.retainTokens : floor(contextWindow * retainRatio)`.
+- **La proporción es válida**: la propia línea `:113` exige `retainTokens < thresholdTokens`, y 0.12 < 0.90 lo cumple para todo window. ✅
 
 ### 8.3 Reglas de protección — qué NUNCA entra al resumen y qué NUNCA se tira
 
@@ -310,8 +310,8 @@ maxOverflowRetries: 1
 
 | Protección | Estado stock | Evidencia / hueco |
 |---|---|---|
-| system prompt | **Satisfecha estructuralmente** | el system se pasa **aparte** del span (`dsh-compaction-basic/lib/index.js:294`, `...input.system === undefined ? {} : { system: input.system }`); lo compactado son `input.messages` |
-| tool calls/results **en vuelo** | **Satisfecha estructuralmente** | `compactRegion` exige fronteras balanceadas: `toolPairingBalancedBefore/After` (`:525-526`, mensaje literal "would split a step, or the step is still open"); la selección también ajusta la frontera (`:393`) |
+| system prompt | **Satisfecha estructuralmente** | el system se pasa **aparte** del span (`dsh-compaction-basic/lib/index.js:296`, `...input.system === undefined ? {} : { system: input.system }`); lo compactado son `input.messages` |
+| tool calls/results **en vuelo** | **Satisfecha estructuralmente** | `compactRegion` exige fronteras balanceadas: `toolPairingBalancedBefore/After` (`:527-528`, mensaje literal "would split a step, or the step is still open"); la selección también ajusta la frontera (`:395`) |
 | **últimas 5 vueltas** | **NO satisfecha** | la cola no es por vueltas sino por tokens: `selectCompactableRange` acumula hasta `retainTokens` (`:379-397`). A 1M eso son **120.000 tokens** de cola, que pueden ser más o menos de 5 vueltas |
 | **mensaje de usuario actual** | **No cubierta como regla propia** | se protege de rebote por la frontera balanceada + el tamaño de la cola; no hay guarda explícita "el mensaje en curso no entra" |
 | **errores literales** | **NO satisfecha** | ver §3.D: el pruner no lee `isError` |
@@ -355,10 +355,10 @@ Detalle y criterio de aceptación: §4 (Fase 0).
 
 | Camino | Sitio exacto | Tipo de error | ¿Se captura? | Efecto real |
 |---|---|---|---|---|
-| **Proporción, en LOAD** | `validateRatioRetention` definida en `$DSH_NM/dsh-compaction-basic/lib/index.js:134`, **throw en la línea `:135`** | **`Error` normal** (NO `TargetPressureConfigError`) | **NO.** El `instanceof` de `:786` no lo cubre, y ese listener ni siquiera existe todavía durante la construcción | **Fatal** |
-| **Capacidad por modelo, en RUNTIME** | `resolveCompactSpec` `:108` y **`:111`**, invocado desde `compactIfNeeded` en `:882` | `TargetPressureConfigError` | **SÍ.** `agent/pre-step` (`:781-792`) captura con `instanceof TargetPressureConfigError` en **`:786`**, registra **un** `warn` por `targetKey` (`warnedPressureConfigTargets`, `:763`, `:787-791`) y hace `next()` | **Warning-only.** Compactación desactivada para esa ruta, con una sola línea de log |
-| Sin capacidad de contexto | `:881` | `TargetPressureConfigError` | Igual que el anterior | Warning-only |
-| Overflow | `compactIfNeeded` `:815-824` | cualquiera | **SÍ**, pero **sin** el caso especial de `:786` | Warning-only (solo `warn`) |
+| **Proporción, en LOAD** | `validateRatioRetention` definida en `$DSH_NM/dsh-compaction-basic/lib/index.js:134`, **throw en la línea `:135`** | **`Error` normal** (NO `TargetPressureConfigError`) | **NO.** El `instanceof` de `:787` no lo cubre, y ese listener ni siquiera existe todavía durante la construcción | **Fatal** |
+| **Capacidad por modelo, en RUNTIME** | `resolveCompactSpec` `:108` y **`:113`**, invocado desde `compactIfNeeded` en `:883` | `TargetPressureConfigError` | **SÍ.** `agent/pre-step` (`:781-792`) captura con `instanceof TargetPressureConfigError` en **`:787`**, registra **un** `warn` por `targetKey` (`warnedPressureConfigTargets`, `:764`, `:788-792`) y hace `next()` | **Warning-only.** Compactación desactivada para esa ruta, con una sola línea de log |
+| Sin capacidad de contexto | `:882` | `TargetPressureConfigError` | Igual que el anterior | Warning-only |
+| Overflow | `compactIfNeeded` `:815-824` | cualquiera | **SÍ**, pero **sin** el caso especial de `:787` | Warning-only (solo `warn`) |
 
 **Cadena del caso fatal, paso a paso.** `resolveConfig` (`:58`) llama a `validateRatioRetention` en **`:64`** (defaults) y **`:66`** (cada `modelPolicies[i]`). `resolveConfig` se ejecuta en el **constructor** del motor (`:769`), es decir **dentro del body del plugin**. Cuando lanza:
 
@@ -368,12 +368,12 @@ Detalle y criterio de aceptación: §4 (Fase 0).
 
 Es decir: **un throw en la resolución de config de un plugin no tumba solo la entrada del plugin — tumba el árbol entero** y devuelve la app a Safe Mode. **No es inferencia: es el precedente ya registrado en este repo** (`3ddbe73`): *"The loader failed the entry (`failed to apply loader entry abaco-context`) and the throw took the whole plugin tree down with it, which is why the app fell back to Safe Mode instead of booting."*
 
-**¿Aplica a la policy bloqueada 0.90/0.12?** **No.** `validateRatioRetention(0.90, { retainRatio: 0.12 }, …)` evalúa `0.12 >= 0.90` → falso → no lanza. Y como se usan **ratios** (no un `retainTokens` absoluto), `retainTokens` < `thresholdTokens` se cumple para todo window, así que el throw de runtime `:111` es **inalcanzable** con esta policy. La policy del lock es segura en ambos caminos. ✅
+**¿Aplica a la policy bloqueada 0.90/0.12?** **No.** `validateRatioRetention(0.90, { retainRatio: 0.12 }, …)` evalúa `0.12 >= 0.90` → falso → no lanza. Y como se usan **ratios** (no un `retainTokens` absoluto), `retainTokens` < `thresholdTokens` se cumple para todo window, así que el throw de runtime `:113` es **inalcanzable** con esta policy. La policy del lock es segura en ambos caminos. ✅
 
 **Mitigación (obligatoria para la tarea de implementación):**
 
 1. **Validar la proporción antes de escribir la config** — chequeo estático `retainRatio < thresholdRatio` sobre la fila que se va a escribir, y sobre cada `modelPolicies` **incluyendo la herencia** (ver §8.8). Un valor inválido debe fallar en el repo, no al arrancar la app.
-2. **Nunca usar `retainTokens` absoluto.** Un absoluto depende del window del modelo enrutado y puede cruzar `:111` sin que nadie lo note hasta el primer turno largo.
+2. **Nunca usar `retainTokens` absoluto.** Un absoluto depende del window del modelo enrutado y puede cruzar `:113` sin que nadie lo note hasta el primer turno largo.
 3. **No envolver el constructor a ciegas.** Envolver un `throw` de config en un `try/catch` que lo degrade a warning convertiría un error de configuración en "compactación desactivada en silencio" — exactamente lo que el criterio de done 6 y la telemetría de §8.5 prohíben.
 4. **Test que fije la regla**: la fila del preset debe cumplir `retainRatio < thresholdRatio` (valores del lock: `0.12 < 0.90`).
 
@@ -408,11 +408,11 @@ Es decir: **un throw en la resolución de config de un plugin no tumba solo la e
 
 **Nota sobre el 8192 vs el 16384 del archivo muerto.** El comentario del preset descartado (`agent.cordis.yml:188-191`) argumentaba que `8192` trunca resúmenes en spans grandes y por eso subió a 16384. Con el lock, a 1M el tramo a resumir es ≈ `900.000 − 120.000 = 780.000` tokens para un resumen de ≤8192 (≈**95:1**). **Esto es un riesgo de calidad, no de seguridad, y el lock no lo reabre** (R12): se vigila con la alerta `used_after` y con el criterio de done 5, y **no** se corrige bajando el umbral (§8.6.6). Queda constancia del hallazgo, no una propuesta de cambio.
 
-**¿Hace falta `modelPolicies`?** **Hoy no** — la ruta por defecto tiene 1M y sobran 100.000 tokens de aire; el resumen cabe 12 veces. `modelPolicies` **existe y es la herramienta correcta** (`:64`, `:83-98`) si algún día se enruta un modelo de ventana pequeña, pero **como guarda preventiva, no como sustituto del 0.90**:
+**¿Hace falta `modelPolicies`?** **Hoy no** — la ruta por defecto tiene 1M y sobran 100.000 tokens de aire; el resumen cabe 12 veces. `modelPolicies` **existe y es la herramienta correcta** (`:66`, `:85-100`) si algún día se enruta un modelo de ventana pequeña, pero **como guarda preventiva, no como sustituto del 0.90**:
 
 > **Regla: 0.90 se queda global. `modelPolicies` solo se usa para fijar un valor propio donde 0.90 no quepa, y nunca baja el global sin preguntar.**
 
-**Trampa crítica si se usa `modelPolicies`** (deriva del Punto A): la herencia de retención es por **ratio**, no por modelo. `resolveTargetPolicy` construye `inheritedRetention = { retainRatio: config.retainRatio }` (`:85`) y lo aplica al override (`:92`); luego `resolveConfig` valida **cada** override contra el ratio heredado con `validateRatioRetention(policy.thresholdRatio ?? thresholdRatio, resolveRetention(policy, retention), …)` (`:66`). Consecuencia: **un `modelPolicies` con `thresholdRatio: 0.10` y sin `retainRatio` explícito lanza el `Error` fatal de `:135` al cargar** (0.12 ≥ 0.10) y se lleva el árbol por delante (R11). Un override para ventana pequeña debe:
+**Trampa crítica si se usa `modelPolicies`** (deriva del Punto A): la herencia de retención es por **ratio**, no por modelo. `resolveTargetPolicy` construye `inheritedRetention = { retainRatio: config.retainRatio }` (`:87`) y lo aplica al override (`:94`); luego `resolveConfig` valida **cada** override contra el ratio heredado con `validateRatioRetention(policy.thresholdRatio ?? thresholdRatio, resolveRetention(policy, retention), …)` (`:66`). Consecuencia: **un `modelPolicies` con `thresholdRatio: 0.10` y sin `retainRatio` explícito lanza el `Error` fatal de `:135` al cargar** (0.12 ≥ 0.10) y se lleva el árbol por delante (R11). Un override para ventana pequeña debe:
 1. mantener `thresholdRatio > 0.12`, **o**
 2. declarar también su propio `retainRatio` menor.
 
@@ -433,7 +433,7 @@ Cambios aplicados en este mismo documento para que no haya dos versiones de la v
 | §3.D | "errores literales" | + "**nunca se resumen ni se suavizan**" (textual del lock) |
 | §4 Fase 0 | campos `tokensBefore`, `checkpointChars`… | **campos mínimos del lock** + **carga de la policy** + **2 alertas obligatorias** (no bajó `used`; motor desactiva compactación) |
 | §5 fila 4 | A "bloqueado por decisión de producto (90% vs 60%)" | A **desbloqueado** por el lock; sigue condicionado por la telemetría |
-| §6 R5 | `TargetPressureConfigError` "solo registra un warning" | **Corregido**: warning-only **solo** en runtime por capacidad de modelo (`:786`); la proporción en load es **fatal** |
+| §6 R5 | `TargetPressureConfigError` "solo registra un warning" | **Corregido**: warning-only **solo** en runtime por capacidad de modelo (`:787`); la proporción en load es **fatal** |
 | §6 | (no existía) | **R11** (load fatal) y **R12** (span ~780k vs resumen 8192) añadidos |
 | §7 | `contextWindow` en "[NO VERIFICADO]" | **VERIFICADO = 1.000.000**; también cerrado el camino de overflow |
 | §9 / §10 | numeradas 8 y 9 | renumeradas (este §8 se inserta) |
