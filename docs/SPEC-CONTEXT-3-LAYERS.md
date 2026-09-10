@@ -258,7 +258,7 @@ Origen: `docs/PLAN-TRABAJO.md:85-90` y `:126-129`.
 - **El `contextWindow` del modelo enrutado** — **VERIFICADO**: `1_000_000` tokens. Ver §8.8.
 - **Si el camino de overflow pasa por el pruner o por la validación de proporción** — **VERIFICADO**: `compactIfNeeded` con `trigger === "context-overflow"` (`$DSH_NM/dsh-compaction-basic/lib/index.js:869-877`) **sí** llama a `prune.pruneSession` (`:871`) pero **nunca** llama a `resolveCompactSpec`: usa `selectCompactableRange(..., 0)` y compacta. Es decir, el overflow **salta** el umbral y la validación de proporción por completo; la conclusión de §3.D se mantiene (hay que verificar aparte la guarda de `isError` en esa ruta).
 
-**Método de comprobación propuesto para (a)–(e):** arrancar la app con la telemetría de fase 0 instalada, escribir una entrada real vía `abaco_memory_set`, y observar el system prompt ensamblado; para (a), inspeccionar los servicios del realm con el Inspect Provider antes de escribir código.
+**Método de comprobación propuesto para (a)–(d):** arrancar la app con la telemetría de fase 0 instalada, escribir una entrada real vía `abaco_memory_set`, y observar el system prompt ensamblado; para (a), inspeccionar los servicios del realm con el Inspect Provider antes de escribir código.
 
 ---
 
