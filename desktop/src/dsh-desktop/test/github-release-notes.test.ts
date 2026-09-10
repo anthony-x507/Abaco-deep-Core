@@ -22,7 +22,7 @@ async function work(): Promise<string> {
 
 const run = (args: string[]) => execFile('python3', [script, ...args], { cwd: projectRoot, timeout: 20_000 })
 
-const VALID = `# DSH Desktop v9.9.9 — 测试主题
+const VALID = `# ABACO DEEP HARNES v9.9.9 — 测试主题
 
 ## 更新内容
 
@@ -46,7 +46,7 @@ describe('github_release_notes build-prompt', () => {
     for (const tag of ['<commit-details>', '<diff-statistics>', '<code-diff>', '<style-reference>']) {
       expect(prompt).toContain(tag)
     }
-    expect(prompt).toContain('# DSH Desktop v9.9.9 — ')
+    expect(prompt).toContain('# ABACO DEEP HARNES v9.9.9 — ')
     expect(prompt).toContain('## 更新内容')
     expect(prompt).toContain('## 问题修复')
     expect(prompt).toContain('## 升级说明')
@@ -65,7 +65,7 @@ describe('github_release_notes validate', () => {
   it('rejects a wrong title prefix, a stray H2, a link, and an empty file', async () => {
     const dir = await work()
     const cases: Record<string, string> = {
-      'bad-title.md': VALID.replace('# DSH Desktop v9.9.9 — 测试主题', '# Something else'),
+      'bad-title.md': VALID.replace('# ABACO DEEP HARNES v9.9.9 — 测试主题', '# Something else'),
       'stray-h2.md': `${VALID}\n## 内部重构\n\n- x\n`,
       'link.md': VALID.replace('一条面向用户的改进。', '见 https://github.com/x/y/pull/1'),
       'empty.md': ''
@@ -84,7 +84,7 @@ describe('github_release_notes generate-fallback', () => {
     const file = path.join(dir, 'fb.md')
     await run(['generate-fallback', '--tag', 'v9.9.9', '--output', file])
     const body = await readFile(file, 'utf8')
-    expect(body.startsWith('# DSH Desktop v9.9.9 — ')).toBe(true)
+    expect(body.startsWith('# ABACO DEEP HARNES v9.9.9 — ')).toBe(true)
     expect(body).toContain('## 更新内容')
     await expect(run(['validate', '--tag', 'v9.9.9', '--input', file])).resolves.toBeDefined()
   })

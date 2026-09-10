@@ -179,12 +179,12 @@ describe('LAN mobile page', () => {
     const tunnelZh = renderMobileReconnectPage('zh', 'tunnel')
     expect(zh).toContain('连接已断开')
     expect(zh).toContain('href="/reconnect">重新连接')
-    expect(zh).toContain('请确保手机和电脑连接到同一 Wi-Fi。点击重新连接后，在电脑上的 DSH Desktop 中允许此手机。')
+    expect(zh).toContain('请确保手机和电脑连接到同一 Wi-Fi。点击重新连接后，在电脑上的 ABACO DEEP HARNES 中允许此手机。')
     expect(zh).not.toContain('class="approval"')
     expect(zh).not.toContain('class="network"')
     expect(zh).not.toContain('class="symbol"')
     expect(en).toContain('Connection lost')
-    expect(tunnelZh).toContain('点击重新连接，然后在电脑上的 DSH Desktop 中允许此移动设备。')
+    expect(tunnelZh).toContain('点击重新连接，然后在电脑上的 ABACO DEEP HARNES 中允许此移动设备。')
     expect(tunnelZh).not.toContain('连接到同一 Wi-Fi')
     for (const html of [zh, en]) {
       expect(html).toContain('prefers-color-scheme:dark')
@@ -278,7 +278,7 @@ describe('LAN mobile page', () => {
     expect(phone).toContain('id="retry" class="retry"')
     expect(phone).toContain("fetch('/pair/retry'")
     expect(phone).toContain('Request approval again')
-    expect(phone).toContain('Cannot reach the desktop. Start DSH Desktop and try again.')
+    expect(phone).toContain('Cannot reach the desktop. Start ABACO DEEP HARNES and try again.')
     expect(phone).toContain("location.replace('/')")
     expect(phone).not.toContain("location.href='/'")
   })
@@ -448,9 +448,9 @@ describe('LAN mobile page', () => {
     expect(desktop).toContain('id="copyBtn"')
     expect(desktop).toContain('id="copyTip"')
     expect(desktop).not.toContain('id="copyToast"')
-    expect(phone).toContain('请在 DSH Desktop 中确认连接请求。')
+    expect(phone).toContain('请在 ABACO DEEP HARNES 中确认连接请求。')
     expect(phone).toContain('再次发起申请')
-    expect(phone).toContain('暂时无法连接桌面端，请先启动 DSH Desktop。')
+    expect(phone).toContain('暂时无法连接桌面端，请先启动 ABACO DEEP HARNES。')
   })
 
   it('renders a compact management state when a phone is already connected', () => {
@@ -463,7 +463,7 @@ describe('LAN mobile page', () => {
     })
     expect(desktop).toContain('class="phone-connected manage-connected"')
     expect(desktop).toContain('Manage phone connection')
-    expect(desktop).toContain('Your phone is currently connected to DSH Desktop.')
+    expect(desktop).toContain('Your phone is currently connected to ABACO DEEP HARNES.')
     expect(desktop).toContain('.manage-connected .connection-hint,.manage-connected .done{display:none}')
     expect(desktop).toContain(
       'onclick="switchMode(false)" disabled>WiFi Connection Mode</button>'

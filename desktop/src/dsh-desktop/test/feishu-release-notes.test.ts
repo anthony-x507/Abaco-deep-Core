@@ -60,10 +60,10 @@ describe('Feishu release notes pipeline', () => {
         env: pythonEnv
       })
 
-      expect(output).toContain("You are DSH Desktop's Release Bot.")
-      expect(output).toContain('## DSH Desktop v0.4.0 Release Note')
+      expect(output).toContain("You are ABACO DEEP HARNES's Release Bot.")
+      expect(output).toContain('## ABACO DEEP HARNES v0.4.0 Release Note')
       expect(output).toContain('📢 大家可以直接在客户端中更新。')
-      expect(output).toContain('📢 You can update directly from the DSH Desktop app.')
+      expect(output).toContain('📢 You can update directly from the ABACO DEEP HARNES app.')
       expect(output).toContain('<tag-release-note>')
       expect(output).toContain('<commit-details>')
       expect(output).toContain('<diff-statistics>')
@@ -81,9 +81,9 @@ describe('Feishu release notes pipeline', () => {
       })
 
       const content = readFileSync(tempFile, 'utf8')
-      expect(content).toContain('## DSH Desktop v0.4.0 Release Note')
+      expect(content).toContain('## ABACO DEEP HARNES v0.4.0 Release Note')
       expect(content).toContain('📢 大家可以直接在客户端中更新。')
-      expect(content).toContain('📢 You can update directly from the DSH Desktop app.')
+      expect(content).toContain('📢 You can update directly from the ABACO DEEP HARNES app.')
       expect(content).toContain('---')
 
       // Validate passes without error
@@ -150,7 +150,7 @@ Description here.
       )
 
       const content = readFileSync(tempFile, 'utf8')
-      expect(content).toContain('## DSH Desktop v0.7.2（预发布）Release Note')
+      expect(content).toContain('## ABACO DEEP HARNES v0.7.2（预发布）Release Note')
       expect(content).toContain('⚠️ 本次为预发布版本，供测试与体验使用。')
       expect(content).toContain('⚠️ This is a pre-release version for testing and preview.')
       expect(content).toContain('---')
@@ -191,7 +191,7 @@ Description here.
       )
 
       expect(output).toContain("user-facing pre-release copy")
-      expect(output).toContain('## DSH Desktop v0.7.2（预发布）Release Note')
+      expect(output).toContain('## ABACO DEEP HARNES v0.7.2（预发布）Release Note')
       expect(output).toContain('⚠️ 本次为预发布版本，供测试与体验使用。')
       expect(output).toContain('⚠️ This is a pre-release version for testing and preview.')
       expect(output).toContain('Previous tag: v0.7.1')

@@ -29,13 +29,13 @@ ABACO DEEP HARNES packages the local DeepSeek Harness experience as an installed
 
 ## Download
 
-Download ABACO DEEP HARNES for macOS and Windows from the [GitHub Releases page](https://github.com/anthony-x507/Abaco-deep-Harnes/releases).
+Download ABACO DEEP HARNES for macOS and Windows from the [GitHub Releases page](https://github.com/anthony-x507/Abaco-deep-Core/releases).
 
 Installed builds check for updates shortly after startup and every six hours. When a new version is available, ABACO DEEP HARNES asks before downloading it; installation begins only after you choose **Restart and install**. You can also check manually from the application menu or skip one version without hiding future releases.
 
 ## Sync across your Macs
 
-ABACO DEEP HARNES ships with optional cloud sync so the same login, presets, sessions and Cordis plugins roam across every Mac you sign in on. The sync backend lives in this repo's `services/` folder and deploys to Fly.io; see [docs/sync.md](docs/sync.md) (TODO) for setup.
+ABACO DEEP HARNES ships with optional cloud sync so the same login, presets, sessions and Cordis plugins roam across every Mac you sign in on. The sync backend is planned for a Fly.io deployment; see [packages/abaco-cloud-sync/README.md](packages/abaco-cloud-sync/README.md) for the tier design and current status.
 
 ## ABACO plugins (`packages/abaco-*`)
 

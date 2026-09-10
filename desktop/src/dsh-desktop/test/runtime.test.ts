@@ -214,7 +214,7 @@ describe('Harness launch contract', () => {
         },
         execArgv: ['--expose-internals'],
         stdio: 'pipe',
-        serviceName: 'DSH Harness',
+        serviceName: 'ABACO HARNES',
         disclaim: true
       }
     })

@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest'
 const projectRoot = path.resolve(import.meta.dirname, '..')
 
 const releaseAssets = [
-  'dsh-desktop-mac-arm64.dmg',
-  'dsh-desktop-mac-x64.dmg',
-  'dsh-desktop-windows-x64-setup.exe'
+  'abaco-deep-harnes-mac-arm64.dmg',
+  'abaco-deep-harnes-mac-x64.dmg',
+  'abaco-deep-harnes-windows-x64-setup.exe'
 ]
 
 describe('GitHub release contract', () => {
@@ -158,7 +158,7 @@ describe('GitHub release contract', () => {
       'utf8'
     )
 
-    expect(packageJson.build.artifactName).toBe('dsh-desktop-${os}-${arch}.${ext}')
+    expect(packageJson.build.artifactName).toBe('abaco-deep-harnes-${os}-${arch}.${ext}')
     expect(packageJson.build.extraResources).toContainEqual({
       from: 'build/app-icon.png',
       to: 'icon.png'
@@ -194,7 +194,7 @@ describe('GitHub release contract', () => {
       to: 'dsh-desktop-safe.patch.yml'
     })
     expect(packageJson.build.nsis.artifactName).toBe(
-      'dsh-desktop-windows-${arch}-setup.${ext}'
+      'abaco-deep-harnes-windows-${arch}-setup.${ext}'
     )
     expect(packageJson.build.nsis.include).toBe('build/installer.nsh')
     expect(packageJson.build.win.target).toEqual([{ target: 'nsis', arch: ['x64'] }])
@@ -237,7 +237,7 @@ describe('GitHub release contract', () => {
     expect(main).toContain('await showSplash()')
     expect(main).toContain("query: { theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light' }")
     expect(main).toContain('nativeTheme.themeSource = harnessThemePreference()')
-    expect(splash).toContain('Starting DSH Desktop')
+    expect(splash).toContain('Starting ABACO DEEP HARNES')
     expect(splash).toContain('src="dsh-loader.gif"')
     expect(splash).toContain('src="dsh-loader-dark.gif"')
     expect(splash).toContain("document.documentElement.dataset.theme = splashTheme === 'dark'")
@@ -279,7 +279,14 @@ describe('GitHub release contract', () => {
     ) as {
       dependencies: Record<string, string>
       build: {
-        publish: Array<{ provider: string; url?: string; owner?: string; repo?: string }>
+        publish: Array<{
+          provider: string
+          url?: string
+          owner?: string
+          repo?: string
+          channel?: string
+          useMultipleRangeRequest?: boolean
+        }>
         win: { verifyUpdateCodeSignature: boolean }
       }
     }
@@ -290,7 +297,12 @@ describe('GitHub release contract', () => {
 
     expect(packageJson.dependencies['electron-updater']).toBeTruthy()
     expect(packageJson.build.publish).toEqual([
-      { provider: 'generic', url: 'https://dshdesktop.com/updates/latest/' }
+      {
+        provider: 'generic',
+        url: 'https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download',
+        channel: 'latest',
+        useMultipleRangeRequest: false
+      }
     ])
     expect(packageJson.build.win.verifyUpdateCodeSignature).toBe(false)
     for (const asset of [
@@ -298,9 +310,9 @@ describe('GitHub release contract', () => {
       'latest-mac-x64.yml',
       'latest-mac.yml',
       'latest.yml',
-      'dsh-desktop-mac-arm64.zip.blockmap',
-      'dsh-desktop-mac-x64.zip.blockmap',
-      'dsh-desktop-windows-x64-setup.exe.blockmap'
+      'abaco-deep-harnes-mac-arm64.zip.blockmap',
+      'abaco-deep-harnes-mac-x64.zip.blockmap',
+      'abaco-deep-harnes-windows-x64-setup.exe.blockmap'
     ]) {
       expect(workflow).toContain(asset)
     }
@@ -350,18 +362,18 @@ describe('GitHub release contract', () => {
     expect(packageJson.scripts['package:dev:win']).toContain('verify-target.mjs win32 x64')
     expect(packageJson.scripts['package:dev:win']).toContain('electron-builder.dev.cjs')
     expect(packageJson.scripts['package:dev:win']).toContain('--publish never')
-    expect(developmentConfig).toContain("appId: 'io.dsh.desktop.dev'")
-    expect(developmentConfig).toContain("productName: 'DSH Desktop Dev'")
+    expect(developmentConfig).toContain("appId: 'io.abaco.deepcore.dev'")
+    expect(developmentConfig).toContain("productName: 'ABACO DEEP HARNES Dev'")
     expect(developmentConfig).toContain("output: 'dist-dev'")
     expect(developmentConfig).toContain("dshDesktopChannel: 'development'")
     expect(developmentConfig).toContain(
-      "artifactName: 'dsh-desktop-dev-${os}-${arch}.${ext}'"
+      "artifactName: 'abaco-deep-harnes-dev-${os}-${arch}.${ext}'"
     )
     expect(developmentConfig).toContain(
-      "artifactName: 'dsh-desktop-dev-windows-${arch}-setup.${ext}'"
+      "artifactName: 'abaco-deep-harnes-dev-windows-${arch}-setup.${ext}'"
     )
-    expect(main).toContain("app.setPath('userData', join(app.getPath('appData'), 'dsh-desktop-dev'))")
-    expect(main).toContain("app.setPath('userData', join(app.getPath('appData'), 'dsh-desktop'))")
+    expect(main).toContain("app.setPath('userData', join(app.getPath('appData'), 'abaco-deep-core-dev'))")
+    expect(main).toContain("app.setPath('userData', join(app.getPath('appData'), 'abaco-deep-core'))")
     expect(main).toContain('if (!developmentBuild)')
     expect(targetVerifier).toContain("resolve('node_modules', 'node', 'bin', executable)")
     expect(targetVerifier).toContain('Bundled Node.js runtime was not found or is not executable')
@@ -384,7 +396,7 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('$executable = Join-Path $isolatedApp $sourceExecutable.Name')
     expect(workflow).toContain('-WorkingDirectory $isolatedApp')
     expect(workflow).toContain('Packaged koffi native binding failed.')
-    expect(workflow).toContain("'dist-dev\\win-unpacked\\DSH Desktop Dev.exe'")
+    expect(workflow).toContain("'dist-dev\\win-unpacked\\ABACO DEEP HARNES Dev.exe'")
     expect(workflow).toContain('if (-not [string]::IsNullOrEmpty($log))')
     expect(workflow).toContain("dsh web: (http://127\\.0\\.0\\.1:\\d+/\\?token=[^\\s]+)")
     expect(workflow).toContain('-SessionVariable harnessSession')
@@ -397,7 +409,7 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('prerelease_tag:')
     expect(workflow).toContain('--prerelease')
     expect(workflow).toContain('name: windows-x64-dev')
-    expect(workflow).toContain('dist-dev/dsh-desktop-dev-windows-x64-setup.exe')
+    expect(workflow).toContain('dist-dev/abaco-deep-harnes-dev-windows-x64-setup.exe')
     for (const asset of releaseAssets) expect(workflow).toContain(asset)
     expect(
       workflow.match(
@@ -464,7 +476,7 @@ describe('GitHub release contract', () => {
     )
   })
 
-  it('routes the published download through the official website', async () => {
+  it('routes the published download through the fork GitHub Releases page', async () => {
     const readmes = await Promise.all(
       ['README.md', 'README.zh.md'].map((file) =>
         readFile(path.join(projectRoot, file), 'utf8')
@@ -472,7 +484,9 @@ describe('GitHub release contract', () => {
     )
 
     for (const readme of readmes) {
-      expect(readme).toContain('https://www.dshdesktop.com/#download')
+      expect(readme).toContain(
+        'https://github.com/anthony-x507/Abaco-deep-Core/releases'
+      )
       expect(readme).not.toContain('| Platform | Package | Download |')
       expect(readme).not.toContain('| 平台 | 安装包 | 下载 |')
       expect(readme).not.toContain('Coming soon')

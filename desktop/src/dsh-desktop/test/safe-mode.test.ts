@@ -41,7 +41,7 @@ describe('Safe Mode', () => {
       applyLabel: 'Remove selected plugins',
       agentLabel: 'Close',
       restartLabel: 'Exit Safe Mode and restart',
-      quitLabel: 'Quit DSH Desktop'
+      quitLabel: 'Quit ABACO DEEP HARNES'
     })
   })
 

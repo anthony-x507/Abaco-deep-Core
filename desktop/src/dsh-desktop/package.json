@@ -1,6 +1,6 @@
 {
   "name": "abaco-deep-harnes",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "ABACO DEEP HARNES — the ABACO desktop shell and agent harness client (cross-platform).",
   "private": true,
   "type": "module",
@@ -9,12 +9,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anthony-x507/Abaco-deep-Harnes.git"
+    "url": "git+https://github.com/anthony-x507/Abaco-deep-Core.git"
   },
   "bugs": {
-    "url": "https://github.com/anthony-x507/Abaco-deep-Harnes/issues"
+    "url": "https://github.com/anthony-x507/Abaco-deep-Core/issues"
   },
-  "homepage": "https://github.com/anthony-x507/Abaco-deep-Harnes#readme",
+  "homepage": "https://github.com/anthony-x507/Abaco-deep-Core#readme",
   "keywords": [
     "abaco",
     "harnes",

