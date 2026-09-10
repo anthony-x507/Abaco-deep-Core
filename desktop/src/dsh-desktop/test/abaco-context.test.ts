@@ -657,7 +657,11 @@ describe('abaco-context: the shipped composition', () => {
     const list = await rows()
     const compaction = find(list, 'compaction-basic')
     expect(compaction?.name).toBe('@deepseek-ai/dsh-compaction-basic')
-    expect(compaction?.config).toEqual({ thresholdRatio: 0.6, retainRatio: 0.08, maxTokens: 16384 })
+    // The owner-locked ABACO policy: 0.90 / 0.12 / 8192. It replaced the
+    // earlier 0.60 / 0.08 / 16384 that this assertion used to pin; stock is
+    // 0.80 / 0.16 / 8192. Treating these as engine defaults is the mistake this
+    // test exists to prevent.
+    expect(compaction?.config).toEqual({ thresholdRatio: 0.9, retainRatio: 0.12, maxTokens: 8192 })
 
     // `retainTokens` is an absolute budget validated per routed model at first
     // use; a fixed value silently disables compaction on any smaller window.
