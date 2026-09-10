@@ -144,6 +144,8 @@ En el perfil **de ABACO** (`$DSH_HOME` = `…/abaco-deep-core/harness`), `.agent
 > **Corrección de un dato falso (retirado en este commit).** Una versión anterior de este documento afirmaba: *"`$DSH_HOME/settings.yaml:11-12` dice `default: cordis`"*. **Era falso, y era el perfil equivocado.** `default: cordis` existe, sí, pero en `/Users/a507/Library/Application Support/dsh-desktop/harness/settings.yaml:11-12` — el perfil de la app **DeepSeek Desktop**, que no es ABACO. Se corrige porque este documento se envía a un arquitecto externo y no puede llevar datos falsos. Ver **R13** (§4.9).
 >
 > **Nota de verificabilidad:** como el perfil de ABACO se borró después, el contenido exacto de su `settings.yaml` **ya no se puede re-comprobar en disco** — solo consta por lectura directa en el momento de la auditoría. Esa es precisamente la razón por la que la confusión con el otro perfil se repite: el archivo que sí se puede abrir hoy (`dsh-desktop`) contiene justo el dato que el de ABACO no tenía.
+>
+> ⚠️ **La spec dice hoy lo contrario, y hay que leerlo.** `docs/SPEC-CONTEXT-3-LAYERS.md:66` afirma que *"`settings.yaml` **SÍ** tiene la clave `agent-presets`: `$DSH_HOME/settings.yaml:11-12` → `default: cordis`"*, presentándolo como corrección a una auditoría anterior; y `:251` añade que *"`$DSH_HOME` real es `…/dsh-desktop/harness`"*. Las dos lecturas **no pueden ser ciertas a la vez**: la que corresponde al perfil que **sí** existe es la de `dsh-desktop`, que no es ABACO. Queda registrado como **D-5** en `docs/COLLABORATOR-CRITERIA.md` §13.3, **sin resolver** y sin tocar la spec en esta revisión.
 
 ### 4.6 La capa 2 está vacía
 
