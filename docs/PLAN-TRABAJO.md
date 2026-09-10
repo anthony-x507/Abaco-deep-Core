@@ -38,17 +38,18 @@
 ## 2. TRABAJO EN CURSO (subagentes activos)
 | Frente | Estado | Subagente |
 |---|---|---|
-| **F2 Browser**: chrome completa (atajos, estado carga, takeover) + **decoder __ABACO_REC__** (grabación real de acciones) | Corriendo | `1505d014` |
-| **Iconos ABACO**: regenerar .icns/.png desde logo.svg (los actuales pueden tener arte DeepSeek) | Corriendo | `14ca6bc5` |
+| **F2 Browser**: chrome completa (atajos, estado carga, takeover) + **decoder __ABACO_REC__** (grabación real) | Corriendo (recorder + test creados; 2 tests pendientes) | `1505d014` |
+| **Memoria durable (Capa 2)**: plugin `abaco-memory` — tools memory_set/get/forget + inyección vía system-prompt | Corriendo (paquete iniciado) | `679b225d` |
 
 ### Completado en sesión reciente
 | Commit | Qué |
 |---|---|
-| `99ad6c9` | **F1 Browser**: tools del agente (navigate/click/type/read_dom/wait_for/state/screenshot) vía RPC loopback (puerto efímero + bearer token, timingSafeEqual) inyectado al child del harness por env; page scripts para acciones; 22/22 tests; typecheck 0 errores |
-| `265d855` | **F0 Browser**: AbacoBrowserController (overlay WebContentsView, partición aislada), chrome bar child view, IPC con guard, global `window.dshAbacoBrowser`, launcher en `sidebar.footer.action` |
-| `4300f18` | **Diseño memoria 3 capas** (956 líneas): Capa 2 viable vía system-prompt section con text función (nunca compactada, sidecar); Capa 1 configurable por preset; Capa 3 spill activo con hueco en subagentes background |
-| `0f9d657` `456191b` `901ec71` | Plan durable + reglas de build críticas + package-lock regenerado |
-| — | **Rebuild verificado**: .app en ~/Desktop con identidad ABACO DEEP HARNES, 8 plugins (incl. agent-status + browser), chrome bar, `io.dsh.desktop`=0 |
+| `3e360a2` | **Iconos regenerados** (23 archivos): eran pixel-idénticos al render del commit inicial con paleta DeepSeek (`#7447EC` púrpura 3.09%, `#22D3EE` cian 0.87%, **0 px** del borde cálido ABACO). Ahora **0 px púrpura/cian** en todos los tamaños; regenerados icns/icns.iconset/icon-1024/app-icon/logo-light/dark + fork icon.ico + logo-wordmark (1200x1200→1200x360) |
+| `8f0d490` | README de brand actualizado + **defecto documentado de logo.svg**: el borde cálido `#D9A48B` NUNCA se renderiza porque `plate-right` (path espejado) se dibuja sin `transform` y tapa a `plate-left` (logo-wordmark.svg sí lo muestra, desplaza ±60). FIX PENDIENTE (opciones a/b/c) |
+| `99ad6c9` + `1cae3be` | **F1 Browser**: 7 tools del agente (navigate/click/type/read_dom/wait_for/state/screenshot) vía RPC loopback (puerto efímero + bearer token timingSafeEqual) inyectado al child por env; page scripts con polling; takeover gate; 22/22 tests; typecheck 0 |
+| `265d855` | **F0 Browser**: overlay WebContentsView (partición aislada), chrome bar child view, IPC con guard, global `window.dshAbacoBrowser`, launcher en `sidebar.footer.action` |
+| `4300f18` | **Diseño memoria 3 capas** (956 líneas) validado contra el motor |
+| `fbd0a8c` `0f9d657` `456191b` `901ec71` | Plan durable + reglas de build críticas + package-lock |
 
 ## 3. PENDIENTE — PLAN COMPLETO POR FASES
 
