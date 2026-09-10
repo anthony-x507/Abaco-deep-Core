@@ -15,10 +15,24 @@ Logo vectorial recreado a partir del render 3D original.
 |---|---|
 | `logo.svg` | Logo principal 480×480 para app icon y avatares. |
 | `logo-wordmark.svg` | Versión horizontal 1200×360 para headers, README, firmas. |
-| `icon.icns` | Bundle nativo macOS (no regenerado, usa el original). |
-| `icon.iconset/` | PNGs para icns en múltiples tamaños (no regenerados). |
-| `logo-light.png`, `logo-dark.png` | Versiones raster heredadas (opcional). |
-| `app-icon.png`, `icon-1024.png` | Assets legacy (opcional). |
+| `icon.icns` | Bundle nativo macOS (10 representaciones, 16→1024). **Regenerado desde `logo.svg`.** |
+| `icon.iconset/` | PNGs para icns en múltiples tamaños (16→1024 + @2x). **Regenerados desde `logo.svg`.** |
+| `logo-light.png`, `logo-dark.png` | Versiones raster 512×512 del mark transparente. **Regeneradas.** |
+| `app-icon.png`, `icon-1024.png` | Assets de icono (512 y 1024). **Regenerados.** |
+| `logo.svg.png` | Render PNG 480×480 del logo. **Regenerado.** |
+| `logo-wordmark.png` | Wordmark horizontal 1200×360 (aspecto nativo del SVG). |
+
+> **Nota (2026-09):** todos los raster se regeneraron desde `logo.svg` @HEAD porque
+> seguían siendo el render del **commit inicial** (pixel-idéntico, `meanAbsDiff 0.00`)
+> y arrastraban la paleta ajena de DeepSeek (`#7447EC` púrpura 3.09%, `#22D3EE` cian
+> 0.87%) con **cero** píxeles del borde cálido ABACO `#D9A48B`. Verificado 0 px
+> púrpura/cian tras la regeneración.
+>
+> **Defecto conocido de `logo.svg`:** el borde cálido `#D9A48B` **no se renderiza**
+> en `logo.svg` porque `plate-right` (mismo path espejado) se dibuja después **sin
+> `transform`** y tapa a `plate-left`. `logo-wordmark.svg` sí lo muestra porque
+> desplaza las caras ±60 (`translate(-60 0)` / `translate(60 0) scale(-1 1)`).
+> Fix propuesto: aplicar esos mismos desplazamientos en `logo.svg`.
 
 ## Tipografía
 
