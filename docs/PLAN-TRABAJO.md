@@ -38,14 +38,17 @@
 ## 2. TRABAJO EN CURSO (subagentes activos)
 | Frente | Estado | Subagente |
 |---|---|---|
-| **F1 Browser**: tools del agente (navigate/click/type/readDOM/screenshot) + RPC loopback main↔harness | Corriendo | `b1a41665` |
-| **Rebuild**: .app con AGENTE TRABAJANDO + navegador F0 (npm install + npm run build + unsigned) | Corriendo | `6d066af4` |
+| **F2 Browser**: chrome completa (atajos, estado carga, takeover) + **decoder __ABACO_REC__** (grabación real de acciones) | Corriendo | `1505d014` |
+| **Iconos ABACO**: regenerar .icns/.png desde logo.svg (los actuales pueden tener arte DeepSeek) | Corriendo | `14ca6bc5` |
 
 ### Completado en sesión reciente
 | Commit | Qué |
 |---|---|
-| `265d855` | **F0 Browser**: AbacoBrowserController (overlay WebContentsView, partición aislada persist:abaco-browser, chrome bar child view con URL/back/forward/reload/close), IPC `abaco:browser:*` con guard, global `window.dshAbacoBrowser`, launcher plugin en `sidebar.footer.action`, 16/16 tests |
-| `4300f18` | **Diseño memoria 3 capas** (956 líneas): Capa 2 viable vía system-prompt section con text función (nunca compactada, persiste sidecar); Capa 1 configurable por preset de agente; Capa 3 spill ya activo con hueco en output de subagentes background |
+| `99ad6c9` | **F1 Browser**: tools del agente (navigate/click/type/read_dom/wait_for/state/screenshot) vía RPC loopback (puerto efímero + bearer token, timingSafeEqual) inyectado al child del harness por env; page scripts para acciones; 22/22 tests; typecheck 0 errores |
+| `265d855` | **F0 Browser**: AbacoBrowserController (overlay WebContentsView, partición aislada), chrome bar child view, IPC con guard, global `window.dshAbacoBrowser`, launcher en `sidebar.footer.action` |
+| `4300f18` | **Diseño memoria 3 capas** (956 líneas): Capa 2 viable vía system-prompt section con text función (nunca compactada, sidecar); Capa 1 configurable por preset; Capa 3 spill activo con hueco en subagentes background |
+| `0f9d657` `456191b` `901ec71` | Plan durable + reglas de build críticas + package-lock regenerado |
+| — | **Rebuild verificado**: .app en ~/Desktop con identidad ABACO DEEP HARNES, 8 plugins (incl. agent-status + browser), chrome bar, `io.dsh.desktop`=0 |
 
 ## 3. PENDIENTE — PLAN COMPLETO POR FASES
 
