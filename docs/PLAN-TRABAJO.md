@@ -110,6 +110,25 @@ Diseño validado archivo:línea → `docs/DESIGN-memory-3layer.md` (956 líneas)
 5. Notarización (cola Apple puede tardar horas — incidente conocido)
 6. Release v0.3.x + docs
 
+#### Estado real de E (2026-09-09, v0.4.0)
+- [x] `npm install` + patch-package limpios (manifest prístino restaurado antes; ver regla de oro 10)
+- [x] **Build firmado arm64**: `npm run package:mac:arm64` → `dist/abaco-deep-harnes-mac-arm64.{dmg,zip}` + `latest-mac.yml`
+- [x] Info.plist verificado: `io.abaco.deepcore` / `ABACO DEEP HARNES` / `0.4.0`; firma `Developer ID Application: Anthony Sanchez (GKPMCWHU2H)`, hardened runtime, timestamp
+- [x] Contenido del .app verificado: 13 paquetes `abaco-*` (incluye `abaco-context` con `presets/abaco/`), las 3 filas nuevas en el `dsh-desktop.patch.yml` empaquetado, y las 3 deps en el manifest de `@deepseek-ai/dsh` dentro del .app (sin eso el perfil no resuelve)
+- [x] Suite completa: **95 ficheros / 898 tests / 0 fallos**, `tsc --noEmit` 0
+- [x] Release publicado: **v0.4.0** con dmg + zip + latest-mac.yml
+- [ ] **Notarización**: enviada (`xcrun notarytool submit /tmp/abaco-notarize-app.zip --keychain-profile abaco-notary`) → submission `7559ef09-16be-4af0-8807-e31522490938`. La cola de Apple lleva HORAS atascada (5 submissions previas siguen `In Progress`). Cuando acepte: `stapler staple` del .app + regenerar zip/dmg + reemplazar assets del release (misma versión).
+- [ ] Build x64 (no existe en este release; la máquina es arm64)
+- [ ] Firmar/notarizar requiere credenciales de `~/.zshrc` (APP_APP_SPECIFIC_PASSWORD) o el perfil de keychain `abaco-notary`
+- [ ] Deuda reportada y NO tocada (decisiones de producto): `release.yml:542,721` y `backfill-archive.yml:76` siguen usando el host `dshdesktop.com`; `MODELSCOPE_REPO_ID` publica pre-releases en el repo del autor upstream; el patch de preset-transfer abre `dshdesktop.com/preset/`; `serviceName` dice `ABACO HARNES` (sin DEEP); READMEs ja/ru/es/pt sin rebrandear.
+
+### G. LO QUE FALTA DE LA MEMORIA (Capa 1 motor y Capa 3 recall)
+- [ ] **Fase 3**: motor de compactación propio (`abaco-context` como subclase de `BasicCompactionEngine`): nunca compactar con turno abierto, máx. 1 compactación por tarea, sin `retainTokens=0` en overflow, plantilla de resumen propia. Hoy sólo la política por config está aplicada; el disparo lo gobierna el motor stock.
+- [ ] **Fase 0**: telemetría (`abaco-observability`) para poder VER compactaciones/spilleos/truncados antes de cambiar más cosas.
+- [ ] **Fase 5**: `context_recall` sobre `vault/index.jsonl` + eval con sesiones doradas.
+- [ ] **Fase 6**: consolidación LLM opcional + UI de memoria en `settings.section` + comando `/memory`.
+
+
 ### F. LIMPIEZA SISTEMA (para cuando el usuario pruebe builds)
 - Purgar registros LaunchServices fantasma: `/System/Library/Frameworks/CoreServices.framework/.../lsregister -u <ruta>` para rutas de builds borradas
 - NO borrar `~/Library/Application Support/dsh-desktop` (pertenece al DSH Desktop vanilla instalado, que aloja otra sesión)
