@@ -136,7 +136,7 @@ Se verificó lo que el encargo pedía comprobar, y el resultado es que **ambos l
 
 Conclusión: el colaborador pide vueltas, la spec pide vueltas y admite que el stock no las da, y el motor confirma que corta por tokens. **Es un requisito compartido frente a un hueco del motor, no una divergencia entre documentos.** La única precisión que añade el colaborador es la salida: *"Si el motor no tiene hooks: filtrar antes de llamar al summarizer."*
 
-### 13.3 Divergencias registradas (sin resolver)
+### 13.3 Divergencias registradas (D-1 resuelta; D-2 a D-5 abiertas)
 
 **D-1 — El orden: cablear 0.90/0.12 *antes* de la telemetría. — RESUELTA (por decisión, no por medición).**
 
@@ -172,7 +172,7 @@ Conclusión: el colaborador pide vueltas, la spec pide vueltas y admite que el s
 - **Spec (`SPEC:251`), "Correcciones a la auditoría recibida":** *"(1) `settings.yaml` **sí** contiene `agent-presets` (`:11-12`, `default: cordis`); [...] (3) **`$DSH_HOME` real es `…/dsh-desktop/harness`**, no `~/.dsh`."*
 - **Evidencia recogida hoy:** (a) `…/dsh-desktop/harness/settings.yaml:11-12` dice hoy `agent-presets: default: cordis` — **pero ese es el perfil de la app DeepSeek Desktop**, no el de ABACO; (b) `…/abaco-deep-core/` **no existe** hoy, y su `userData` está fijado a `abaco-deep-core` en el código de ABACO (`desktop/src/dsh-desktop/src/main/index.ts:533`, con la separación respecto de `dsh-desktop` explicada en `:523-533`); (c) el default de la composición es **`standard`** (`$DSH_NM/dsh-web-app/cordis.patch.yml:437-438`), el mismo valor que el propio plugin nombra como `REPLACED_DEFAULT` (`packages/abaco-context/index.js:81`).
 - **Lectura probable, dicha como hipótesis y no como veredicto:** la "corrección" de `SPEC:66`/**`:251`** parece haber leído el perfil **vecino** (`dsh-desktop`) y revertido así un hallazgo que era correcto — que en el perfil de ABACO la clave **faltaba**. Encaja con R13: los dos perfiles se confunden con facilidad. Si eso es cierto, la causa del Bug 2 es "**ausencia** de clave → default de composición (`standard`)", y no "valor explícito `cordis`"; y `SPEC:251(3)` sería incorrecto al afirmar que el `$DSH_HOME` real es el del shell upstream.
-- **Estado: abierto, y no lo resuelve este documento.** La spec **no se toca aquí** (queda fuera del alcance de esta revisión: solo se corrigieron el handoff y este documento). Requiere decisión del dueño, y `SPEC:66`/`:251` deberían corregirse o retractarse en un commit propio. Nota de límite: el `settings.yaml` del perfil de ABACO **ya no se puede re-comprobar en disco** — el directorio se borró —, así que la evidencia (a)-(c) es fuerte pero indirecta respecto al contenido exacto de ese archivo.
+- **Estado: abierto, y no lo resuelve este documento.** La spec se tocó en esta revisión **solo** para añadir el **§8.10** (coincidencias y orden acordado); **`SPEC:66` y `SPEC:251` siguen sin corregir**, y este documento no los toca. Requiere decisión del dueño, y esas dos líneas deberían corregirse o retractarse en un commit propio. Nota de límite: el `settings.yaml` del perfil de ABACO **ya no se puede re-comprobar en disco** — el directorio se borró —, así que la evidencia (a)-(c) es fuerte pero indirecta respecto al contenido exacto de ese archivo.
 
 ---
 
