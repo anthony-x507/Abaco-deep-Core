@@ -229,7 +229,8 @@ Estas ocho son las que bloquean el plan. Ninguna es retórica: cada una tiene un
 
 | Archivo | Qué contiene |
 |---|---|
-| `docs/SPEC-CONTEXT-3-LAYERS.md` | La spec de las 3 capas y los principios A/B/C/D. **El §8 (`:265`) es el LOCK del dueño y manda sobre §3 y §4.** El §8.1 fija la policy; §8.3 las protecciones; §8.4 la UX del primer permiso; §8.5 la telemetría; §8.6 el criterio de done; §8.7 y §8.8 cierran si el 0.90 es seguro |
+| `docs/SPEC-CONTEXT-3-LAYERS.md` | La spec de las 3 capas y los principios A/B/C/D. **El §8 (`:265`) es el LOCK del dueño y manda sobre §3 y §4.** El §8.1 fija la policy; §8.3 las protecciones; §8.4 la UX del primer permiso; §8.5 la telemetría; §8.6 el criterio de done; §8.7 y §8.8 cierran si el 0.90 es seguro; **§8.10 registra las coincidencias contigo y el orden de implementación acordado** |
+| `docs/COLLABORATOR-CRITERIA.md` | Tu respuesta al §5, verbatim y ordenada, con la reconciliación contra el §8 de la spec, las divergencias registradas y el **orden reconciliado** (§12) |
 | `docs/DECOUPLING.md` | Qué es dependencia, qué es plugin y qué exige fork (§1.2 pieza por pieza; §2.3 las tres capas L1/L2/L3) |
 | `docs/PLAN-TRABAJO.md` | Plan vivo. Fases de memoria en `:83-91`; reglas de oro (incluida la de los tres sitios) en `:137-150` |
 | `docs/DESIGN-memory-3layer.md` | Diseño de memoria de 956 líneas, validado contra el motor |

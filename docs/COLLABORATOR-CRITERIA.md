@@ -1,12 +1,12 @@
 # CRITERIA — Respuesta del colaborador al handoff de contexto de 3 capas
 
-**Qué es este documento.** La respuesta del **arquitecto colaborador** (referencia de memoria de contexto) a las ocho preguntas concretas y a la petición de plan de `docs/HANDOFF-TO-COLLABORATOR.md`. Es **criterio de diseño, no código y no una decisión del dueño**: donde el colaborador y el LOCK del dueño difieran, manda el lock (`docs/SPEC-CONTEXT-3-LAYERS.md` §8). Ver §13 para las divergencias registradas.
+**Qué es este documento.** La respuesta del **arquitecto colaborador** (referencia de memoria de contexto) a las ocho preguntas concretas y a la petición de plan de `docs/HANDOFF-TO-COLLABORATOR.md`, **más su respuesta de seguimiento** que cerró la discrepancia de orden (§12.3). Es **criterio de diseño, no código y no una decisión del dueño**: donde el colaborador y el LOCK del dueño difieran, manda el lock (`docs/SPEC-CONTEXT-3-LAYERS.md` §8). Ver §13 para las divergencias registradas.
 
 **Autoría.** Colaborador Abaco (referencia de memoria de contexto). El texto de §1–§11 es **suyo y verbatim**; los encabezados, la numeración y las notas de contexto son de este repo y **no** alteran su contenido.
 
 **Base de lectura.** `main` @ `612f843` cuando se respondió el handoff; **HEAD se movió a `7936852` durante esta revisión** (`fix(desktop): abaco-context never adopted the ABACO preset…`, que **commitea el arreglo del Bug 2**), y quedó **sin commitear** la fila `compaction-basic` del preset ya cableada a `0.90 / 0.12 / 8192`. Verifica `git log -1` y `git status` antes de dar por vivos los estados que este documento describe como pendientes. Documentos que este criterio toca: `docs/HANDOFF-TO-COLLABORATOR.md` (las preguntas), `docs/SPEC-CONTEXT-3-LAYERS.md` §8 (el LOCK del dueño; §8 manda sobre §3 y §4).
 
-**Cómo leerlo.** El §1–§8 responde, en orden, a las ocho preguntas del §5 del handoff. El §9 es el **plan de encaje ordenado** que se pidió. El §10 son las **trampas** que el colaborador prohíbe. El §11 es lo que **no** se toca. El §12 registra un **punto abierto de orden** entre el colaborador y el integrador de ABACO, sin resolverlo. El §13 reconcilia todo esto con el §8 de la spec.
+**Cómo leerlo.** El §1–§8 responde, en orden, a las ocho preguntas del §5 del handoff. El §9 es el **plan de encaje** que se pidió — con el aviso de que su orden fue revisado después. El §10 son las **trampas** que el colaborador prohíbe. El §11 es lo que **no** se toca. El **§12 es el orden definitivo acordado**: allí hubo una discrepancia (spill en el puesto 6 contra el 3) y **quedó resuelta** a favor del 3, con la respuesta textual del colaborador. El §13 reconcilia todo esto con el §8 de la spec y registra las divergencias que siguen abiertas.
 
 ---
 
@@ -60,7 +60,7 @@
 
 ## 9. Plan de encaje (orden)
 
-*Contexto: respuesta al §6.1 del handoff ("orden: qué se hace primero y por qué"). El colaborador **reordena** respecto de la hipótesis del handoff, y su orden difiere del §5 de la spec — ver §12 y §13.*
+*Contexto: respuesta al §6.1 del handoff ("orden: qué se hace primero y por qué"). El colaborador **reordena** respecto de la hipótesis del handoff. ⚠️ **Este orden fue revisado después: el tope de spill pasó del puesto 6 al 3** — el orden vigente es el de **§12 (Orden reconciliado)**, que manda sobre los puestos (3) y (6) de este bloque; aquí se conserva verbatim lo que respondió en su momento.*
 
 > Plan de encaje (orden): (1) Fontanería viva: bug 2 del preset → que abaco gobierne de verdad; cablear 0.90/0.12. (2) Telemetría Fase 0 (sin ella el resto es fe). (3) Principio D (isError + exclusiones fijas) — barato, alto impacto. (4) Principio C (confirm + rechazo sin bucle). (5) Protocolo de escritura a abaco-memory (dejar de estar vacía). (6) Tope de spill subagente (capa 3). (7) Recién después: recall UI / consolidación / "motor propio" si aún hace falta.
 
@@ -76,29 +76,41 @@
 
 ---
 
-## 12. Punto abierto de orden
+## 12. Orden reconciliado (acordado)
 
-**No resuelto. Es una pregunta abierta al colaborador, no una decisión tomada.**
+**CERRADO. No es una pregunta abierta: hubo una discrepancia, se argumentó, y el colaborador la resolvió a favor de la recomendación del integrador.** Fijado aquí y en `docs/SPEC-CONTEXT-3-LAYERS.md` §8.10.
 
-| Puesto | Orden del **colaborador** (§9) | Orden que propone el **integrador de ABACO** |
-|---|---|---|
-| 1 | Fontanería viva (bug 2 del preset + cablear 0.90/0.12) | Igual |
-| 2 | Telemetría Fase 0 | Igual |
-| 3 | Principio D (`isError` + exclusiones fijas) | **Tope de spill de subagentes (capa 3)** ⬅ movido desde el 6 |
-| 4 | Principio C (confirm + rechazo sin bucle) | Principio D |
-| 5 | Protocolo de escritura a `abaco-memory` | Principio C |
-| 6 | **Tope de spill de subagentes (capa 3)** | Protocolo de escritura a `abaco-memory` |
-| 7 | Recall UI / consolidación / motor propio | Igual |
+### 12.1 El orden definitivo
 
-**El argumento del integrador.** El hueco de `$DSH_NM/dsh-subagent/lib/index.js:1725-1742` — la salida terminal del subagente se inserta **verbatim y sin tope** en un `user/message` (`notifySettlement` en `:1719`, `...terminal.output` en `:1735`) — es la **causa** de que la ventana se llene, no un síntoma: si se cierra, la compactación se dispara menos y los principios **C** y **D** pierden urgencia relativa. Además es un cambio **pequeño y contenido**: el motor ya tiene el hook `tools/post-execute`, pero el aviso del subagente **lo esquiva** (`grep` de `tools/post-execute` en `dsh-subagent/lib/index.js` → **0 coincidencias**), así que hay que parchear `dsh-subagent`; es viable porque el repo ya usa **`patch-package`** (ver `DECOUPLING.md`, capa L1).
+| # | Paso |
+|---|---|
+| 1 | **Fontanería viva** — arreglo del preset (Bug 2) para que `abaco` gobierne de verdad, y cablear `0.90 / 0.12` |
+| 2 | **Telemetría Fase 0** |
+| 3 | **Tope de spill de subagentes (capa 3)** — el hueco `$DSH_NM/dsh-subagent/lib/index.js:1725-1742` |
+| 4 | **Principio D** (`isError` + formato literal `ERROR \| tool \| mensaje crudo`) |
+| 5 | **Principio C** (permiso la primera vez / rechazo sin bucle) |
+| 6 | **Protocolo de escritura a `abaco-memory`** (dejar de estar vacía) |
+| 7 | Recall / consolidación / motor propio |
 
-**Lo que queda abierto.** ¿Se sube el tope de spill al puesto 3, justo tras la telemetría, o se mantiene en el 6 como pide el colaborador? El integrador **no lo resuelve** aquí. Nótese que la propuesta **no** contradice el §11 (no toca el diseño de 3 capas, ni el contrato Cordis, ni la validación `retain < threshold`): lo único que cambia es el **orden**, no el contenido. Requiere respuesta del colaborador.
+Este orden **sustituye** a los puestos (3) y (6) del plan que el colaborador dio en §9: allí el spill era el **6**, con D y C por delante. El §9 se conserva **verbatim** como registro de lo que respondió entonces; para el orden, manda esta tabla.
+
+### 12.2 La discrepancia y cómo se resolvió
+
+- **El colaborador** situaba el tope de spill en el **puesto 6**, tratando la compactación como el foco: primero D y C, y el spill después.
+- **El integrador de ABACO** propuso subirlo al **3**, justo tras la telemetría: el hueco de `dsh-subagent/lib/index.js:1725-1742` — la salida terminal del subagente insertada **verbatim y sin tope** en un `user/message` (`notifySettlement` en `:1719`, `...terminal.output` en `:1735`) — es la **causa** de que la ventana se llene; compactar bien con esa manguera abierta es pelear el síntoma. Además es un cambio **pequeño y contenido**: el motor ya tiene el hook `tools/post-execute` pero el aviso del subagente **lo esquiva** (`grep` en `dsh-subagent/lib/index.js` → **0 coincidencias**), así que hay que parchear `dsh-subagent`; viable porque el repo ya usa **`patch-package`** (`DECOUPLING.md`, capa L1).
+- **Resolución: gana el puesto 3.** El colaborador aceptó y lo fijó él mismo ("Fíjalo tú con esta recomendación — no hace falta otra ronda"). **C y D siguen siendo obligatorios**: solo dejan de ir *antes* del spill.
+
+### 12.3 Respuesta textual del colaborador (seguimiento, verbatim)
+
+> Sobre el orden — spill vs C/D. Tienes razón. Subo el tope de spill de subagente al puesto 3, justo después de telemetría. Mi orden original (D → C → spill) trataba la compactación como el foco. Tu medición cambia la prioridad: el verbatim en dsh-subagent (1725–1742) es la manguera; compactar bien con la manguera abierta es pelear el síntoma. Cerrar el spill es cambio pequeño, contenido, y vía patch-package ya viable. C/D siguen siendo obligatorios; solo dejan de ser "antes del spill". Sin telemetría no demuestran el Δ; sin spill cap la telemetría solo mostrará compactaciones de emergencia. Fíjalo tú con esta recomendación — no hace falta otra ronda. Déjenlo constando en docs/COLLABORATOR-CRITERIA.md y en el §8 del SPEC (coincidencias + discrepancia del orden resuelta a favor del spill en #3).
+
+**Nota sobre el punto 1.** El paso 1 (fontanería + `0.90 / 0.12`) también va **antes** de la telemetría, lo que roza la regla del §5 de la spec ("primero medir [...] y solo entonces mover umbrales"). No lo resuelvo aquí: queda registrado en §13.3 D-1 como superado por este orden acordado.
 
 ---
 
 ## 13. Reconciliación con `docs/SPEC-CONTEXT-3-LAYERS.md` §8
 
-Verificado contra la sección `## 8. LOCK — Política de compactación` (`docs/SPEC-CONTEXT-3-LAYERS.md:265`) y el motor instalado. **No se resuelve nada aquí**: lo que diverge queda registrado con cita de ambos lados.
+Verificado contra la sección `## 8. LOCK — Política de compactación` (`docs/SPEC-CONTEXT-3-LAYERS.md:265`) y el motor instalado. **Este documento no resuelve divergencias por su cuenta**: lo que diverge queda registrado con cita de ambos lados. La única excepción es **D-1**, que **ya no está abierta porque la resolvió el colaborador** (§12), y se registra aquí como tal.
 
 ### 13.1 Lo que es consistente (explícito)
 
@@ -126,11 +138,11 @@ Conclusión: el colaborador pide vueltas, la spec pide vueltas y admite que el s
 
 ### 13.3 Divergencias registradas (sin resolver)
 
-**D-1 — El orden: cablear 0.90/0.12 *antes* de la telemetría.**
+**D-1 — El orden: cablear 0.90/0.12 *antes* de la telemetría. — RESUELTA (por decisión, no por medición).**
 
-- **Colaborador (§9):** *"Plan de encaje (orden): (1) Fontanería viva: bug 2 del preset → que abaco gobierne de verdad; **cablear 0.90/0.12**. (2) Telemetría Fase 0 (sin ella el resto es fe)."*
-- **Spec §5, fila 4 (`SPEC:216`) y "Nota sobre el orden" (`SPEC:222`):** el principio A va en el **puesto 4**, *"condicionado por la telemetría (línea base)"*, y las dos notas son explícitas: *"No debe hacerse antes de que la telemetría mida el estado actual, o se pierde la línea base."* / *"Hay una tentación de hacer A primero por ser 'una línea'. Se descarta [...] La regla es: primero medir, luego las guardas deterministas (D), luego las de proceso (C), y solo entonces mover umbrales (A)."*
-- **Estado: divergencia real y no resuelta.** El colaborador pone A en el puesto 1; la spec prohíbe hacerlo antes de medir. Matiz honesto: el colaborador separa "fontanería" (que el preset gobierne) de "el valor del umbral"; la spec los trata como una sola pieza (A) porque el preset inactivo es indistinguible del valor muerto. **Nadie decide aquí cuál gana.**
+- **Lados en conflicto.** El colaborador (§9) ponía *"cablear 0.90/0.12"* en el puesto 1; la spec §5 (`SPEC:216` y la "Nota sobre el orden" en `SPEC:222`) situaba el principio A en el **puesto 4** y prohibía hacerlo antes de medir: *"No debe hacerse antes de que la telemetría mida el estado actual, o se pierde la línea base"* / *"primero medir, luego las guardas deterministas (D), luego las de proceso (C), y solo entonces mover umbrales (A)"*.
+- **Cómo quedó.** El **orden reconciliado** de §12 —ratificado por el colaborador, que además subió el tope de spill al puesto 3— mantiene la fontanería y el cableado de `0.90 / 0.12` en el **puesto 1**, antes de la telemetría. Es decir: **el orden acordado supera la regla del §5** para las filas 1–5, y así queda registrado en `docs/SPEC-CONTEXT-3-LAYERS.md` **§8.10**.
+- **Matiz honesto.** El colaborador argumentó explícitamente el punto **spill vs C/D**; la colocación de A en el puesto 1 viene del orden acordado y no de un argumento suyo sobre la línea base. La razón que sí dio y que sostiene el conjunto: *"Sin telemetría no demuestran el Δ; sin spill cap la telemetría solo mostrará compactaciones de emergencia."* §12.3. **El §5 de la spec no se ha reescrito** (queda fuera de los documentos tocados en esta revisión): su nota de orden convive hoy con el §8.10, y el §8.10 es el que refleja la decisión vigente.
 
 **D-2 — El modo de fallo de `retainRatio >= thresholdRatio`: ¿warning silencioso o fatal?**
 
@@ -164,6 +176,6 @@ Conclusión: el colaborador pide vueltas, la spec pide vueltas y admite que el s
 
 ---
 
-**Cierre.** El criterio del colaborador **confirma el lock del dueño en todo lo sustantivo** (0.90 / 0.12 / FIFO / confirmación la primera vez / errores literales / validación `retain < threshold`). Lo que aporta de nuevo es el **protocolo de escritura a la capa 2**, la **telemetría ampliada**, el **tope de spill de subagente** y un **orden** que discrepa del §5 de la spec en un punto concreto (D-1). Las **cinco** divergencias de §13.3 quedan registradas y **abiertas**; ninguna se resuelve aquí.
+**Cierre.** El criterio del colaborador **confirma el lock del dueño en todo lo sustantivo** (0.90 / 0.12 / FIFO / confirmación la primera vez / errores literales / validación `retain < threshold`). Lo que aporta de nuevo es el **protocolo de escritura a la capa 2**, la **telemetría ampliada**, el **tope de spill de subagente** y un **orden** que discrepa del §5 de la spec (D-1, hoy **superado por el orden acordado** de §12). De las cinco divergencias de §13.3, **una queda resuelta** (D-1) y **cuatro siguen abiertas** (D-2 a D-5); ninguna de esas cuatro se resuelve aquí.
 
 — Colaborador Abaco (referencia de memoria de contexto)

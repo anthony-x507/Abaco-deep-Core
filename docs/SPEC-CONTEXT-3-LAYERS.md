@@ -264,7 +264,7 @@ Origen: `docs/PLAN-TRABAJO.md:85-90` y `:126-129`.
 
 ## 8. LOCK — Política de compactación (decisión del dueño)
 
-**Estado: BLOQUEADO.** Esta sección **no es una propuesta y no se reinterpreta**. Es la decisión del dueño, transcrita. Cualquier otra sección de este documento que dijera algo distinto sobre el umbral, la retención o el presupuesto de resumen queda subordinada a este §8; las divergencias resueltas están listadas en §8.9.
+**Estado: BLOQUEADO.** Esta sección **no es una propuesta y no se reinterpreta**. Es la decisión del dueño, transcrita. Cualquier otra sección de este documento que dijera algo distinto sobre el umbral, la retención o el presupuesto de resumen queda subordinada a este §8; las divergencias resueltas están listadas en §8.9, y el **orden de implementación acordado con el colaborador** —con la discrepancia de orden ya resuelta— en **§8.10**.
 
 **Alcance de este lock:** es la **especificación**. La implementación (editar la config real del preset) es una tarea aparte y **no** forma parte de este documento.
 
@@ -437,6 +437,36 @@ Cambios aplicados en este mismo documento para que no haya dos versiones de la v
 | §6 | (no existía) | **R11** (load fatal) y **R12** (span ~780k vs resumen 8192) añadidos |
 | §7 | `contextWindow` en "[NO VERIFICADO]" | **VERIFICADO = 1.000.000**; también cerrado el camino de overflow |
 | §9 / §10 | numeradas 8 y 9 | renumeradas (este §8 se inserta) |
+
+### 8.10 Coincidencias con el colaborador y discrepancia resuelta
+
+El arquitecto colaborador (referencia de memoria de contexto) respondió al handoff `docs/HANDOFF-TO-COLLABORATOR.md`. Su criterio completo, verbatim, vive en **`docs/COLLABORATOR-CRITERIA.md`**; aquí consta solo lo que toca a este §8.
+
+**(a) Coincidencias — el lock queda confirmado por él.**
+
+- **El lock 0.90 / 0.12 es el correcto.** Textual: *"Para Abaco, con el motor DSH medido, el lock del dueño es el correcto: thresholdRatio 0.90 + retainRatio 0.12."* Justifica el 0.12 porque debe ser **claramente < 0.90** y porque ≈ "últimas vueltas + system + mensaje actual + tools en vuelo" sin hinchar la cola.
+- **No bajar a 0.80 sin preguntar.** Textual: *"No bajar a 0.80 sin preguntar."* Idéntico al criterio de done 6 (§8.6.6).
+- **Los cuatro principios A/B/C/D**, con la misma lectura que este documento: dejar llenarse casi todo antes de compactar, cola reciente verbatim, el resto en bullets FIFO de una línea (no prosa), permiso la primera vez, y errores que **nunca** se resumen ni se suavizan.
+- **La validación `retain < threshold` no se toca** (su lista de "no tocar" incluye *"la validación retain < threshold del motor"*), coherente con §8.7 y §9.2.
+- **El diseño de 3 capas y el contrato Cordis de plugins no se tocan** (§9 de este documento).
+
+**(b) Discrepancia de orden — resuelta a favor del tope de spill en la posición 3.**
+
+- **Punto de partida.** El colaborador situaba el **tope de spill de subagentes en el puesto 6**, con D y C por delante, tratando la compactación como el foco.
+- **La objeción.** El hueco de `$DSH_NM/dsh-subagent/lib/index.js:1725-1742` — la salida terminal de un subagente insertada **verbatim y sin tope** en un `user/message` (`notifySettlement` en `:1719`, `...terminal.output` en `:1735`, sin pasar por `tools/post-execute`) — es la **causa** de que la ventana se llene, no el síntoma: **compactar bien con esa fuga abierta es pelear el síntoma**. Es además un cambio pequeño y contenido, viable por `patch-package`.
+- **Resolución.** El colaborador **aceptó y fijó él mismo** el cambio, sin pedir otra ronda: *"Tienes razón. Subo el tope de spill de subagente al puesto 3, justo después de telemetría. [...] C/D siguen siendo obligatorios; solo dejan de ser 'antes del spill'. Sin telemetría no demuestran el Δ; sin spill cap la telemetría solo mostrará compactaciones de emergencia."*
+
+**Orden vigente (acordado).** Sustituye a las filas de orden del §5 en lo que respecta a estos pasos:
+
+1. Fontanería viva — arreglo del preset (Bug 2) para que `abaco` gobierne de verdad, y cablear `0.90 / 0.12`.
+2. Telemetría Fase 0.
+3. **Tope de spill de subagentes (capa 3)** — el hueco `dsh-subagent/lib/index.js:1725-1742`.
+4. Principio D (`isError` + formato literal `ERROR | tool | mensaje crudo`).
+5. Principio C (permiso la primera vez / rechazo sin bucle).
+6. Protocolo de escritura a `abaco-memory` (dejar de estar vacía).
+7. Recall / consolidación / motor propio.
+
+**Alcance de esta subsección.** Este §8.10 fija el **orden** y deja constancia de las coincidencias; **no** reabre la policy de §8.1, ni las protecciones de §8.3, ni la validación de §8.7. La tabla del §5 conserva su redacción original: en lo que difiera sobre el orden, manda la lista de arriba (mismo mecanismo con el que §8.9 ya enmendó la fila 4 del §5). Sigue vigente el criterio de done 6: **no bajar a 0.80 sin preguntar.**
 
 ---
 
