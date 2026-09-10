@@ -2,7 +2,7 @@ diff --git a/node_modules/@deepseek-ai/dsh/package.json b/node_modules/@deepseek
 index 28eaff9..2445f81 100644
 --- a/node_modules/@deepseek-ai/dsh/package.json
 +++ b/node_modules/@deepseek-ai/dsh/package.json
-@@ -28,6 +28,19 @@
+@@ -28,6 +28,20 @@
    },
    "license": "MIT",
    "dependencies": {
@@ -16,6 +16,7 @@ index 28eaff9..2445f81 100644
 +    "abaco-device-identity": "0.1.0",
 +    "abaco-voice": "0.1.0",
 +    "abaco-documents": "0.1.0",
++    "abaco-agent-status": "0.1.0",
 +    "abaco-cloud-sync": "0.1.0",
 +    "abaco-onboarding": "0.1.0",
 +    "abaco-experimental": "0.1.0",

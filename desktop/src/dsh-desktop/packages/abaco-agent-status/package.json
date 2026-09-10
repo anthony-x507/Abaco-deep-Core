@@ -1,0 +1,25 @@
+{
+  "name": "abaco-agent-status",
+  "version": "0.1.0",
+  "description": "Agent activity indicator for ABACO DEEP HARNES: shows an \"AGENTE TRABAJANDO\" pill in the session header while the agent is running/thinking and disappears when it goes idle.",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

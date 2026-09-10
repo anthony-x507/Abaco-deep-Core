@@ -79,6 +79,14 @@
     - id: abaco-documents
       name: abaco-documents
 
+# Agent activity indicator ("AGENTE TRABAJANDO") — shows while the agent is
+# running/thinking and hides when idle. Registers one entry on
+# conversation.session.header.actions (session scope) and reads
+# SessionSnapshot.running via the standard useSession prop.
+- insert:
+    - id: abaco-agent-status
+      name: abaco-agent-status
+
 # NOTE: abaco-brand, abaco-device-identity, abaco-cloud-sync, abaco-onboarding
 # and abaco-experimental are TEMPORARILY DISABLED. Their host-half index.js
 # assigned ctx.abacoBrand/ctx.abacoSync directly and read ctx['secureStore'],
