@@ -16,6 +16,12 @@ export declare const REPLACED_DEFAULT: 'standard'
 /** Marker recording that the one-time default write already happened. */
 export declare const DEFAULT_MARKER_FILE: '.abaco-context-default.json'
 
+/** How long the one-time default write waits for the roster's settings scope. */
+export declare const SETTINGS_WAIT_MS: 5000
+
+/** How often that wait re-reads the roster while the window is open. */
+export declare const SETTINGS_POLL_MS: 25
+
 /** The roster's user preset root inside `$DSH_HOME`. */
 export declare const USER_PRESET_DIR: '.agent-presets'
 
@@ -71,6 +77,44 @@ export interface AdoptDefaultOutcome {
 }
 
 /**
+ * The roster's settings handle, exactly as `agent-presets` publishes it.
+ *
+ * It is a **property** (`agentPresets.settings`), never a factory: `register`
+ * returns this object synchronously, and the roster assigns it from inside its
+ * own `ctx.inject(["settings"], …)` callback.
+ */
+export interface AgentPresetSettingsScope {
+  get(): { default?: string }
+  watch(callback: (next: { default?: string }, prev: { default?: string }) => void | Promise<void>): () => void
+  update(patch: { default?: string }): Promise<void>
+  replace(section: { default?: string }): Promise<void>
+}
+
+/** The bounded wait for {@link AgentPresetSettingsScope}. */
+export interface SettingsWaitOptions {
+  /** Window in milliseconds; defaults to {@link SETTINGS_WAIT_MS}. */
+  timeoutMs?: number
+  /** Re-read interval in milliseconds; defaults to {@link SETTINGS_POLL_MS}. */
+  pollMs?: number
+  /** Sleep seam, so a test never spends the real window. */
+  sleep?: (ms: number) => Promise<void>
+}
+
+/** Whether a value is the roster's published settings scope. */
+export declare function isSettingsScope(value: unknown): value is AgentPresetSettingsScope
+
+/**
+ * Wait, bounded, for the roster to publish its settings scope.
+ *
+ * Cordis has no availability hook for a property a service assigns later, so
+ * the scope itself is the signal; the caller warns when the window closes.
+ */
+export declare function waitForSettingsScope(
+  agentPresets: { settings?: unknown } | undefined,
+  options?: SettingsWaitOptions
+): Promise<AgentPresetSettingsScope | undefined>
+
+/**
  * Point the roster's default at the ABACO preset, once.
  *
  * The callback is typed `=> void` on purpose: Cordis collects a plugin body's
@@ -79,13 +123,21 @@ export interface AdoptDefaultOutcome {
  */
 export declare function adoptDefault(
   ctx: { inject: (deps: string[], callback: (ctx: unknown) => void) => unknown },
-  options: { dshHome: string; logger: { info: (message: string) => void; warn: (message: string) => void } }
+  options: {
+    dshHome: string
+    logger: { info: (message: string) => void; warn: (message: string) => void }
+    settingsWait?: SettingsWaitOptions
+  }
 ): unknown
 
 /** The one-time default write, as a plain awaitable. */
 export declare function runAdoptDefault(
   rosterCtx: unknown,
-  options: { marker: string; logger: { info: (message: string) => void; warn: (message: string) => void } }
+  options: {
+    marker: string
+    logger: { info: (message: string) => void; warn: (message: string) => void }
+    settingsWait?: SettingsWaitOptions
+  }
 ): Promise<AdoptDefaultOutcome>
 
 /** The install work, as a plain awaitable; `apply` is only its Cordis shell. */

@@ -36,6 +36,19 @@
  *    the marker file stops us from ever touching the setting again, so whatever
  *    the person picks in the UI wins for good.
  *
+ * ## Why the default write waits (and why it must complain)
+ *
+ * The roster does not publish its settings scope with its service. `AgentPresets`
+ * assigns `this.settings = settingsCtx.settings.register(...)` from inside its
+ * **own** `ctx.inject(["settings"], …)` callback
+ * (`dsh-agent-presets/lib/index.js:1311`), so `agentPresets` is injectable —
+ * and this row's callback runs — while `agentPresets.settings` is still
+ * `undefined`. It is a `SettingsScope` **property** (`get`/`watch`/`update`/
+ * `replace`), never a factory: calling it is impossible. Reading it once at the
+ * first moment the roster is up therefore always failed, and the failure was
+ * silent, which is how the defect survived a whole session of work. The wait
+ * below is bounded and every way out of it is logged.
+ *
  * ## Rules this plugin obeys
  *
  * - **Nothing here can break the boot.** No service is injected, `apply` never
@@ -70,6 +83,18 @@ export const REPLACED_DEFAULT = 'standard'
 
 /** Marker recording that the one-time default write already happened. */
 export const DEFAULT_MARKER_FILE = '.abaco-context-default.json'
+
+/**
+ * How long the one-time default write waits for the roster's settings scope.
+ *
+ * The scope lands one microtask after the roster's own `settings` registration
+ * is refreshed, so the honest expectation is milliseconds; the window exists to
+ * absorb a slow boot, not to be spent.
+ */
+export const SETTINGS_WAIT_MS = 5000
+
+/** How often that wait re-reads the roster while the window is open. */
+export const SETTINGS_POLL_MS = 25
 
 /** Where the shipped copy of the preset lives inside this package. */
 export function shippedPresetDir() {
@@ -115,6 +140,75 @@ function safeLogger(ctx) {
     // Reading an uninjected service throws; silence is the right degradation.
   }
   return fallback
+}
+
+/**
+ * Whether a value is the roster's published settings scope.
+ *
+ * `AgentPresets.settings` is a `SettingsScope` object — `get`, `watch`,
+ * `update`, `replace` (`dsh-settings/lib/types/index.d.ts`) — and never the
+ * factory that a `settings?.()` call site imagines it to be. The check is on
+ * the two members this plugin uses, so a stand-in and the real scope agree.
+ *
+ * @param value - the value read from `agentPresets.settings`.
+ * @returns true when the value can be read and written through.
+ */
+export function isSettingsScope(value) {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof value.get === 'function' &&
+    typeof value.update === 'function'
+  )
+}
+
+/** Sleep without ever holding the process open. */
+function sleepQuietly(ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    if (typeof timer.unref === 'function') timer.unref()
+  })
+}
+
+/**
+ * Wait, bounded, for the roster to publish its settings scope.
+ *
+ * ## Why a bounded re-read, and not an `inject`/`watch`
+ *
+ * Cordis has no availability hook for a *property a service sets later*, and
+ * neither of the two hooks it does have closes this gap:
+ *
+ * - `ctx.inject(['settings'], …)` finishes when the `settings` **service** is
+ *   provided. The roster is refreshed on that same notification
+ *   (`ReflectService.notify`, `cordis/lib/index.js:831`), and plugin bodies run
+ *   only after `Fiber._reload`'s `await Promise.resolve()`, so our callback can
+ *   land in the same round as the roster's — and when the provider was already
+ *   composed, the notification has fired before we ever listen. It would also
+ *   never run at all in a deployment with no `settings` provider, which is
+ *   exactly the case that must still produce a warning.
+ * - `internal/service` (`cordis/lib/index.js:848`) fires on service
+ *   *provision*, before the roster's own inject callback has assigned the
+ *   field, and comes with the same never-fires problem.
+ *
+ * So the scope itself is the only honest signal. Re-reading it is bounded, the
+ * caller warns when the window closes, and the wait costs one unref'd timer
+ * that resolves as soon as the field exists.
+ *
+ * @param agentPresets - the roster service (`rosterCtx.agentPresets`).
+ * @param options - `timeoutMs`, `pollMs`, and a `sleep` seam for tests.
+ * @returns the scope, or `undefined` when the window closed without one.
+ */
+export async function waitForSettingsScope(agentPresets, options = {}) {
+  const timeoutMs = options.timeoutMs ?? SETTINGS_WAIT_MS
+  const pollMs = options.pollMs ?? SETTINGS_POLL_MS
+  const sleep = options.sleep ?? sleepQuietly
+  const attempts = Math.max(1, Math.ceil(timeoutMs / pollMs))
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const scope = agentPresets?.settings
+    if (isSettingsScope(scope)) return scope
+    if (attempt + 1 < attempts) await sleep(pollMs)
+  }
+  return undefined
 }
 
 /** A readable message out of an unknown thrown value. */
@@ -172,10 +266,11 @@ async function recordDefaultApplied(marker, from) {
 /**
  * Point the roster's default at the ABACO preset, once.
  *
- * The write waits for the roster to publish (`ctx.inject`), which is also the
- * only moment its settings registration exists. Everything is best-effort: a
- * roster that never appears, a settings document that is read-only, or a user
- * who already chose a preset all end in a log line and no side effect.
+ * `ctx.inject` only gets us to the roster. The scope the write goes through is
+ * assigned later, so `runAdoptDefault` waits for it and logs every outcome —
+ * including the one where it never appears. Everything is best-effort: a roster
+ * that never publishes a scope, a settings document that is read-only, or a
+ * user who already chose a preset all end in a log line and no side effect.
  *
  * ## Why the callback returns nothing
  *
@@ -194,10 +289,10 @@ async function recordDefaultApplied(marker, from) {
  * @returns the fiber wrapper `ctx.inject` hands back, which is the disposal
  *   handle Cordis expects a plugin body to produce.
  */
-export function adoptDefault(ctx, { dshHome, logger }) {
+export function adoptDefault(ctx, { dshHome, logger, settingsWait }) {
   const marker = defaultMarkerPath(dshHome)
   return ctx.inject(['agentPresets'], (rosterCtx) => {
-    runAdoptDefault(rosterCtx, { marker, logger }).catch((error) => {
+    runAdoptDefault(rosterCtx, { marker, logger, settingsWait }).catch((error) => {
       warnQuietly(logger, `abaco-context: the default preset could not be selected: ${describe(error)}`)
     })
   })
@@ -208,16 +303,27 @@ export function adoptDefault(ctx, { dshHome, logger }) {
  * testable without a Cordis context.
  *
  * @param rosterCtx - the context on which the roster service is available.
- * @param options - the marker path and a logger.
+ * @param options - the marker path, a logger, and the optional wait seam.
  */
-export async function runAdoptDefault(rosterCtx, { marker, logger }) {
+export async function runAdoptDefault(rosterCtx, { marker, logger, settingsWait } = {}) {
+  const timeoutMs = settingsWait?.timeoutMs ?? SETTINGS_WAIT_MS
   try {
     if (await defaultAlreadyApplied(marker)) return { status: 'already-applied' }
-    const registration = rosterCtx.agentPresets?.settings?.()
-    if (registration === undefined || typeof registration.update !== 'function') {
-      return { status: 'unavailable' }
+    // `settings` is the roster's `SettingsScope` PROPERTY. It is assigned from
+    // inside the roster's own `ctx.inject(["settings"], …)` callback, so it is
+    // still `undefined` on the first refresh round that reaches this code: wait
+    // for it, and say so out loud if it never arrives.
+    const scope = await waitForSettingsScope(rosterCtx?.agentPresets, settingsWait)
+    if (scope === undefined) {
+      const reason =
+        `the agent-presets roster published no settings scope within ${timeoutMs}ms, so the user-layer default could not be written ` +
+        '(the roster registers its scope only while a `settings` provider is composed)'
+      // Silence here is what hid this defect: a plugin whose whole second job
+      // failed without a line anywhere. Every exit below is logged.
+      warnQuietly(logger, `abaco-context: "${PRESET_ID}" is installed but NOT selected as the default: ${reason}`)
+      return { status: 'unavailable', reason }
     }
-    const current = registration.get?.()?.default
+    const current = scope.get()?.default
     if (current === PRESET_ID) {
       await recordDefaultApplied(marker, current)
       return { status: 'already-selected' }
@@ -232,7 +338,7 @@ export async function runAdoptDefault(rosterCtx, { marker, logger }) {
       await recordDefaultApplied(marker, current)
       return { status: 'user-choice-kept', current }
     }
-    await registration.update({ default: PRESET_ID })
+    await scope.update({ default: PRESET_ID })
     await recordDefaultApplied(marker, current ?? 'composition-default')
     logger.info(`abaco-context: "${PRESET_ID}" is now the default agent preset`)
     return { status: 'selected' }

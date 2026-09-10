@@ -5,8 +5,10 @@ import { join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  adoptDefault,
   apply,
   defaultMarkerPath,
+  isSettingsScope,
   name,
   PRESET_ID,
   resolveContextConfig,
@@ -50,6 +52,15 @@ import { projectRoot } from './patch-path'
  *   papering over it: the bug this file now guards against reached production
  *   precisely because the stand-in returned the callback's promise where the
  *   real `inject` returns a disposal handle.
+ * - **The doubles have the shape the real services have.** `agentPresets`
+ *   publishes `settings` as a `SettingsScope` *property* (`get`, `watch`,
+ *   `update`, `replace`) from inside its own `ctx.inject(["settings"], …)`
+ *   callback, so the field is absent on the first refresh round that reaches
+ *   this plugin. The older double here was `settings: () => scope` — a factory
+ *   the roster does not have — and the green tests it produced certified a call
+ *   site that could never work. `settingsScope()` and `pendingRoster()` below
+ *   are that correction: the property shape, plus the moment it does not exist
+ *   yet.
  */
 
 const temporary: string[] = []
@@ -96,32 +107,65 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
   throw new Error(`timed out after 2s waiting for ${label}`)
 }
 
-/** A logger that records every line written to it. */
+/** A logger that records every line written to it, with its level. */
 function recordingLogger() {
   const logs: string[] = []
-  return {
-    logs,
-    logger: { info: (message: string) => logs.push(message), warn: (message: string) => logs.push(message) }
+  const entries: { level: 'info' | 'warn'; message: string }[] = []
+  const record = (level: 'info' | 'warn') => (message: string) => {
+    logs.push(message)
+    entries.push({ level, message })
   }
+  return { logs, entries, logger: { info: record('info'), warn: record('warn') } }
 }
 
-/** One `agentPresets` settings registration, plus the updates it received. */
-function registration(current?: string) {
+/**
+ * One `agentPresets` settings registration, in the shape the roster really
+ * publishes it.
+ *
+ * `AgentPresets.settings` is a `SettingsScope` **object** — `get`, `watch`,
+ * `update`, `replace` (`dsh-settings/lib/types/index.d.ts`) — assigned from
+ * inside the roster's own `ctx.inject(["settings"], …)` callback
+ * (`dsh-agent-presets/lib/index.js:1311`). The previous double here was
+ * `settings: () => scope`, a factory the real service does not have: 24 green
+ * tests over a call site that could never work. The shape below is the API the
+ * code must actually read.
+ *
+ * @param current - the preset the scope resolves to, when one is set.
+ */
+function settingsScope(current?: string) {
   const updates: { default: string }[] = []
+  let value: { default?: string } = current === undefined ? {} : { default: current }
   return {
     updates,
-    value: {
-      get: () => (current === undefined ? {} : { default: current }),
-      update: async (patch: { default: string }) => {
-        updates.push(patch)
+    scope: {
+      get: () => value,
+      watch: () => () => undefined,
+      update: async (patch: { default?: string }) => {
+        if (patch.default !== undefined) updates.push({ default: patch.default })
+        value = { ...value, ...patch }
+      },
+      replace: async (section: { default?: string }) => {
+        value = section
       }
+    },
+    /** Force the scope to resolve to something else, as an external edit would. */
+    set: (next?: string) => {
+      value = next === undefined ? {} : { default: next }
     }
   }
 }
 
+/** One `agentPresets` settings registration, plus the updates it received. */
+type ScopeDouble = ReturnType<typeof settingsScope>
+
 /** The `rosterCtx` a stand-in `inject` hands the callback. */
-function fakeRoster(registrationValue?: { get: () => { default?: string }; update: (patch: { default: string }) => Promise<void> }) {
-  return { agentPresets: { settings: () => registrationValue } }
+function fakeRoster(scope?: unknown): { agentPresets: { settings?: unknown } } {
+  return { agentPresets: { settings: scope } }
+}
+
+/** A roster service that is up while its `settings` property is not set yet. */
+function pendingRoster(): { agentPresets: { settings?: unknown } } {
+  return { agentPresets: {} }
 }
 
 /** Whether a value carries a `then`, which is all Cordis's own check looks for. */
@@ -158,17 +202,15 @@ async function collectEffect(value: unknown): Promise<void> {
  * tests and a dead app. It now returns a disposer and *records* what the
  * callback returned, so a test can assert on the shape Cordis would collect.
  */
-function fakeContext(registrationValue?: {
-  get: () => { default?: string }
-  update: (patch: { default: string }) => Promise<void>
-}) {
-  const { logs, logger } = recordingLogger()
+function fakeContext(scope?: unknown) {
+  const { logs, entries, logger } = recordingLogger()
   /** The roster the injected callback receives. */
-  const roster = fakeRoster(registrationValue)
+  const roster = fakeRoster(scope)
   /** What each injected callback returned, as Cordis would collect it. */
   const effects: unknown[] = []
   return {
     logs,
+    entries,
     roster,
     effects,
     ctx: {
@@ -312,13 +354,15 @@ describe('abaco-context: installation on disk', () => {
 })
 
 describe('abaco-context: selecting the default', () => {
+  /** A wait window that costs a test nothing. */
+  const quickWait = (sleep: (ms: number) => Promise<void>) => ({ timeoutMs: 40, pollMs: 1, sleep })
+
   it('replaces the composition default exactly once', async () => {
     const home = await fakeHome()
-    const recorder = registration('standard')
+    const recorder = settingsScope('standard')
     const { logs, logger } = recordingLogger()
-    const roster = fakeRoster(recorder.value)
 
-    const outcome = await runAdoptDefault(roster, { marker: defaultMarkerPath(home), logger })
+    const outcome = await runAdoptDefault(fakeRoster(recorder.scope), { marker: defaultMarkerPath(home), logger })
     expect(outcome).toMatchObject({ status: 'selected' })
     expect(recorder.updates).toEqual([{ default: PRESET_ID }])
     expect(existsSync(defaultMarkerPath(home))).toBe(true)
@@ -326,43 +370,180 @@ describe('abaco-context: selecting the default', () => {
 
     // The marker is what makes the next boot a no-op, so a person who picks a
     // different preset afterwards is never overruled.
-    recorder.value.get = () => ({ default: 'cordis' })
-    await runAdoptDefault(roster, { marker: defaultMarkerPath(home), logger })
+    recorder.set('cordis')
+    await runAdoptDefault(fakeRoster(recorder.scope), { marker: defaultMarkerPath(home), logger })
     expect(recorder.updates).toHaveLength(1)
   })
 
   it('keeps a default the person already chose', async () => {
     const home = await fakeHome()
-    const recorder = registration('cordis')
+    const recorder = settingsScope('cordis')
     const { logs, logger } = recordingLogger()
 
-    await runAdoptDefault(fakeRoster(recorder.value), { marker: defaultMarkerPath(home), logger })
+    await runAdoptDefault(fakeRoster(recorder.scope), { marker: defaultMarkerPath(home), logger })
     expect(recorder.updates).toHaveLength(0)
     expect(existsSync(defaultMarkerPath(home))).toBe(true)
     expect(logs.some((line) => line.includes('leaving the user'))).toBe(true)
   })
 
-  it('is a no-op when the roster never publishes its settings', async () => {
+  /**
+   * The real `t0` of a boot.
+   *
+   * `agentPresets` is injectable the moment its service is constructed, but
+   * `agentPresets.settings` is assigned from inside the roster's *own*
+   * `ctx.inject(["settings"], …)` callback, which Cordis runs in a later
+   * refresh round. The old code read the field once, got `undefined`, and
+   * returned `{status: 'unavailable'}` without a word. It must now wait — and
+   * the assertion on the number of sleeps is what proves it waited rather than
+   * got lucky with a scope that happened to be there.
+   */
+  it('waits for the roster to publish its settings scope, then adopts', async () => {
     const home = await fakeHome()
-    const { logs, logger } = recordingLogger()
-    // A roster that is up but has no settings registration is a no-op, not a
-    // failure — and it must leave no marker behind, so the next boot retries.
-    await expect(runAdoptDefault(fakeRoster(undefined), { marker: defaultMarkerPath(home), logger })).resolves.toMatchObject(
-      { status: 'unavailable' }
-    )
+    const recorder = settingsScope('standard')
+    const { logger } = recordingLogger()
+    const roster = pendingRoster()
+    const sleeps: number[] = []
+    const sleep = async (ms: number): Promise<void> => {
+      sleeps.push(ms)
+      // The scope appears mid-wait, exactly as the roster's own inject callback
+      // makes it appear a microtask after the service is up.
+      if (sleeps.length === 3) roster.agentPresets.settings = recorder.scope
+    }
+
+    const outcome = await runAdoptDefault(roster, {
+      marker: defaultMarkerPath(home),
+      logger,
+      settingsWait: { timeoutMs: 1000, pollMs: 5, sleep }
+    })
+
+    expect(outcome).toMatchObject({ status: 'selected' })
+    expect(recorder.updates).toEqual([{ default: PRESET_ID }])
+    expect(existsSync(defaultMarkerPath(home))).toBe(true)
+    expect(sleeps.length).toBeGreaterThanOrEqual(3)
+  })
+
+  /**
+   * The silent exit that hid this bug for a whole session.
+   *
+   * A roster that never publishes a scope must still leave a *warning* behind:
+   * the preset is installed, the default was not adopted, and the reason names
+   * the condition. Silence here is the defect, not a nicety.
+   */
+  it('warns, visibly, when the roster never publishes a settings scope', async () => {
+    const home = await fakeHome()
+    const { logs, entries, logger } = recordingLogger()
+
+    const outcome = await runAdoptDefault(pendingRoster(), {
+      marker: defaultMarkerPath(home),
+      logger,
+      settingsWait: quickWait(async () => {})
+    })
+
+    expect(outcome.status).toBe('unavailable')
+    expect(outcome.reason).toContain('no settings scope within 40ms')
+    const warnings = entries.filter((entry) => entry.level === 'warn')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]?.message).toContain('abaco-context')
+    expect(warnings[0]?.message).toContain(PRESET_ID)
+    expect(warnings[0]?.message).toContain('NOT selected as the default')
+    expect(warnings[0]?.message).toContain('no settings scope within 40ms')
+    expect(logs.join('\n')).toContain('no settings scope within 40ms')
+    // No marker: the next boot retries rather than accepting a half-done job.
     expect(existsSync(defaultMarkerPath(home))).toBe(false)
+  })
+
+  /**
+   * The regression guard for the imagined API itself.
+   *
+   * `agentPresets.settings` is a property; the shipped code called it. A
+   * factory-shaped double must therefore be *refused* rather than invoked: the
+   * call is impossible against the real scope, so a double that tolerates it
+   * would re-open exactly the gap this fix closes. The property shape is
+   * accepted in a single read, with no wait at all.
+   */
+  it('REGRESSION: reads `settings` as a property, never as a factory', async () => {
+    const home = await fakeHome()
+    const recorder = settingsScope('standard')
+    const { logs, logger } = recordingLogger()
+
+    let called = 0
+    const factory = (): unknown => {
+      called += 1
+      return recorder.scope
+    }
+    expect(isSettingsScope(recorder.scope)).toBe(true)
+    expect(isSettingsScope(factory)).toBe(false)
+    expect(isSettingsScope(undefined)).toBe(false)
+
+    const refused = await runAdoptDefault(fakeRoster(factory), {
+      marker: defaultMarkerPath(home),
+      logger,
+      settingsWait: quickWait(async () => {})
+    })
+    expect(called).toBe(0)
+    expect(refused.status).toBe('unavailable')
+    expect(logs.some((line) => line.includes('NOT selected as the default'))).toBe(true)
+    expect(recorder.updates).toHaveLength(0)
+
+    let sleeps = 0
+    const adopted = await runAdoptDefault(fakeRoster(recorder.scope), {
+      marker: defaultMarkerPath(home),
+      logger,
+      settingsWait: {
+        timeoutMs: 1000,
+        pollMs: 5,
+        sleep: async () => {
+          sleeps += 1
+        }
+      }
+    })
+    expect(adopted).toMatchObject({ status: 'selected' })
+    expect(recorder.updates).toEqual([{ default: PRESET_ID }])
+    expect(sleeps).toBe(0)
+  })
+
+  /** The same `t0` wait, driven through the Cordis entry point. */
+  it('the Cordis entry point waits too, and still hands Cordis a disposal handle', async () => {
+    const home = await fakeHome()
+    const recorder = settingsScope('standard')
+    const { logger } = recordingLogger()
+    const roster = pendingRoster()
+    const effects: unknown[] = []
+    const ctx = {
+      logger,
+      inject: (_deps: string[], callback: (ctx: unknown) => unknown) => {
+        effects.push(callback(roster))
+        return () => undefined
+      }
+    }
+
+    const returned = adoptDefault(ctx as never, {
+      dshHome: home,
+      logger,
+      settingsWait: {
+        timeoutMs: 1000,
+        pollMs: 1,
+        sleep: async () => {
+          roster.agentPresets.settings = recorder.scope
+        }
+      }
+    })
+    expect(returned).toBeDefined()
+    expect(effects).toHaveLength(1)
+    expect(effects[0]).toBeUndefined()
+
+    await waitFor(() => existsSync(defaultMarkerPath(home)), 'the adopted default')
+    expect(recorder.updates).toEqual([{ default: PRESET_ID }])
   })
 
   it('survives a settings write that throws', async () => {
     const home = await fakeHome()
     const { logs, logger } = recordingLogger()
-    const roster = fakeRoster({
-      get: () => ({ default: 'standard' }),
-      update: async () => {
-        throw new Error('read-only settings')
-      }
-    })
-    const outcome = await runAdoptDefault(roster, { marker: defaultMarkerPath(home), logger })
+    const scope = settingsScope('standard').scope
+    scope.update = async () => {
+      throw new Error('read-only settings')
+    }
+    const outcome = await runAdoptDefault(fakeRoster(scope), { marker: defaultMarkerPath(home), logger })
     expect(outcome).toMatchObject({ status: 'failed' })
     expect(logs.some((line) => line.includes('read-only settings'))).toBe(true)
     expect(existsSync(defaultMarkerPath(home))).toBe(false)
@@ -370,7 +551,7 @@ describe('abaco-context: selecting the default', () => {
 
   it('does nothing at all when disabled', async () => {
     const home = await fakeHome()
-    const { ctx } = fakeContext(registration('standard').value)
+    const { ctx } = fakeContext(settingsScope('standard').scope)
     await expect(runApply(ctx as never, { dshHome: home, enabled: false })).resolves.toEqual({ status: 'disabled' })
     expect(existsSync(presetTarget(home))).toBe(false)
   })
@@ -388,8 +569,8 @@ describe('abaco-context: selecting the default', () => {
    */
   it('REGRESSION: no plugin body hands Cordis an effect it would reject', async () => {
     const home = await fakeHome()
-    const recorder = registration('standard')
-    const { ctx, effects } = fakeContext(recorder.value)
+    const recorder = settingsScope('standard')
+    const { ctx, effects } = fakeContext(recorder.scope)
 
     // Body 2 — the row's own entry, the value the loader collects for
     // `abaco-context`. `apply` must return `undefined` *synchronously*: a promise
