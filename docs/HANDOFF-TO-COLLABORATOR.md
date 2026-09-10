@@ -8,7 +8,11 @@
 
 **Cómo leer esto:** es autosuficiente. No asume ninguna conversación previa y no hace falta que conozcas ni el repo ni Cordis antes de empezar: el §1 te da el terreno, el §2 te dice dónde quedó cada pieza de tu diseño, el §3 te explica por qué fallaba, el §4 qué falta, y el **§5 son ocho preguntas concretas** que solo tú puedes responder. Lo que pedimos es un **plan de encaje, no código** (§6).
 
-> **Convención de rutas:** `$DSH_NM` = `/Applications/DSH Desktop.app/Contents/Resources/app/node_modules/@deepseek-ai` (el motor instalado). `$DSH_HOME` = `/Users/a507/Library/Application Support/dsh-desktop/harness` — **no** es `~/.dsh`.
+> **Convención de rutas:** `$DSH_NM` = `/Applications/DSH Desktop.app/Contents/Resources/app/node_modules/@deepseek-ai` (el motor instalado).
+>
+> `$DSH_HOME` = `/Users/a507/Library/Application Support/abaco-deep-core/harness` — el perfil **de ABACO DEEP HARNES**, y **nadie más**. No es `~/.dsh`, y **no** es `/Users/a507/Library/Application Support/dsh-desktop/harness`, que es el perfil de la app **DeepSeek Desktop** (`dsh-desktop`), un producto distinto que comparte el mismo directorio padre. ABACO fija su `userData` a `abaco-deep-core` en `desktop/src/dsh-desktop/src/main/index.ts:533` y cuelga `harness/` de ahí (`:751`); el comentario `:523-533` declara que la separación respecto del perfil del shell upstream (`dsh-desktop`) es deliberada. Ver **R13** (§4.9): tres auditorías los han confundido.
+>
+> **Estado del perfil de ABACO hoy:** **no existe.** Se borró en una limpieza posterior a la escritura de este documento. Los chequeos de §4.5, §4.6 y §7 son por tanto **arqueología fechada**, no comprobaciones vivas; donde dicen "no existe" se refieren al estado medido **entonces**.
 >
 > **Convención de evidencia:** toda afirmación sobre código lleva cita `archivo:línea`. Lo que no se pudo determinar sin ejecutar la app está marcado **[NO VERIFICADO]**.
 
@@ -61,7 +65,7 @@ Y los cuatro principios que derivaste, verificados en código:
 
 | Principio | Estado | Evidencia |
 |---|---|---|
-| **A** — disparo automático al 90% | **NO CUMPLIDO** | Corre **0.80**, el default de fábrica (`$DSH_NM/dsh-compaction-basic/lib/index.js:13`). El preset ABACO dice **0.60** (`presets/abaco/agent.cordis.yml:195`) y no está activo. **El 0.90 del dueño no existe en ninguna parte del código.** |
+| **A** — disparo automático al 90% | **NO CUMPLIDO** | Corre **0.80**, el default de fábrica (`$DSH_NM/dsh-compaction-basic/lib/index.js:13`). El preset ABACO decía **0.60** (`presets/abaco/agent.cordis.yml:195`) y no estaba activo. **El 0.90 del dueño no existía en ninguna parte del código** al medir. ⚠️ Estado movido: hoy la fila del preset ya lleva `0.90 / 0.12 / 8192` sin commitear — ver el aviso del §4.1. |
 | **B** — resumen en balas de una línea | **PARCIAL** | El motor stock **ya lo pide**: *"Use terse bullets, not prose paragraphs"* (`.../dsh-compaction-basic/lib/index.js:221`). Pero el mismo prompt se contradice en `:248`. |
 | **C** — la primera compactación pide permiso | **NO EXISTE** | Ninguna rama de aprobación en el camino de compactación. Hay que construirlo entero. |
 | **D** — los errores nunca se resumen | **NO EXISTE** | El pruner **nunca lee `isError`**: **0 ocurrencias** en `$DSH_NM/dsh-compaction-tool-result-pruner/lib/index.js`, aunque el campo existe (`$DSH_NM/dsh-llm/lib/types/message.js:78`). Hoy los errores se truncan y el LLM los resume como una bala más. |
@@ -95,9 +99,9 @@ Medido con una sonda:
 - en `t0` devuelve `{ status: 'unavailable' }` — **en silencio**;
 - a los 3 s lanza `TypeError: ap?.settings is not a function`.
 
-Las dos ramas fallan, el `catch` solo escribe un `warn` que nadie lee (`index.js:239`), y `'unavailable'` es un estado legal. Resultado: **el default nunca se adopta** → `settings.yaml` nunca recibe `agent-presets: default: abaco` → **el preset ABACO se instala pero nunca gobierna**.
+Las dos ramas fallan, el `catch` solo escribe un `warn` que nadie lee (`index.js:239`), y `'unavailable'` es un estado legal. Resultado: **el default nunca se adopta** → el `settings.yaml` del perfil de ABACO nunca recibe `agent-presets: default: abaco` → **el preset ABACO se instala pero nunca gobierna**, y el default efectivo se queda en el de la **composición** — `standard` (`$DSH_NM/dsh-web-app/cordis.patch.yml:437-438`; el propio plugin declara cuál está dispuesto a sustituir, `REPLACED_DEFAULT` en `packages/abaco-context/index.js:81`).
 
-Estado hoy: el arreglo está **en vuelo, sin commitear** (el árbol de trabajo añade una espera acotada para el scope de settings). Verifica `git status` antes de leer esto como cerrado.
+Estado al cerrar esta revisión (HEAD `7936852`): el arreglo **ya está commiteado** — `7936852 fix(desktop): abaco-context never adopted the ABACO preset — agentPresets.settings is a property, not a factory`. Se deja constancia porque este documento afirmaba antes que seguía **en vuelo, sin commitear**: eso dejó de ser cierto durante la propia revisión (ver la nota de autoría del §7). Lo que **sigue sin commitear** es otra cosa y hay que mirarla aparte: la fila `compaction-basic` del preset, que en el árbol de trabajo ya lleva `0.90 / 0.12 / 8192` en lugar de los `0.60 / 0.08 / 16384` muertos que cita el §4.1. Que el preset **gobierne de verdad en runtime** sigue **sin verificar** aquí.
 
 ### La cadena causal completa
 
@@ -114,6 +118,8 @@ Capa 1 gobernada por `0.80` en vez de la política de ABACO → los agentes se l
 ### 4.1 El 0.90 no está cableado en ninguna parte
 
 El dueño **bloqueó** la política (es un LOCK, no una propuesta — `docs/SPEC-CONTEXT-3-LAYERS.md:265`): **`thresholdRatio: 0.90`, `retainRatio: 0.12`, `auto: true`, `maxTokens: 8192`, `compactionRetries: 1`, `maxOverflowRetries: 1`** (`:271-280`). Valores muertos, no candidatos: el `0.80` de fábrica (`:13`) y el `0.60 / 0.08 / 16384` del preset (`agent.cordis.yml:192-197`).
+
+> **Movimiento en curso (HEAD `7936852`).** Esa fila del preset **ya está cableada a `0.90 / 0.12 / 8192` en el árbol de trabajo**, sin commitear, mientras se revisaba este documento. Es decir: los `0.60 / 0.08 / 16384` citados arriba y en la tabla del §2 son el **estado medido en la auditoría**, no lo que hay hoy en disco. El 0.90 ha dejado de ser "un valor que no existe en ninguna parte del código": existe ya en la fila, pero **que el preset gobierne en runtime sigue sin verificar** (el §4.5). Cita y estado a reconfirmar con `git diff` antes de usarlos.
 
 Con la regla explícita del criterio de done 6 (`:348`): **si algo del motor impide 0.90 de forma segura, hay que reportar el bloqueo con evidencia, nunca bajar a 0.80 sin preguntar.** Hoy **no hay bloqueo**: `retainTokens < thresholdTokens` se cumple para todo window porque se usan ratios (`:297`), y el window del modelo enrutado es `1_000_000` (`$DSH_NM/dsh-llm-deepseek/lib/index.js:1377`, `:1831`), así que al 0.90 sobran 100.000 tokens de aire para un resumen de 8192 (`SPEC:394-407`).
 
@@ -133,11 +139,15 @@ Ni flag, ni servicio de aprobación, ni rama. Y las decisiones abiertas son de d
 
 ### 4.5 El preset no se adopta
 
-`$DSH_HOME/.agent-presets/` **no existe** (ni el directorio ni el marcador), y `$DSH_HOME/settings.yaml:11-12` dice `default: cordis`. Es el Bug 2 (§3). Sin esto, nada de lo anterior importa: la política de ABACO no llega a ejecutarse.
+En el perfil **de ABACO** (`$DSH_HOME` = `…/abaco-deep-core/harness`), `.agent-presets/` **no existía** (ni el directorio ni el marcador), y su `settings.yaml` contenía **solo** la sección `ui-onboarding` y **ninguna** clave `agent-presets`: **no decía `default: cordis` en ninguna parte**. Y ahí está el detalle que importa: al **faltar** la clave, el roster no se queda sin default — cae al de la **composición**, que es **`standard`** (`$DSH_NM/dsh-web-app/cordis.patch.yml:437-438`), porque el registro del scope usa `config.default` de la fila como base (`$DSH_NM/dsh-agent-presets/lib/index.js:1250`). Es decir: el default efectivo era `standard`, **no** `cordis`, y el archivo de ABACO nunca afirmó lo contrario. Es el Bug 2 (§3). Sin esto, nada de lo anterior importa: la política de ABACO no llega a ejecutarse.
+
+> **Corrección de un dato falso (retirado en este commit).** Una versión anterior de este documento afirmaba: *"`$DSH_HOME/settings.yaml:11-12` dice `default: cordis`"*. **Era falso, y era el perfil equivocado.** `default: cordis` existe, sí, pero en `/Users/a507/Library/Application Support/dsh-desktop/harness/settings.yaml:11-12` — el perfil de la app **DeepSeek Desktop**, que no es ABACO. Se corrige porque este documento se envía a un arquitecto externo y no puede llevar datos falsos. Ver **R13** (§4.9).
+>
+> **Nota de verificabilidad:** como el perfil de ABACO se borró después, el contenido exacto de su `settings.yaml` **ya no se puede re-comprobar en disco** — solo consta por lectura directa en el momento de la auditoría. Esa es precisamente la razón por la que la confusión con el otro perfil se repite: el archivo que sí se puede abrir hoy (`dsh-desktop`) contiene justo el dato que el de ABACO no tenía.
 
 ### 4.6 La capa 2 está vacía
 
-`$DSH_HOME/abaco-memory/` **no existe**. La capacidad está construida y probada; el uso es **cero**. No hay evidencia de que la inyección de system prompt funcione de extremo a extremo, porque nunca hubo nada que inyectar.
+`$DSH_HOME/abaco-memory/` — en el perfil **de ABACO**, `…/abaco-deep-core/harness` (R13) — **no existía**. La capacidad está construida y probada; el uso es **cero**. No hay evidencia de que la inyección de system prompt funcione de extremo a extremo, porque nunca hubo nada que inyectar.
 
 ### 4.7 El hueco del subagente: retorno verbatim y sin tope
 
@@ -163,6 +173,13 @@ Ni flag, ni servicio de aprobación, ni rama. Y las decisiones abiertas son de d
 - **R8 — error literal infla:** preservar errores completos hace que la ventana se llene más rápido. Contrapresión legítima de D, que se mide, no se desactiva.
 - **R7 — spill no durable:** `mkdtempSync(tmpdir())` (`$DSH_NM/dsh-spill-local/lib/index.js:35`): tras reiniciar, las referencias apuntan a ficheros borrados.
 - **R10 — el preset es copia verbatim de `standard`:** un upgrade del motor introduce filas que el preset `abaco` no tiene, y esa capacidad "desaparece" solo en modo ABACO.
+- **R13 — la trampa de los dos perfiles (documentada, no resuelta).** Los dos perfiles **se llaman casi igual**, viven en el **mismo directorio padre** (`~/Library/Application Support/`) y **ambos contienen una carpeta `harness/`**. Tres auditorías distintas los han confundido, y este documento fue una de ellas: leyó `agent-presets: default: cordis` del perfil de **DeepSeek Desktop** y se lo atribuyó al de ABACO (§4.5). Forma exacta de distinguirlos — listar el directorio padre y mirar el **nombre**:
+  ```bash
+  ls -la "$HOME/Library/Application Support" | grep -i 'abaco\|dsh'
+  ```
+  - `abaco-deep-core/` → perfil **de ABACO**, y su harness es `abaco-deep-core/harness`. Es **el nuestro**. Hoy **no existe**: se borró en una limpieza posterior. Fijado en código en `desktop/src/dsh-desktop/src/main/index.ts:533`, con la separación explicada en `:523-533`.
+  - `dsh-desktop/` → perfil de la **app DeepSeek Desktop** (harness en `dsh-desktop/harness`). **No es ABACO.** Es el que **sí** existe hoy y el que contiene `agent-presets: default: cordis` (`settings.yaml:11-12`).
+  Regla operativa: **ninguna afirmación sobre `settings.yaml`, `.agent-presets/` o `abaco-memory/` vale sin nombrar antes el perfil del que se leyó.** Si el perfil no se nombra, el dato no se usa.
 
 ---
 
@@ -204,7 +221,7 @@ Estas ocho son las que bloquean el plan. Ninguna es retórica: cada una tiene un
 
 **Repo:** `https://github.com/anthony-x507/Abaco-deep-Core` — rama `main`, base de lectura `ef0c34d`.
 
-> **Nota de autoría:** HEAD se movió mientras se escribía este documento (`0553220` → `a3708a3` → `ef0c34d`) porque otro frente estaba commiteando la spec y el LOCK. El arreglo del Bug 2 está **sin commitear** en el árbol de trabajo. Verifica `git log -1` y `git status` antes de dar por buena cualquier cita.
+> **Nota de autoría:** HEAD se movió mientras se escribía este documento (`0553220` → `a3708a3` → `ef0c34d`) porque otro frente estaba commiteando la spec y el LOCK. Y **volvió a moverse durante la revisión de los datos de perfil**: al cerrar, HEAD es **`7936852`** (`fix(desktop): abaco-context never adopted the ABACO preset…`), que **commitea el arreglo del Bug 2** — el documento decía que estaba sin commitear, y ese arreglo también cambió de estado a mitad de la revisión. Queda **sin commitear** la fila `compaction-basic` del preset con `0.90 / 0.12 / 8192`. Verifica `git log -1` y `git status` antes de dar por buena cualquier cita, incluida esta nota.
 
 **Documentos:**
 
@@ -221,7 +238,7 @@ Estas ocho son las que bloquean el plan. Ninguna es retórica: cada una tiene un
 | Ruta | Por qué |
 |---|---|
 | `desktop/src/dsh-desktop/packages/abaco-context/index.js` | El plugin de la capa 1. Bug 1 arreglado (`:273`); Bug 2 en `:216` |
-| `desktop/src/dsh-desktop/packages/abaco-context/presets/abaco/agent.cordis.yml:192-197` | La fila de compactación (hoy 0.6/0.08/16384: valores muertos) y `:204-207` el pruner propio |
+| `desktop/src/dsh-desktop/packages/abaco-context/presets/abaco/agent.cordis.yml:192-197` | La fila de compactación (en la auditoría 0.6/0.08/16384: valores muertos; **hoy cableada a 0.90/0.12/8192 sin commitear** — ver el aviso del §4.1) y `:204-207` el pruner propio |
 | `desktop/src/dsh-desktop/packages/abaco-memory/{index.js,lib/}` | Capa 2 completa: `store.js`, `schema.js`, `render.js`, `tools.js` |
 | `desktop/src/dsh-desktop/packages/abaco-vault/` | Capa 3: corte del aviso `subagent-settled` |
 | `desktop/src/dsh-desktop/build/dsh-desktop.patch.yml` | La composición: filas de `abaco-memory` (`:111-112`), `abaco-vault` (`:125-126`), `abaco-context` (`:142-143`), spill 12000 (`:167`) |
@@ -236,9 +253,16 @@ dsh --profile web --patch <yml> --dump-config
 **Cómo se comprueba el estado de la capa 2 y del preset en la máquina:**
 
 ```bash
-ls "$DSH_HOME/.agent-presets"      # hoy: no existe → el preset no se adopta
-ls "$DSH_HOME/abaco-memory"        # hoy: no existe → la capa 2 está vacía
-sed -n '11,12p' "$DSH_HOME/settings.yaml"   # hoy: default: cordis, no abaco
+# 0) Antes que nada: ¿de qué perfil estoy leyendo? El de ABACO se llama abaco-deep-core (R13).
+ls -la "$HOME/Library/Application Support" | grep -i 'abaco\|dsh'
+
+# Perfil de ABACO — estado medido ENTONCES; el perfil se borró después, así que esto es arqueología.
+ls "$DSH_HOME/.agent-presets"       # entonces: no existía → el preset no se adopta
+ls "$DSH_HOME/abaco-memory"         # entonces: no existía → la capa 2 está vacía
+grep -n 'agent-presets' "$DSH_HOME/settings.yaml"
+#   entonces: 0 coincidencias — la clave NO estaba. El default efectivo era el de la
+#   composición (`standard`), NO `cordis`. El `default: cordis` que se citaba antes
+#   estaba en el perfil de DeepSeek Desktop, que no es este (R13).
 ```
 
 ---
