@@ -60,6 +60,7 @@ import {
 import { secureWindow } from './security'
 import { SafeModeOverlay } from './safe-mode-overlay'
 import { AbacoBrowserController } from './abaco-browser-controller'
+import { AbacoBrowserRpcServer } from './abaco-browser-rpc'
 import { ensureLaunchRoot } from './state/launch-root'
 import {
   listInstalledProfilePlugins,
@@ -138,7 +139,7 @@ import {
 } from './state/plugin-market-check'
 import { upgradePluginToGeneration } from './state/plugin-upgrade'
 import { aboutDetail, bundledHarnessVersion } from './version-info'
-import { abacoBrowserChannels } from '../shared/abaco-browser'
+import { abacoBrowserChannels, isAbacoBrowserMode } from '../shared/abaco-browser'
 import { windowsMenuViewBounds } from './windows-menu-view'
 import { shouldKeepRunningInBackground } from './close-to-tray'
 import {
@@ -170,6 +171,12 @@ const PLUGIN_RECOVERY_ACTIONS = new Set<PluginRecoveryAction>([
 let mainWindow: BrowserWindow | undefined
 /** Integrated browser overlay of the current main window (F0, one per window). */
 let abacoBrowserController: AbacoBrowserController | undefined
+/**
+ * Loopback control plane the agent's `abaco_browser_*` tools call (F1). One
+ * server for the whole app run, because its port and token are injected into
+ * the Harness child's environment and must stay valid across window teardown.
+ */
+let abacoBrowserRpc: AbacoBrowserRpcServer | undefined
 let windowsMenuView: WebContentsView | undefined
 let windowsMenuOpen = false
 let windowsMenuDark = false
@@ -1570,6 +1577,24 @@ function registerAbacoBrowserHandlers(): void {
     assertTrustedAbacoBrowserEvent(event)
     return requireAbacoBrowser().isOpen()
   })
+
+  // F1 takeover. Deliberately IPC-only: the agent's tools can read the mode
+  // (through the RPC `state` route) but have no route that changes it, so a
+  // browser action can never lift the gate that just refused it.
+  ipcMain.removeHandler(abacoBrowserChannels.mode)
+  ipcMain.handle(abacoBrowserChannels.mode, (event) => {
+    assertTrustedAbacoBrowserEvent(event)
+    return requireAbacoBrowser().browserMode()
+  })
+
+  ipcMain.removeHandler(abacoBrowserChannels.setMode)
+  ipcMain.handle(abacoBrowserChannels.setMode, (event, mode?: unknown) => {
+    assertTrustedAbacoBrowserEvent(event)
+    if (!isAbacoBrowserMode(mode)) {
+      throw new Error('The ABACO browser mode must be "agent" or "manual".')
+    }
+    return requireAbacoBrowser().setBrowserMode(mode)
+  })
 }
 
 function assertTrustedSafeModeManagerEvent(event: IpcMainInvokeEvent): void {
@@ -2716,6 +2741,11 @@ async function bootstrap(): Promise<void> {
     dshSafePatchPath: desktopResourcePath('dsh-desktop-safe.patch.yml'),
     dshHome: join(app.getPath('userData'), 'harness'),
     logPath: join(app.getPath('logs'), 'harness.log'),
+    // F1: the agent's browser tools run inside this child, so the control
+    // plane's port and token travel in its environment. Evaluated at every
+    // spawn, which is what makes a safe-mode or plugin-reset relaunch pick up
+    // the current values instead of a port from an earlier run.
+    extraEnvironment: () => abacoBrowserRpc?.environment() ?? {},
     launchProcess: (executablePath, args, options) =>
       process.platform === 'darwin'
         ? launchDisclaimedUtilityProcess(utilityProcess, args, options, {
@@ -2732,6 +2762,17 @@ async function bootstrap(): Promise<void> {
   })
   registerHarnessHandlers()
   registerAbacoBrowserHandlers()
+  // Started before the Harness child so `extraEnvironment()` above already has
+  // a port to hand over. A bind failure must not stop the app: it degrades the
+  // agent's browser tools into a clear "not available" error while the F0
+  // overlay keeps working for the user.
+  abacoBrowserRpc = new AbacoBrowserRpcServer({
+    controller: () => abacoBrowserController,
+    log: (message) => console.warn(`[abaco-browser-rpc] ${message}`)
+  })
+  await abacoBrowserRpc.start().catch((error: unknown) => {
+    console.warn('[abaco-browser-rpc] control server did not start:', error)
+  })
   mobileBridge = new LanMobileBridge({
     harnessUrl: () => runtime.snapshot().url,
     harnessAuthToken: () => runtime.snapshot().authToken,
@@ -3008,7 +3049,9 @@ if (isDaemonLaunch(process.env, process.platform)) {
       // over it unless it is destroyed explicitly before the process exits.
       if (tray && !tray.isDestroyed()) tray.destroy()
       tray = undefined
-      void Promise.all([runtime.stop(), mobileBridge?.stop()]).finally(() => app.quit())
+      void Promise.all([runtime.stop(), mobileBridge?.stop(), abacoBrowserRpc?.stop()]).finally(() =>
+        app.quit()
+      )
     })
   }
 }

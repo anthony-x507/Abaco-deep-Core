@@ -1,13 +1,54 @@
 import { session, WebContentsView, type BrowserWindow, type WebContents } from 'electron'
 import {
+  ABACO_BROWSER_ACTION_MAX_TIMEOUT_MS,
+  ABACO_BROWSER_ACTION_TIMEOUT_MS,
   ABACO_BROWSER_CHROME_HEIGHT,
   ABACO_BROWSER_CHROME_STATE_CHANNEL,
+  ABACO_BROWSER_DEFAULT_MODE,
   ABACO_BROWSER_DEFAULT_URL,
+  ABACO_BROWSER_NAVIGATE_SETTLE_MS,
+  ABACO_BROWSER_NOT_OPEN_MESSAGE,
   ABACO_BROWSER_PARTITION,
+  ABACO_BROWSER_READ_DOM_MAX_CHARS,
+  ABACO_BROWSER_READ_DOM_MAX_CHARS_CEILING,
+  ABACO_BROWSER_READ_DOM_MAX_HEADINGS,
+  ABACO_BROWSER_READ_DOM_MAX_LINKS,
+  ABACO_BROWSER_RPC_GRACE_MS,
+  ABACO_BROWSER_TAKEOVER_MESSAGE,
+  ABACO_BROWSER_WAIT_FOR_MAX_TIMEOUT_MS,
+  ABACO_BROWSER_WAIT_FOR_TIMEOUT_MS,
   isHttpUrl,
   normalizeBrowserUrl,
-  type AbacoBrowserChromeState
+  type AbacoBrowserChromeState,
+  type AbacoBrowserClickResult,
+  type AbacoBrowserDomReading,
+  type AbacoBrowserMode,
+  type AbacoBrowserScreenshot,
+  type AbacoBrowserState,
+  type AbacoBrowserTypingResult,
+  type AbacoBrowserWaitResult
 } from '../shared/abaco-browser'
+import {
+  clickInPage,
+  readDomInPage,
+  typeInPage,
+  waitForInPage,
+  type PageDomReading,
+  type PageElementRef
+} from './abaco-browser-page-scripts'
+
+/**
+ * Clamp a caller-supplied budget to a sane range.
+ *
+ * The agent composes these numbers, so both ends matter: a missing or nonsensical
+ * value falls back to the default rather than to zero (which would turn every
+ * selector wait into an instant failure) and the ceiling keeps one tool call
+ * from parking the harness for an hour.
+ */
+function normalizeBudget(value: unknown, fallback: number, ceiling: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return fallback
+  return Math.min(Math.floor(value), ceiling)
+}
 
 export interface AbacoBrowserViewPaths {
   /** `build/abaco-browser-chrome.html`, or its copy in the packaged resources. */
@@ -46,10 +87,25 @@ export interface AbacoBrowserViewPaths {
  * open it again; `dispose()` (bound to the window's `closed` event) is the
  * permanent teardown. F0 deliberately drops the browsing session on close —
  * keeping it alive is an F1 item, see `docs/abaco-browser.md`.
+ *
+ * ## F1 — the agent surface
+ *
+ * The `agent*` methods are the whole surface `abaco-browser-rpc.ts` exposes to
+ * the agent's tools, and they differ from the F0 user-facing commands in three
+ * ways:
+ *
+ *  1. they are gated by {@link AbacoBrowserMode} — in `manual` mode the user
+ *     owns the page and every mutating action is refused with
+ *     {@link ABACO_BROWSER_TAKEOVER_MESSAGE};
+ *  2. they resolve *after* the page settles instead of firing and forgetting,
+ *     so a tool's result describes the state its own action produced;
+ *  3. they run page code through {@link runInPage}, i.e. inside the browsed
+ *     document, never in the shell.
  */
 export class AbacoBrowserController {
   private pageView: WebContentsView | undefined
   private chromeBarView: WebContentsView | undefined
+  private mode: AbacoBrowserMode = ABACO_BROWSER_DEFAULT_MODE
   private disposed = false
 
   constructor(
@@ -209,6 +265,194 @@ export class AbacoBrowserController {
     this.requirePageContents().reload()
   }
 
+  /* ──────────────────────────────────────────────────────────────────────────
+   * F1 — takeover ownership
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  /** Who owns the overlay right now (`agent` unless the user took over). */
+  browserMode(): AbacoBrowserMode {
+    return this.mode
+  }
+
+  /**
+   * Hand ownership to the agent or to the user. Called by the chrome bar's mode
+   * button through the F0 IPC surface; the agent cannot flip it (no RPC route
+   * touches it), which is what keeps a runaway tool from lifting its own gate.
+   */
+  setBrowserMode(mode: AbacoBrowserMode): AbacoBrowserMode {
+    this.mode = mode
+    this.publishChromeState()
+    return this.mode
+  }
+
+  /* ──────────────────────────────────────────────────────────────────────────
+   * F1 — agent actions
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  /**
+   * What the agent is allowed to observe at any time — deliberately *not*
+   * gated, so a refusal can always be explained. A gated `state` would leave the
+   * model unable to distinguish "the user has the wheel" from "the browser is
+   * closed", which are the two things it needs to report.
+   */
+  agentState(): AbacoBrowserState {
+    const contents = this.isOpen() ? this.pageView?.webContents : undefined
+    if (!contents || contents.isDestroyed()) {
+      return {
+        open: false,
+        mode: this.mode,
+        url: '',
+        title: '',
+        loading: false,
+        canGoBack: false,
+        canGoForward: false
+      }
+    }
+    return {
+      open: true,
+      mode: this.mode,
+      url: contents.getURL(),
+      title: contents.getTitle(),
+      loading: contents.isLoading(),
+      canGoBack: contents.navigationHistory.canGoBack(),
+      canGoForward: contents.navigationHistory.canGoForward()
+    }
+  }
+
+  /**
+   * Load `url` for the agent, mounting the overlay first when it is closed —
+   * this is the F0 backlog's "agent-side seam so a tool can open a URL in the
+   * overlay through the same controller". Resolves once the page has stopped
+   * loading (bounded by {@link ABACO_BROWSER_NAVIGATE_SETTLE_MS}), so the
+   * returned state already carries the destination's title.
+   */
+  async agentNavigate(url: string, timeoutMs = ABACO_BROWSER_NAVIGATE_SETTLE_MS): Promise<AbacoBrowserState> {
+    this.requireAgentControl()
+    // Normalize before touching the views: a refused scheme must leave the
+    // current page exactly as it was.
+    const target = normalizeBrowserUrl(url)
+    if (!this.isOpen()) {
+      this.open(target)
+      await this.nextLoadSettled(this.requirePageContents(), timeoutMs)
+      return this.agentState()
+    }
+    const contents = this.requirePageContents()
+    const settled = this.nextLoadSettled(contents, timeoutMs)
+    void contents.loadURL(target).catch(this.reportLoadFailure)
+    await settled
+    return this.agentState()
+  }
+
+  /** Click the first element matching `selector`, waiting for it to appear. */
+  async agentClick(
+    selector: string,
+    timeoutMs?: number
+  ): Promise<AbacoBrowserClickResult> {
+    this.requireAgentControl()
+    const budget = normalizeBudget(timeoutMs, ABACO_BROWSER_ACTION_TIMEOUT_MS, ABACO_BROWSER_ACTION_MAX_TIMEOUT_MS)
+    const element = await this.runInPage<PageElementRef>(
+      clickInPage,
+      [selector, budget],
+      budget + ABACO_BROWSER_RPC_GRACE_MS
+    )
+    return { element }
+  }
+
+  /** Write `text` into `selector`, optionally pressing Enter afterwards. */
+  async agentType(
+    selector: string,
+    text: string,
+    options: { submit?: boolean; timeoutMs?: number } = {}
+  ): Promise<AbacoBrowserTypingResult> {
+    this.requireAgentControl()
+    const budget = normalizeBudget(
+      options.timeoutMs,
+      ABACO_BROWSER_ACTION_TIMEOUT_MS,
+      ABACO_BROWSER_ACTION_MAX_TIMEOUT_MS
+    )
+    const result = await this.runInPage<PageElementRef & { wrote: boolean }>(
+      typeInPage,
+      [selector, text, options.submit === true, budget],
+      budget + ABACO_BROWSER_RPC_GRACE_MS
+    )
+    return {
+      element: { selector: result.selector, tag: result.tag, text: result.text },
+      wrote: result.wrote === true,
+      submitted: options.submit === true && result.wrote === true
+    }
+  }
+
+  /** Read the page as text plus headings and links. */
+  async agentReadDom(options: { maxChars?: number } = {}): Promise<AbacoBrowserDomReading> {
+    const contents = this.requireAgentControl()
+    const maxChars = normalizeBudget(
+      options.maxChars,
+      ABACO_BROWSER_READ_DOM_MAX_CHARS,
+      ABACO_BROWSER_READ_DOM_MAX_CHARS_CEILING
+    )
+    const reading = await this.runInPage<PageDomReading>(
+      readDomInPage,
+      [maxChars, ABACO_BROWSER_READ_DOM_MAX_HEADINGS, ABACO_BROWSER_READ_DOM_MAX_LINKS],
+      ABACO_BROWSER_ACTION_TIMEOUT_MS + ABACO_BROWSER_RPC_GRACE_MS
+    )
+    return {
+      url: contents.getURL(),
+      title: contents.getTitle(),
+      text: reading.text,
+      charCount: reading.charCount,
+      truncated: reading.truncated,
+      headings: reading.headings,
+      links: reading.links
+    }
+  }
+
+  /** Wait until `selector` exists in the page. */
+  async agentWaitFor(
+    selector: string,
+    timeoutMs?: number
+  ): Promise<AbacoBrowserWaitResult> {
+    this.requireAgentControl()
+    const budget = normalizeBudget(
+      timeoutMs,
+      ABACO_BROWSER_WAIT_FOR_TIMEOUT_MS,
+      ABACO_BROWSER_WAIT_FOR_MAX_TIMEOUT_MS
+    )
+    const startedAt = Date.now()
+    const element = await this.runInPage<PageElementRef>(
+      waitForInPage,
+      [selector, budget],
+      budget + ABACO_BROWSER_RPC_GRACE_MS
+    )
+    return { element, waitedMs: Date.now() - startedAt }
+  }
+
+  /**
+   * Capture the visible page as PNG bytes.
+   *
+   * `capturePage()` rasterizes what the view is actually painting, so it also
+   * fails when the overlay was never shown (an occluded or unparented view
+   * captures an empty image) — that is reported rather than returned as a
+   * zero-byte PNG.
+   */
+  async agentScreenshot(): Promise<AbacoBrowserScreenshot> {
+    const contents = this.requireAgentControl()
+    const image = await contents.capturePage()
+    if (image.isEmpty()) {
+      throw new Error(
+        'The ABACO browser could not capture the page: the overlay is not painting (is the window visible?).'
+      )
+    }
+    const png = image.toPNG()
+    const { width, height } = image.getSize()
+    return {
+      mimeType: 'image/png',
+      width,
+      height,
+      byteLength: png.byteLength,
+      dataBase64: png.toString('base64')
+    }
+  }
+
   /**
    * Keep both views glued to the window's content rect. F0's layout: the page
    * fills the window, the chrome strip covers its first rows. Also the window's
@@ -231,7 +475,7 @@ export class AbacoBrowserController {
     })
   }
 
-  /** Push the current address/history state to the chrome bar. */
+  /** Push the current address/history/mode state to the chrome bar. */
   private readonly publishChromeState = (): void => {
     const chromeBar = this.chromeBarWebContents()
     const contents = this.pageView?.webContents
@@ -240,7 +484,8 @@ export class AbacoBrowserController {
       url: contents.getURL(),
       canGoBack: contents.navigationHistory.canGoBack(),
       canGoForward: contents.navigationHistory.canGoForward(),
-      loading: contents.isLoading()
+      loading: contents.isLoading(),
+      mode: this.mode
     }
     chromeBar.send(ABACO_BROWSER_CHROME_STATE_CHANNEL, state)
   }
@@ -286,9 +531,78 @@ export class AbacoBrowserController {
   private requirePageContents(): WebContents {
     const view = this.pageView
     if (this.disposed || !view || view.webContents.isDestroyed()) {
-      throw new Error('The ABACO browser overlay is not open.')
+      throw new Error(ABACO_BROWSER_NOT_OPEN_MESSAGE)
     }
     return view.webContents
+  }
+
+  /**
+   * The F1 gate. Every mutating agent action passes through it, and so does the
+   * page itself: in manual mode the user owns the overlay, and an agent that
+   * kept clicking would be fighting a human for one cursor — the exact
+   * interleaving the upstream `takeover-controller` exists to prevent. The gate
+   * lives in the controller rather than in the RPC server so it cannot be
+   * bypassed by a future second caller.
+   */
+  private requireAgentControl(): WebContents {
+    const contents = this.requirePageContents()
+    if (this.mode !== 'agent') throw new Error(ABACO_BROWSER_TAKEOVER_MESSAGE)
+    return contents
+  }
+
+  /**
+   * Evaluate `body` inside the browsed page, with `args` passed explicitly.
+   *
+   * `executeJavaScript` takes source, so the function is serialized; see
+   * `abaco-browser-page-scripts.ts` for why every body must be free of
+   * enclosing-scope references. `userGesture: true` marks the evaluation the way
+   * a real input event would, which pages that gate behaviour behind
+   * "user activation" (popovers, clipboard, autoplay) check before acting.
+   *
+   * The page's own budget is enforced by the body's polling loop; the race timer
+   * here is the backstop for a renderer that never answers at all.
+   */
+  private async runInPage<T>(body: (...args: never[]) => unknown, args: unknown[], timeoutMs: number): Promise<T> {
+    const contents = this.requirePageContents()
+    const source = `(${body.toString()})(${args.map((value) => JSON.stringify(value) ?? 'null').join(', ')})`
+    let timer: NodeJS.Timeout | undefined
+    try {
+      return (await Promise.race([
+        contents.executeJavaScript(source, true) as Promise<T>,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`The page did not answer within ${timeoutMs} ms.`)),
+            timeoutMs
+          )
+        })
+      ])) as T
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }
+
+  /**
+   * Resolve once the view has stopped loading, or after `timeoutMs`.
+   *
+   * Subscribing *before* the caller issues the load is what makes this
+   * race-free, so every caller starts the promise first and navigates second.
+   * A timeout is not an error: an agent navigation that reports `loading: true`
+   * is more useful than one that fails, because the model can then wait for a
+   * selector instead of guessing how long the site takes.
+   */
+  private nextLoadSettled(contents: WebContents, timeoutMs: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let timer: NodeJS.Timeout | undefined
+      const settle = (): void => {
+        if (timer !== undefined) clearTimeout(timer)
+        contents.removeListener('did-stop-loading', settle)
+        contents.removeListener('did-fail-load', settle)
+        resolve()
+      }
+      timer = setTimeout(settle, timeoutMs)
+      contents.once('did-stop-loading', settle)
+      contents.once('did-fail-load', settle)
+    })
   }
 
   private readonly dispose = (): void => {

@@ -24,6 +24,7 @@
         --chrome-hover: rgba(32, 33, 36, 0.09);
         --chrome-close-hover: rgba(217, 48, 37, 0.12);
         --chrome-close: #d93025;
+        --chrome-mode-manual: #b3261e;
         --chrome-focus: #4d6bfe;
       }
       @media (prefers-color-scheme: dark) {
@@ -38,6 +39,7 @@
           --chrome-hover: rgba(255, 255, 255, 0.1);
           --chrome-close-hover: rgba(238, 119, 114, 0.16);
           --chrome-close: #ee7772;
+          --chrome-mode-manual: #ee7772;
         }
       }
       * {
@@ -132,6 +134,31 @@
         color: var(--chrome-close);
         background: var(--chrome-close-hover);
       }
+      /* F1 takeover switch: a pill whose colour and label both state ownership. */
+      .modeButton {
+        appearance: none;
+        flex: none;
+        height: 22px;
+        padding: 0 9px;
+        color: var(--chrome-label-strong);
+        background: var(--chrome-hover);
+        border: 1px solid var(--chrome-border);
+        border-radius: 11px;
+        font: inherit;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        cursor: pointer;
+      }
+      .modeButton[data-mode='manual'] {
+        color: var(--chrome-mode-manual);
+        background: var(--chrome-close-hover);
+        border-color: var(--chrome-mode-manual);
+      }
+      .modeButton:focus-visible {
+        outline: 2px solid var(--chrome-focus);
+        outline-offset: -2px;
+      }
       @media (prefers-reduced-motion: reduce) {
         .iconButton.is-loading svg {
           animation: none;
@@ -212,6 +239,23 @@
           placeholder="Search or enter address"
         />
       </form>
+      <!--
+        F1 takeover switch. A word rather than a glyph: "who owns this page" is
+        the one piece of strip state a user must be able to read at a glance
+        while the agent is driving, and an icon cannot carry it. Its label,
+        tooltip and `data-mode` are written by the preload.
+      -->
+      <button
+        class="modeButton"
+        id="abaco-browser-mode"
+        type="button"
+        data-mode="agent"
+        aria-pressed="false"
+        aria-label="Browser control mode"
+        title="The agent may drive this page."
+      >
+        AGENT
+      </button>
       <button
         class="iconButton closeButton"
         id="abaco-browser-close"

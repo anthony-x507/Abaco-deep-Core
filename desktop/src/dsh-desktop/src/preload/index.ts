@@ -2,7 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { AvailableRelease, UpdateStatus } from '../shared/contracts'
 import {
   abacoBrowserChannels,
-  type AbacoBrowserCommandResult
+  type AbacoBrowserCommandResult,
+  type AbacoBrowserMode
 } from '../shared/abaco-browser'
 import { setupDesktopStoragePersistence } from './desktop-storage'
 import {
@@ -172,7 +173,11 @@ contextBridge.exposeInMainWorld('dshAbacoBrowser', {
   forward: (): Promise<AbacoBrowserCommandResult> =>
     ipcRenderer.invoke(abacoBrowserChannels.forward),
   reload: (): Promise<AbacoBrowserCommandResult> => ipcRenderer.invoke(abacoBrowserChannels.reload),
-  isOpen: (): Promise<boolean> => ipcRenderer.invoke(abacoBrowserChannels.isOpen)
+  isOpen: (): Promise<boolean> => ipcRenderer.invoke(abacoBrowserChannels.isOpen),
+  // F1 takeover. Read-only from the Harness page: whoever owns the overlay is
+  // worth showing in the UI, but only the chrome bar's own button hands it
+  // over, so the page cannot flip the mode behind the user's back.
+  mode: (): Promise<AbacoBrowserMode> => ipcRenderer.invoke(abacoBrowserChannels.mode)
 })
 
 /**
