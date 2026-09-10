@@ -38,18 +38,19 @@
 ## 2. TRABAJO EN CURSO (subagentes activos)
 | Frente | Estado | Subagente |
 |---|---|---|
-| **F2 Browser**: chrome completa (atajos, estado carga, takeover) + **decoder __ABACO_REC__** (grabación real) | Corriendo (recorder + test creados; 2 tests pendientes) | `1505d014` |
-| **Memoria durable (Capa 2)**: plugin `abaco-memory` — tools memory_set/get/forget + inyección vía system-prompt | Corriendo (paquete iniciado) | `679b225d` |
+| **Memoria durable (Capa 2)**: plugin `abaco-memory` — tools memory_set/get/forget + inyección vía system-prompt | Corriendo (17 tests: 14 pasan; montaje en patch/pkg pendiente) | `679b225d` |
+| **F3 Browser**: grabación → SKILL.md en `$DSH_HOME/skills/` (renderer, canal save-skill, botón en chrome bar) | Corriendo | `e46f8db1` |
 
 ### Completado en sesión reciente
 | Commit | Qué |
 |---|---|
-| `3e360a2` | **Iconos regenerados** (23 archivos): eran pixel-idénticos al render del commit inicial con paleta DeepSeek (`#7447EC` púrpura 3.09%, `#22D3EE` cian 0.87%, **0 px** del borde cálido ABACO). Ahora **0 px púrpura/cian** en todos los tamaños; regenerados icns/icns.iconset/icon-1024/app-icon/logo-light/dark + fork icon.ico + logo-wordmark (1200x1200→1200x360) |
-| `8f0d490` | README de brand actualizado + **defecto documentado de logo.svg**: el borde cálido `#D9A48B` NUNCA se renderiza porque `plate-right` (path espejado) se dibuja sin `transform` y tapa a `plate-left` (logo-wordmark.svg sí lo muestra, desplaza ±60). FIX PENDIENTE (opciones a/b/c) |
-| `99ad6c9` + `1cae3be` | **F1 Browser**: 7 tools del agente (navigate/click/type/read_dom/wait_for/state/screenshot) vía RPC loopback (puerto efímero + bearer token timingSafeEqual) inyectado al child por env; page scripts con polling; takeover gate; 22/22 tests; typecheck 0 |
+| `d852612` | **F2 Browser**: decoder `__ABACO_REC__` (el hueco crítico — las acciones del usuario ahora SÍ se graban), merge navegaciones+DOM+screenshots, persistencia a `<userData>/abaco-browser/recordings/`, redacción de passwords; chrome bar completa (loading, título, atajos ⌘L/R/W/flechas, drag, píldora AGENT/MANUAL); **53/53 tests, typecheck 0** |
+| `3e360a2` | **Iconos regenerados** (23 archivos): eran pixel-idénticos al render del commit inicial con paleta DeepSeek (`#7447EC` 3.09%, `#22D3EE` 0.87%, **0 px** borde cálido ABACO). Ahora **0 px púrpura/cian** en todos los tamaños; icns/iconset/icon-1024/app-icon/logo-light/dark + fork icon.ico + wordmark (1200x1200→1200x360) |
+| `8f0d490` | README de brand + **defecto de logo.svg documentado**: borde cálido `#D9A48B` nunca se renderiza (`plate-right` sin `transform` tapa `plate-left`). FIX PENDIENTE (opciones a/b/c) |
+| `99ad6c9` + `1cae3be` | **F1 Browser**: 7 tools del agente vía RPC loopback (puerto efímero + bearer token timingSafeEqual); page scripts; takeover gate; 22/22 tests |
 | `265d855` | **F0 Browser**: overlay WebContentsView (partición aislada), chrome bar child view, IPC con guard, global `window.dshAbacoBrowser`, launcher en `sidebar.footer.action` |
 | `4300f18` | **Diseño memoria 3 capas** (956 líneas) validado contra el motor |
-| `fbd0a8c` `0f9d657` `456191b` `901ec71` | Plan durable + reglas de build críticas + package-lock |
+| `fbd0a8c` `0f9d657` `456191b` `901ec71` `0bb7f48` | Plan durable + reglas de build críticas + package-lock |
 
 ## 3. PENDIENTE — PLAN COMPLETO POR FASES
 
