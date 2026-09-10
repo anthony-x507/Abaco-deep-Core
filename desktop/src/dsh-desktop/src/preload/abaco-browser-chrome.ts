@@ -1,11 +1,18 @@
 import { ipcRenderer } from 'electron'
 import {
+  ABACO_BROWSER_CHROME_FOCUS_ADDRESS_CHANNEL,
   ABACO_BROWSER_CHROME_STATE_CHANNEL,
   ABACO_BROWSER_DEFAULT_MODE,
+  ABACO_BROWSER_THEME_CHANGED_CHANNEL,
   abacoBrowserChannels,
+  abacoBrowserShortcutFor,
   isAbacoBrowserMode,
+  isAbacoBrowserTheme,
   type AbacoBrowserChromeState,
-  type AbacoBrowserMode
+  type AbacoBrowserMode,
+  type AbacoBrowserRecordingResult,
+  type AbacoBrowserRecordingStatus,
+  type AbacoBrowserShortcut
 } from '../shared/abaco-browser'
 
 /**
@@ -22,6 +29,14 @@ import {
  * the agent. It lives in the strip rather than in the Harness page because the
  * user's decision has to be reachable exactly when the agent holds the page —
  * i.e. from the one view that is always painted above it.
+ *
+ * F2 adds the rest of the chrome: the page title and a loading spinner next to
+ * the address, the ⏺ recorder with its live action count, the Harness theme
+ * push, and the accelerator table. The accelerators are *shared* with main
+ * (`abacoBrowserShortcutFor`): this document sees only the keystrokes that
+ * happen while it has focus, and the controller answers the same table for the
+ * ones typed into the page through `before-input-event`, so ⌘R cannot mean two
+ * different things depending on where the caret is.
  */
 const CONTROL_IDS = {
   back: 'abaco-browser-back',
@@ -30,7 +45,11 @@ const CONTROL_IDS = {
   close: 'abaco-browser-close',
   address: 'abaco-browser-address',
   addressForm: 'abaco-browser-address-form',
-  mode: 'abaco-browser-mode'
+  mode: 'abaco-browser-mode',
+  title: 'abaco-browser-title',
+  spinner: 'abaco-browser-spinner',
+  record: 'abaco-browser-record',
+  recordCount: 'abaco-browser-record-count'
 } as const
 
 /** Button label and tooltip per ownership mode, so the strip always states the truth. */
@@ -50,22 +69,34 @@ function byId<T extends HTMLElement>(id: string): T | null {
   return node === null ? null : (node as T)
 }
 
-function invoke(channel: string, ...args: unknown[]): void {
-  void ipcRenderer.invoke(channel, ...args).catch((error: unknown) => {
+function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
+  return ipcRenderer.invoke(channel, ...args).catch((error: unknown) => {
     console.warn(`[abaco-browser] ${channel} failed`, error)
+    return undefined
   })
 }
 
+/**
+ * Main validates every field it sends, but this document still checks: a shape
+ * change that reached the strip unchecked would paint `undefined` into the
+ * address bar, and the strip must never show a state it cannot vouch for.
+ */
 function readChromeState(value: unknown): AbacoBrowserChromeState | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const candidate = value as Partial<AbacoBrowserChromeState>
   if (typeof candidate.url !== 'string') return undefined
   return {
     url: candidate.url,
+    title: typeof candidate.title === 'string' ? candidate.title : '',
     canGoBack: candidate.canGoBack === true,
     canGoForward: candidate.canGoForward === true,
     loading: candidate.loading === true,
-    mode: isAbacoBrowserMode(candidate.mode) ? candidate.mode : ABACO_BROWSER_DEFAULT_MODE
+    mode: isAbacoBrowserMode(candidate.mode) ? candidate.mode : ABACO_BROWSER_DEFAULT_MODE,
+    recording: candidate.recording === true,
+    recordingActions:
+      typeof candidate.recordingActions === 'number' && Number.isFinite(candidate.recordingActions)
+        ? candidate.recordingActions
+        : 0
   }
 }
 
@@ -77,16 +108,36 @@ function mountAbacoBrowserChrome(): void {
   const address = byId<HTMLInputElement>(CONTROL_IDS.address)
   const addressForm = byId<HTMLFormElement>(CONTROL_IDS.addressForm)
   const modeButton = byId<HTMLButtonElement>(CONTROL_IDS.mode)
-  if (!back || !forward || !reload || !close || !address || !addressForm || !modeButton) return
+  const title = byId<HTMLSpanElement>(CONTROL_IDS.title)
+  const spinner = byId<HTMLSpanElement>(CONTROL_IDS.spinner)
+  const recordButton = byId<HTMLButtonElement>(CONTROL_IDS.record)
+  const recordCount = byId<HTMLSpanElement>(CONTROL_IDS.recordCount)
+  if (
+    !back ||
+    !forward ||
+    !reload ||
+    !close ||
+    !address ||
+    !addressForm ||
+    !modeButton ||
+    !title ||
+    !spinner ||
+    !recordButton ||
+    !recordCount
+  ) {
+    return
+  }
 
-  // Lets the stylesheet give macOS the native window-button gutter; the preload
-  // is the only script in this document and still exposes `platform`.
+  // Lets the stylesheet give macOS the native window-button gutter *and* the
+  // draggable strip (`-webkit-app-region: drag` is darwin-only here: Windows and
+  // Linux keep a native frame); the preload is the only script in this document
+  // and still exposes `platform`.
   document.body.dataset.platform = process.platform
 
-  back.addEventListener('click', () => invoke(abacoBrowserChannels.back))
-  forward.addEventListener('click', () => invoke(abacoBrowserChannels.forward))
-  reload.addEventListener('click', () => invoke(abacoBrowserChannels.reload))
-  close.addEventListener('click', () => invoke(abacoBrowserChannels.close))
+  back.addEventListener('click', () => void invoke(abacoBrowserChannels.back))
+  forward.addEventListener('click', () => void invoke(abacoBrowserChannels.forward))
+  reload.addEventListener('click', () => void invoke(abacoBrowserChannels.reload))
+  close.addEventListener('click', () => void invoke(abacoBrowserChannels.close))
 
   // Ownership is explicit and reversible rather than inferred: the user clicking
   // around the page is not treated as a takeover, because an inference like that
@@ -106,7 +157,60 @@ function mountAbacoBrowserChrome(): void {
     // controller emits from `setBrowserMode` — which is why a refused or ignored
     // change can never leave the strip lying about who owns the page.
     paintMode(mode === 'agent' ? 'manual' : 'agent')
-    invoke(abacoBrowserChannels.setMode, mode)
+    void invoke(abacoBrowserChannels.setMode, mode)
+  })
+
+  /* ── F2 — the recorder button ──────────────────────────────────────────────
+   * The button is a switch, and it never guesses: `pending` blocks a second
+   * click while the start/stop round trip is in flight (starting injects the
+   * page script and takes the opening screenshot; stopping writes the file and
+   * the closing PNG), and the authoritative state always arrives afterwards on
+   * the state push — including the recording the controller finishes by itself
+   * when the browser is closed. */
+  let recording = false
+  const paintRecording = (active: boolean, count: number, tooltip?: string): void => {
+    recording = active
+    recordButton.classList.toggle('is-recording', active)
+    recordButton.setAttribute('aria-pressed', active ? 'true' : 'false')
+    recordButton.setAttribute(
+      'aria-label',
+      active ? 'Stop recording browser actions' : 'Record browser actions'
+    )
+    recordButton.title =
+      tooltip ??
+      (active
+        ? `Recording your actions in this page (${count} captured). Click to stop and save.`
+        : 'Record my actions in this page — the result becomes a reusable skill (F2 → F3)')
+    recordCount.hidden = !active
+    recordCount.textContent = active ? `${count}` : ''
+  }
+  paintRecording(false, 0)
+
+  const toggleRecording = async (): Promise<void> => {
+    recordButton.dataset.pending = 'true'
+    try {
+      if (recording) {
+        const result = (await invoke(abacoBrowserChannels.recordStop)) as
+          | AbacoBrowserRecordingResult
+          | undefined
+        if (result && result.ok) {
+          paintRecording(false, 0, `Saved ${result.actionCount} action(s) to ${result.path}`)
+        } else {
+          paintRecording(false, 0, 'The recording could not be saved to disk.')
+        }
+      } else {
+        const status = (await invoke(abacoBrowserChannels.recordStart)) as
+          | AbacoBrowserRecordingStatus
+          | undefined
+        if (status?.recording === true) paintRecording(true, status.actionCount)
+      }
+    } finally {
+      delete recordButton.dataset.pending
+    }
+  }
+  recordButton.addEventListener('click', () => {
+    if (recordButton.dataset.pending === 'true') return
+    void toggleRecording()
   })
 
   addressForm.addEventListener('submit', (event) => {
@@ -115,30 +219,80 @@ function mountAbacoBrowserChrome(): void {
     if (target.length === 0) return
     // Main normalizes the address (https assumed, non-http schemes rejected) so
     // the typed text and the shipped policy never diverge.
-    invoke(abacoBrowserChannels.navigate, target)
+    void invoke(abacoBrowserChannels.navigate, target)
   })
-  // Chromium's own accelerator is unavailable in this child view, so the strip
-  // offers the address-bar focus shortcut on both modifier layouts.
-  document.addEventListener('keydown', (event) => {
-    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'l') return
-    event.preventDefault()
+
+  const focusAddress = (): void => {
     address.focus()
     address.select()
-  })
+  }
   address.addEventListener('focus', () => address.select())
+
+  /* ── F2 — accelerators ─────────────────────────────────────────────────────
+   * The same table main uses for the page view. Only the two commands that are
+   * purely about this document are handled locally (focusing the address bar);
+   * everything else is forwarded to the controller, so ⌘W closes the *browser*
+   * even when the caret is in the strip, and there is exactly one implementation
+   * of "what does ⌘R do". */
+  const localCommands: Partial<Record<AbacoBrowserShortcut, () => void>> = {
+    'focus-address': focusAddress
+  }
+  document.addEventListener('keydown', (event) => {
+    const shortcut = abacoBrowserShortcutFor({
+      key: event.key,
+      meta: event.metaKey,
+      ctrl: event.ctrlKey,
+      alt: event.altKey,
+      shift: event.shiftKey
+    })
+    if (!shortcut) return
+    event.preventDefault()
+    const local = localCommands[shortcut]
+    if (local) {
+      local()
+      return
+    }
+    // Forwarded to the controller: the strip may not run page code, and the
+    // same command arrives from main when ⌘L was typed into the page (`focus-
+    // address` is the one command this document handles itself).
+    void invoke(abacoBrowserChannels.shortcut, shortcut)
+  })
+
+  // Main asks the strip for the caret when ⌘L was typed into the *page*: focus
+  // cannot be moved into another view's DOM from outside it.
+  ipcRenderer.on(ABACO_BROWSER_CHROME_FOCUS_ADDRESS_CHANNEL, () => focusAddress())
+
+  ipcRenderer.on(ABACO_BROWSER_THEME_CHANGED_CHANNEL, (_event, theme: unknown) => {
+    if (!isAbacoBrowserTheme(theme)) return
+    document.body.dataset.theme = theme
+  })
 
   ipcRenderer.on(ABACO_BROWSER_CHROME_STATE_CHANNEL, (_event, state: unknown) => {
     const next = readChromeState(state)
     if (!next) return
     back.disabled = !next.canGoBack
     forward.disabled = !next.canGoForward
-    reload.classList.toggle('is-loading', next.loading)
     // Never overwrite what the user is typing.
     if (document.activeElement !== address) address.value = next.url
     address.title = next.url
+    spinner.hidden = !next.loading
+    title.textContent = next.title
+    title.title = next.title
     paintMode(next.mode)
+    // A recording can start or stop without this button being pressed (it is
+    // saved automatically when the browser closes), so the push is what keeps
+    // the strip honest; the tooltip is only reset when nothing pending said
+    // something more specific.
+    if (next.recording || recording) paintRecording(next.recording, next.recordingActions)
   })
 }
+
+/**
+ * Every control in the strip goes through `abaco:browser:*`; this file adds no
+ * channel of its own. See {@link CONTROL_IDS} and the module docstring for the
+ * split between what is handled here (address focus, painting) and what the
+ * controller owns (navigation, mode, recording, the rest of the accelerators).
+ */
 
 if (document.readyState === 'loading') {
   window.addEventListener('DOMContentLoaded', mountAbacoBrowserChrome, { once: true })

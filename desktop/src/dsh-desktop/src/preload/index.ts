@@ -3,7 +3,10 @@ import type { AvailableRelease, UpdateStatus } from '../shared/contracts'
 import {
   abacoBrowserChannels,
   type AbacoBrowserCommandResult,
-  type AbacoBrowserMode
+  type AbacoBrowserMode,
+  type AbacoBrowserRecordingResult,
+  type AbacoBrowserRecordingStatus,
+  type AbacoBrowserTheme
 } from '../shared/abaco-browser'
 import { setupDesktopStoragePersistence } from './desktop-storage'
 import {
@@ -177,7 +180,27 @@ contextBridge.exposeInMainWorld('dshAbacoBrowser', {
   // F1 takeover. Read-only from the Harness page: whoever owns the overlay is
   // worth showing in the UI, but only the chrome bar's own button hands it
   // over, so the page cannot flip the mode behind the user's back.
-  mode: (): Promise<AbacoBrowserMode> => ipcRenderer.invoke(abacoBrowserChannels.mode)
+  mode: (): Promise<AbacoBrowserMode> => ipcRenderer.invoke(abacoBrowserChannels.mode),
+  /* ── F2 — recording ──────────────────────────────────────────────────────
+   * The Harness page gets the same three recording channels the chrome strip
+   * uses, so a skill-recording flow can be driven from a client plugin (the
+   * launcher's neighbourhood) as well as from the strip's ⏺. There is
+   * deliberately no `setMode` here: recording already hands ownership to the
+   * user inside the controller, and exposing the mode switch to page script
+   * would let the renderer lift the agent's gate.
+   *
+   * `reportTheme` is how the Harness tells the browser strip which theme the
+   * user picked when it differs from the OS one; `syncNativeTheme` pushes the
+   * same value on every Harness load, so this method only matters for a live
+   * change. */
+  startRecording: (): Promise<AbacoBrowserRecordingStatus> =>
+    ipcRenderer.invoke(abacoBrowserChannels.recordStart),
+  stopRecording: (): Promise<AbacoBrowserRecordingResult> =>
+    ipcRenderer.invoke(abacoBrowserChannels.recordStop),
+  recordingStatus: (): Promise<AbacoBrowserRecordingStatus> =>
+    ipcRenderer.invoke(abacoBrowserChannels.recordStatus),
+  reportTheme: (theme: AbacoBrowserTheme): Promise<AbacoBrowserTheme> =>
+    ipcRenderer.invoke(abacoBrowserChannels.themeReport, theme)
 })
 
 /**

@@ -507,7 +507,11 @@ describe('ABACO browser agent tools (F1)', () => {
     const chromeHtml = await readFile('build/abaco-browser-chrome.html', 'utf8')
 
     expect(abacoBrowserChannels.mode).toBe('abaco:browser:mode')
-    expect(abacoBrowserChannels.setMode).toBe('abaco:browser:setMode')
+    // F2 renamed this one literal from the F1 `abaco:browser:setMode` to the
+    // kebab-case the rest of the family uses. Only the chrome bar invokes it and
+    // both halves ship in one bundle, so nothing else had to change; the
+    // invariant this test guards (the agent has no route to it) is untouched.
+    expect(abacoBrowserChannels.setMode).toBe('abaco:browser:set-mode')
     expect(main).toContain('ipcMain.handle(abacoBrowserChannels.mode,')
     expect(main).toContain('ipcMain.handle(abacoBrowserChannels.setMode,')
     expect(main).toContain('if (!isAbacoBrowserMode(mode))')

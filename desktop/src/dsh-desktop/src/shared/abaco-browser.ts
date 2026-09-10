@@ -1,5 +1,5 @@
 /**
- * Shared contract of the ABACO DEEP HARNES integrated browser (F0 + F1).
+ * Shared contract of the ABACO DEEP HARNES integrated browser (F0 + F1 + F2).
  *
  * The browser is an overlay `WebContentsView` owned by the main process; the
  * harness page, the browser's own chrome bar and — since F1 — the agent's tools
@@ -16,6 +16,14 @@
  * `packages/abaco-browser/index.js` cannot import this module (it is a separate
  * plugin package resolved inside the Harness profile), so it restates the same
  * two literals and `test/abaco-browser.test.ts` asserts the two copies agree.
+ *
+ * F2 adds the user-action recorder. Its contract lives here too, because the
+ * three pieces that must agree about a recorded action are in three different
+ * realms: the *page* emits it (`abaco-browser-page-scripts.ts`, a string that
+ * runs inside the browsed document), *main* decodes and redacts it
+ * (`abaco-browser-recorder.ts`) and the *chrome bar* renders the recording
+ * state (its own preload). The wire prefix, the action vocabulary and the
+ * redaction rules are therefore one constant set rather than three restatements.
  */
 
 /** Page the overlay opens when the launcher asks for a browser with no target. */
@@ -45,18 +53,80 @@ export const abacoBrowserChannels = {
   reload: 'abaco:browser:reload',
   isOpen: 'abaco:browser:isOpen',
   mode: 'abaco:browser:mode',
-  setMode: 'abaco:browser:setMode'
+  /**
+   * F2 normalizes this one literal to the kebab-case the whole family uses
+   * (F1 shipped `abaco:browser:setMode`). Only the chrome bar invokes it, and
+   * both halves ship in the same bundle, so there is no rolling-upgrade seam to
+   * keep open — see {@link AbacoBrowserMode} for why the *agent* still has no
+   * route to it.
+   */
+  setMode: 'abaco:browser:set-mode',
+  /** F2 — user-action recording (the raw material of a skill). */
+  recordStart: 'abaco:browser:record-start',
+  recordStop: 'abaco:browser:record-stop',
+  recordStatus: 'abaco:browser:record-status',
+  /**
+   * F2 — "the user pressed this accelerator", sent by the chrome strip for the
+   * commands the controller owns (reload/close/back/forward). One channel with
+   * the command as its argument rather than one channel per key: the command
+   * vocabulary is {@link abacoBrowserShortcuts} and main turns it straight into
+   * `runShortcut`, the same entry point `before-input-event` uses for keystrokes
+   * typed into the page.
+   */
+  shortcut: 'abaco:browser:shortcut',
+  /** F2 — the resolved Harness theme, reported by the surface that knows it. */
+  themeReport: 'abaco:browser:theme-report'
 } as const
 
 /** Main → chrome-bar push of the current navigation state. */
 export const ABACO_BROWSER_CHROME_STATE_CHANNEL = 'abaco-browser-chrome:navigated'
 
+/**
+ * Main → chrome-bar push of the resolved Harness theme. A dedicated channel
+ * (rather than another field on the navigation state) because the two facts
+ * change for unrelated reasons: the theme changes when the user flips the
+ * Harness appearance, the navigation state on every page load.
+ */
+export const ABACO_BROWSER_THEME_CHANGED_CHANNEL = 'abaco:browser:theme-changed'
+
+/**
+ * Main → chrome-bar push asking the strip to put the caret in its address input.
+ * `⌘L` typed while the *page* has focus arrives at the controller, which can
+ * hand focus to the strip's `webContents` but cannot touch its DOM; this is the
+ * message that finishes the job on the other side.
+ */
+export const ABACO_BROWSER_CHROME_FOCUS_ADDRESS_CHANNEL = 'abaco-browser-chrome:focus-address'
+
+/**
+ * Shortest gap between two state pushes to the chrome bar.
+ *
+ * A recording makes this matter: every keystroke is an action, so the action
+ * counter in the strip would otherwise cost one IPC round trip and one style
+ * recalculation per letter. 120 ms is below the threshold at which a counter
+ * looks stale and far above a typing cadence.
+ */
+export const ABACO_BROWSER_CHROME_MIN_STATE_INTERVAL_MS = 120
+
+/** Who the chrome bar should paint itself for. */
+export type AbacoBrowserTheme = 'light' | 'dark'
+
+/** True for the only two strings the theme channel accepts. */
+export function isAbacoBrowserTheme(value: unknown): value is AbacoBrowserTheme {
+  return value === 'light' || value === 'dark'
+}
+
 export interface AbacoBrowserChromeState {
   url: string
+  /** Page title, shown next to the address. Empty while the page has none. */
+  title: string
   canGoBack: boolean
   canGoForward: boolean
   loading: boolean
   mode: AbacoBrowserMode
+  /** True while a user-action recording is running; the strip shows ⏺. */
+  recording: boolean
+  /** How many actions the running recording has captured so far. */
+  recordingActions: number
 }
 
 /** Result shape of every control channel except `isOpen`, which returns a boolean. */
@@ -295,4 +365,375 @@ export function normalizeBrowserUrl(raw: string): string {
     throw new Error(`"${raw}" is not a valid address.`)
   }
   return candidate
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * F2 — keyboard shortcuts
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The browser's own accelerators. They are deliberately *not* Electron menu
+ * accelerators: the overlay only exists while it is open, so a global menu item
+ * would have to be enabled and disabled around it, while these are matched at
+ * the two surfaces that actually have focus — the chrome bar's document and the
+ * browsed page's `before-input-event`.
+ */
+export type AbacoBrowserShortcut = 'focus-address' | 'reload' | 'close' | 'back' | 'forward'
+
+/** The accelerator vocabulary, so a channel argument can be validated. */
+export const abacoBrowserShortcuts = [
+  'focus-address',
+  'reload',
+  'close',
+  'back',
+  'forward'
+] as const
+
+/** True for the only five strings `abaco:browser:shortcut` accepts. */
+export function isAbacoBrowserShortcut(value: unknown): value is AbacoBrowserShortcut {
+  return typeof value === 'string' && (abacoBrowserShortcuts as readonly string[]).includes(value)
+}
+
+/**
+ * A keyboard event reduced to what the table below reads. The chrome bar fills
+ * it from a DOM `KeyboardEvent`, main from Electron's `before-input-event`
+ * `input` object, which is why the modifiers are plain booleans with the DOM
+ * names.
+ */
+export interface AbacoBrowserShortcutInput {
+  key: string
+  meta?: boolean
+  ctrl?: boolean
+  alt?: boolean
+  shift?: boolean
+}
+
+/**
+ * Map a keystroke to a browser command, or `undefined` when it is not one.
+ *
+ * `⌘` and `Ctrl` are interchangeable (`primary`): on macOS the app is expected
+ * to answer ⌘ and on Windows/Linux Ctrl, and accepting both everywhere costs
+ * nothing while making the strip usable over a screen share or a remote session.
+ * `Alt` disqualifies a match (Alt+← is the Windows back gesture, not this);
+ * `Shift` does not, because ⌘⇧← still reads as "back" to every user who tries it.
+ */
+export function abacoBrowserShortcutFor(
+  input: AbacoBrowserShortcutInput
+): AbacoBrowserShortcut | undefined {
+  if (input.meta !== true && input.ctrl !== true) return undefined
+  if (input.alt === true) return undefined
+  switch (input.key.toLowerCase()) {
+    case 'l':
+      return 'focus-address'
+    case 'r':
+      return 'reload'
+    case 'w':
+      return 'close'
+    case 'arrowleft':
+      return 'back'
+    case 'arrowright':
+      return 'forward'
+    default:
+      return undefined
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * F2 — user-action recording (the raw material of an F3 skill)
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Wire prefix of a recorded action.
+ *
+ * The page script emits each action as `console.log(PREFIX, JSON.stringify(a))`
+ * and main consumes it from `webContents.on('console-message')`. A console
+ * channel is used instead of `postMessage` or a custom preload bridge because
+ * the browsed page is a *remote* document: it has no preload, no `ipcRenderer`
+ * and no route back into the shell, and a hostile page cannot be trusted to
+ * implement a bus we define. `console-message` is the one channel every page
+ * already has.
+ */
+export const ABACO_BROWSER_RECORD_PREFIX = '__ABACO_REC__'
+
+/**
+ * What a redacted value is replaced with. A visible marker rather than an empty
+ * string: F3 must be able to tell "the user left this field empty" from "this
+ * field was a password and we refuse to remember it".
+ */
+export const ABACO_BROWSER_REDACTED_VALUE = '***REDACTED***'
+
+/**
+ * The recorded-action vocabulary. It mirrors `ActionType` in the upstream
+ * feature sketch (`desktop/features/browser/types.ts`), because F3's skill
+ * generator consumes the same names; `screenshot` and `wait` are produced by
+ * main, never by the page.
+ */
+export const abacoBrowserRecordedActionTypes = [
+  'click',
+  'type',
+  'navigate',
+  'scroll',
+  'screenshot',
+  'wait'
+] as const
+
+export type AbacoBrowserRecordedActionType = (typeof abacoBrowserRecordedActionTypes)[number]
+
+/** True for the only strings a recorded action's `action_type` may hold. */
+export function isAbacoBrowserRecordedActionType(
+  value: unknown
+): value is AbacoBrowserRecordedActionType {
+  return (
+    typeof value === 'string' &&
+    (abacoBrowserRecordedActionTypes as readonly string[]).includes(value)
+  )
+}
+
+/** Ceiling on one recorded `text` value; a paste into a textarea is not a step. */
+export const ABACO_BROWSER_RECORD_MAX_TEXT = 4000
+
+/** Ceiling on one recorded `selector`, so a pathological path cannot bloat the file. */
+export const ABACO_BROWSER_RECORD_MAX_SELECTOR = 500
+
+/** Ceiling on one recorded `notes` string. */
+export const ABACO_BROWSER_RECORD_MAX_NOTES = 300
+
+/**
+ * Ceiling on how many actions one recording holds. A recording is read back by
+ * an agent, so a runaway page (an infinite scroll, a chatty `input` handler)
+ * must not be able to grow a file without bound.
+ */
+export const ABACO_BROWSER_RECORD_MAX_ACTIONS = 5000
+
+/**
+ * How close two `type` events on the same field must be to collapse into one
+ * action. `input` fires per keystroke and every one of them carries the field's
+ * *whole* current value, so a word typed by hand would otherwise become one
+ * recorded step per letter — useless as a skill. A pause longer than this reads
+ * as "the user finished this field".
+ */
+export const ABACO_BROWSER_RECORD_TYPE_MERGE_MS = 1200
+
+/**
+ * How close a `will-navigate` intent and the `did-navigate` that fulfils it must
+ * be to collapse into one recorded navigation. Both events describe one trip,
+ * and the second one is the one that carries the destination's title.
+ */
+export const ABACO_BROWSER_RECORD_NAVIGATE_MERGE_MS = 5000
+
+/** Two scroll events inside this window that did not move far are one action. */
+export const ABACO_BROWSER_RECORD_SCROLL_MERGE_MS = 1000
+
+/** Directory of the recordings, below the app's `userData`. */
+export const ABACO_BROWSER_RECORDINGS_DIRNAME = 'abaco-browser/recordings'
+
+/** Schema tag of the JSON written to `<timestamp>.json`. */
+export const ABACO_BROWSER_RECORDING_SCHEMA = 'abaco-browser-recording/1'
+
+/**
+ * The form metadata of the element an action touched.
+ *
+ * It is part of the wire format — and not just a local variable inside the page
+ * script — because main re-derives the redaction decision from it. Trusting only
+ * the page's own "this was a password" flag would put the whole guarantee on the
+ * one script whose input is a hostile document.
+ */
+export interface AbacoBrowserRecordedField {
+  tag: string
+  type: string
+  name: string
+  id: string
+  autocomplete: string
+}
+
+/** One user action, as it lands in the recording. */
+export interface AbacoBrowserRecordedAction {
+  /** ISO-8601, from the page's clock (main uses its own for synthesised rows). */
+  timestamp: string
+  url: string
+  action_type: AbacoBrowserRecordedActionType
+  selector?: string
+  text?: string
+  notes?: string
+  /** Set on `screenshot` rows, and on a `type` row whose value was masked. */
+  screenshot_path?: string
+  field?: AbacoBrowserRecordedField
+  /** True when `text` replaced something sensitive. */
+  redacted?: boolean
+}
+
+/** Where the two bookend screenshots of a recording were written. */
+export interface AbacoBrowserRecordingScreenshots {
+  initial?: string
+  final?: string
+}
+
+/**
+ * The JSON persisted as `<timestamp>.json`.
+ *
+ * The field names of `actions` and the session envelope follow the upstream
+ * `RecordingSession`/`RecordedAction` shapes (`desktop/features/browser/
+ * types.ts`) so F3's skill generator can be ported against the same data; the
+ * extra keys are additive, and `schema` is what a reader should branch on.
+ */
+export interface AbacoBrowserRecordingDocument {
+  schema: typeof ABACO_BROWSER_RECORDING_SCHEMA
+  session_id: string
+  started_at: string
+  ended_at: string
+  initial_url: string
+  final_url: string
+  title: string
+  /** Ownership while recording: a recording is a human demonstration, so `manual`. */
+  mode: AbacoBrowserMode
+  actions: AbacoBrowserRecordedAction[]
+  screenshots: AbacoBrowserRecordingScreenshots
+  /** What the decoder dropped, so a short recording can be explained. */
+  skipped: { malformedMessages: number; redactedValues: number; duplicateActions: number }
+  source_path?: string
+}
+
+/** Live state of the recorder, as reported by `abaco:browser:record-status`. */
+export interface AbacoBrowserRecordingStatus {
+  recording: boolean
+  /** Timestamp-derived id of the running (or last) session; empty when none. */
+  sessionId: string
+  /** ISO-8601 start of the running session; empty when none. */
+  startedAt: string
+  /** Actions captured so far, or by the last session. */
+  actionCount: number
+  /** ISO-8601 of the last captured action; empty when none. */
+  lastActionAt: string
+  /** Absolute path of the last recording written to disk; empty until one is. */
+  lastRecordingPath: string
+  /** Why the last screenshot or write failed; empty when nothing failed. */
+  lastError: string
+}
+
+/** Result of `abaco:browser:record-stop`. */
+export interface AbacoBrowserRecordingResult {
+  ok: boolean
+  /** The `<timestamp>.json` just written. */
+  path: string
+  sessionId: string
+  actionCount: number
+  durationMs: number
+}
+
+/**
+ * Field names that make a value unrecordable, even when the control is not
+ * `type="password"`. Everything here is matched against the *normalized* name,
+ * id and `autocomplete` of the element — see {@link isSensitiveBrowserField}.
+ */
+export const ABACO_BROWSER_SENSITIVE_FIELD_TOKENS = [
+  'pass',
+  'password',
+  'passwd',
+  'pwd',
+  'passphrase',
+  'secret',
+  'token',
+  'apikey',
+  'otp',
+  'totp',
+  'mfa',
+  'pin',
+  'cvv',
+  'cvc',
+  'csc',
+  'ccv',
+  'ccnum',
+  'cardnumber',
+  'creditcard',
+  'iban',
+  'ssn',
+  'securitycode'
+] as const
+
+/** `autocomplete` values that name a credential or a payment secret. */
+export const ABACO_BROWSER_SENSITIVE_AUTOCOMPLETE = [
+  'current-password',
+  'new-password',
+  'one-time-code',
+  'cc-number',
+  'cc-csc',
+  'cc-exp',
+  'cc-exp-month',
+  'cc-exp-year'
+] as const
+
+const sensitiveFieldTokens: ReadonlySet<string> = new Set(ABACO_BROWSER_SENSITIVE_FIELD_TOKENS)
+const sensitiveAutocomplete: ReadonlySet<string> = new Set(ABACO_BROWSER_SENSITIVE_AUTOCOMPLETE)
+
+/**
+ * Fold a field name into `-`-separated lowercase words, so `user_password`,
+ * `userPassword`, `user-password` and `user.password` all compare equal.
+ *
+ * The separator matters more than it looks: JavaScript's `\b` treats `_` as a
+ * word character, so a `/\bpassword\b/` test misses `user_password` — the exact
+ * spelling most forms use. Splitting on non-alphanumerics and comparing whole
+ * segments has no such blind spot.
+ */
+export function normalizeBrowserFieldToken(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/gu, '$1-$2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+}
+
+/**
+ * Whether the value of this field must never be recorded.
+ *
+ * The bias is deliberate: a false positive costs one masked value the user can
+ * still see on screen, a false negative writes a password into a JSON file that
+ * an agent will read back. `type="password"` and the credential `autocomplete`
+ * values are hard rules; the name/id token list is the heuristic that catches
+ * the payment and login fields a site forgot to label properly.
+ */
+export function isSensitiveBrowserField(field: AbacoBrowserRecordedField | undefined): boolean {
+  if (!field) return false
+  if (field.type.trim().toLowerCase() === 'password') return true
+  for (const raw of [field.autocomplete, field.name, field.id]) {
+    const normalized = normalizeBrowserFieldToken(raw)
+    if (normalized.length === 0) continue
+    if (sensitiveAutocomplete.has(normalized)) return true
+    if (sensitiveFieldTokens.has(normalized)) return true
+    for (const segment of normalized.split('-')) {
+      if (sensitiveFieldTokens.has(segment)) return true
+      // Forms number their secret fields rather than renaming them: `cvv2` and
+      // `cvc2` are as ordinary as `cvv`, and a trailing index must not be what
+      // makes a card code recordable.
+      const withoutIndex = segment.replace(/\d+$/u, '')
+      if (withoutIndex !== segment && sensitiveFieldTokens.has(withoutIndex)) return true
+    }
+  }
+  return false
+}
+
+/**
+ * The redaction verdict for one recorded value. Three independent signals, any
+ * of which is enough: the page's own flag, the element metadata main re-checks,
+ * and a `password`/`redacted` marker in the notes.
+ */
+export function shouldRedactBrowserValue(input: {
+  field?: AbacoBrowserRecordedField | undefined
+  sensitive?: boolean | undefined
+  notes?: string | undefined
+}): boolean {
+  if (input.sensitive === true) return true
+  if (isSensitiveBrowserField(input.field)) return true
+  return /password|passwd|redact/iu.test(input.notes ?? '')
+}
+
+/** Replace a value with {@link ABACO_BROWSER_REDACTED_VALUE} when it is sensitive. */
+export function redactRecordedText(
+  text: string,
+  input: {
+    field?: AbacoBrowserRecordedField | undefined
+    sensitive?: boolean | undefined
+    notes?: string | undefined
+  }
+): string {
+  return shouldRedactBrowserValue(input) ? ABACO_BROWSER_REDACTED_VALUE : text
 }

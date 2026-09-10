@@ -1,4 +1,4 @@
-# Integrated browser (ABACO browser, F0 + F1)
+# Integrated browser (ABACO browser, F0 → F2)
 
 F0 ships the smallest end-to-end slice of the integrated browser: a launcher in
 the sidebar footer, an overlay `WebContentsView` inside the main window, a basic
@@ -9,9 +9,19 @@ navigate, click, type, read the DOM, wait for selectors, screenshot and report
 state — reaching the main process' overlay across a process boundary through a
 loopback HTTP control plane, with an explicit agent/manual ownership switch.
 
-Status: implemented, statically verified (`npm run typecheck` → 0 errors,
-`node --check` on both plugin halves, `npx vitest run test/abaco-browser.test.ts`
-→ 22/22). No Electron build or app launch was run for F0 or F1.
+F2 completes the **chrome** (loading state, page title next to the address,
+accelerators, draggable strip, Harness theme) and fills the hole F0 left open:
+the page half of the recorder emitted `console.log('__ABACO_REC__', json)` and
+**nothing consumed `console-message`**, so user actions were never recorded. F2
+adds the decoder, the injected listener script, the redaction layer, a merge
+policy that turns the raw event stream into steps, and the on-disk recording
+(`<userData>/abaco-browser/recordings/<timestamp>.json` + two PNGs) that F3 will
+turn into a skill.
+
+Status: F2 implemented, statically verified (`npm run typecheck` → 0 errors,
+`vitest run test/abaco-browser.test.ts test/abaco-browser-recorder.test.ts` →
+53/53). No Electron build or app launch was run for F0, F1 or F2; the two things
+only a launch can confirm are listed under *Not verified by a launch*.
 
 ## Topology
 
@@ -23,8 +33,11 @@ flowchart TD
   MAIN --> CTRL["AbacoBrowserController"]
   CTRL -->|"addChildView"| OVERLAY["WebContentsView: browsed page (persist:abaco-browser)"]
   CTRL -->|"addChildView (on top)"| CHROME["WebContentsView: build/abaco-browser-chrome.html"]
-  CHROME -->|"abaco:browser:back/forward/reload/navigate/close/setMode"| MAIN
-  MAIN -->|"abaco-browser-chrome:navigated"| CHROME
+  CHROME -->|"abaco:browser:back/forward/reload/navigate/close/set-mode/record-*/shortcut"| MAIN
+  MAIN -->|"abaco-browser-chrome:navigated / abaco:browser:theme-changed / focus-address"| CHROME
+  OVERLAY -->|"console-message: __ABACO_REC__ &lt;json&gt;"| DEC["decodeAbacoRecordedMessage (F2)"]
+  DEC --> REC["AbacoBrowserRecorder: redact, merge, persist"]
+  REC -->|"&lt;timestamp&gt;.json + -initial/-final.png"| DISK["&lt;userData&gt;/abaco-browser/recordings"]
 ```
 
 The chat is never touched: the Harness renderer stays the window's own
@@ -60,18 +73,20 @@ in main for the same reason (its client is a phone browser).
 
 | Path | Role |
 | --- | --- |
-| `src/shared/abaco-browser.ts` | Channel names, partition, chrome height, URL normalization, and the F1 contract: mode, agent result types, control-plane env names, RPC routes (shared by main and both preloads) |
-| `src/main/abaco-browser-controller.ts` | Owns both overlay views, navigation commands, bounds sync, view-level security handlers, the takeover gate and the `agent*` actions |
-| `src/main/abaco-browser-page-scripts.ts` | The page-side bodies (`click`, `type`, `read-dom`, `wait-for`) as real TypeScript functions, serialized with `Function.prototype.toString()` |
+| `src/shared/abaco-browser.ts` | Channel names, partition, chrome height, URL normalization, the F1 contract (mode, agent result types, control-plane env names, RPC routes) and the F2 contract (recording vocabulary, redaction rules, accelerator table, theme type) |
+| `src/main/abaco-browser-controller.ts` | Owns both overlay views, navigation commands, bounds sync, view-level security handlers, the takeover gate and the `agent*` actions, plus F2's `console-message` decoder subscription, recording start/stop, theme push and `before-input-event` accelerators |
+| `src/main/abaco-browser-recorder.ts` | **F2:** the `__ABACO_REC__` parser, the redaction layer, the merge policy that turns events into steps, and the persisted session. Imports no `electron` — the page is reached through a three-method port |
+| `src/main/abaco-browser-page-scripts.ts` | The page-side bodies as real TypeScript functions, serialized with `Function.prototype.toString()`: F1's `click`/`type`/`read-dom`/`wait-for` and F2's recorder install/uninstall |
 | `src/main/abaco-browser-rpc.ts` | Loopback control plane: ephemeral port, per-launch bearer token, one route per agent tool |
-| `src/main/index.ts` | Creates one controller per main window, registers the `abaco:browser:*` handlers and the sender guard, starts/stops the RPC server, hands its env to the runtime |
+| `src/main/index.ts` | Creates one controller per main window, registers the `abaco:browser:*` handlers and the sender guard, starts/stops the RPC server, derives `recordingsDir` from `userData`, pushes the resolved Harness theme |
 | `src/main/runtime/harness-runtime.ts` | `extraEnvironment` option, merged into the child's env at every spawn |
-| `src/preload/index.ts` | Exposes `window.dshAbacoBrowser` on the Harness page (read-only `mode()`) |
-| `src/preload/abaco-browser-chrome.ts` | Wires the chrome bar DOM — including the F1 mode switch — to the same channels |
+| `src/preload/index.ts` | Exposes `window.dshAbacoBrowser` on the Harness page (read-only `mode()`, plus F2's recording trio and `reportTheme`) |
+| `src/preload/abaco-browser-chrome.ts` | Wires the chrome bar DOM — the F1 mode switch, F2's spinner/title/⏺ recorder/theme, and the accelerator table — to the same channels |
 | `build/abaco-browser-chrome.html` | Chrome bar markup + styles (inert document, no page script) |
 | `packages/abaco-browser/index.js` | Host half: the seven `abaco_browser_*` tools over the control plane |
 | `packages/abaco-browser/client.js` | Client half: `sidebar.footer.action` launcher |
 | `test/abaco-browser.test.ts` | F0 structural invariants + F1 control plane, tool schemas and page-script tests |
+| `test/abaco-browser-recorder.test.ts` | **F2:** decoder, redaction, merge policy, a whole recording driven on a temp directory, and the chrome/channel contract |
 
 Mounting touches the same three places as every desktop plugin: a row in
 `build/dsh-desktop.patch.yml`, a `file:packages/abaco-browser` dependency in the
@@ -113,8 +128,8 @@ the "covers the whole window, chrome on top" behaviour chosen for F0: bounds sta
 a pure function of the window size (nothing to get wrong on resize or fullscreen
 transitions), and the page staying alive under the strip is the seam a
 translucent/animated strip would need later. The strip leaves a `darwin`-only
-left gutter so the native traffic lights stay clickable; window dragging while
-the overlay is open is a F2 concern.
+left gutter so the native traffic lights stay clickable; F2 made that strip
+draggable (`-webkit-app-region`, see *Decisions taken in F2*).
 
 ### Security boundary
 
@@ -134,6 +149,12 @@ the overlay is open is a F2 concern.
   overlay's own chrome-bar frame. The browsed page has no preload and no route
   back into the shell; the Harness page's power is limited to what the visible
   browser can already do (open/close/navigate/reload).
+- F2 keeps that guard for the new channels and keeps recording **off the agent
+  surface**: `abaco:browser:record-start` / `:record-stop` / `:record-status` are
+  IPC-only, with no RPC route, because an agent that could start a recording
+  could also decide what the user "did" — and the file's whole value is that it
+  is a record of a human demonstration. The page script's `isTrusted` filter is
+  the second lock on the same door.
 
 ## Decisions taken in F1
 
@@ -204,7 +225,9 @@ Two details the bodies care about, both learned from real pages:
 `agent`. Every mutating `agent*` action passes `requireAgentControl()` and is
 refused with `ABACO_BROWSER_TAKEOVER_MESSAGE` while the mode is `manual`; the RPC
 server turns that into a `409`. The user flips it from the chrome bar's mode
-pill, through the two new IPC channels `abaco:browser:mode` / `:setMode`.
+pill, through the two new IPC channels `abaco:browser:mode` / `:set-mode` (F1
+shipped the second one as `:setMode`; F2 normalized it to the kebab-case the rest
+of the family uses, and nothing outside the strip ever invoked it).
 
 Three deliberate asymmetries:
 
@@ -229,17 +252,145 @@ model can see, whereas a path can be handed to `read_image`, which already knows
 how to show one. A write failure downgrades to dimensions-only rather than
 failing a capture that actually succeeded.
 
+## Decisions taken in F2
+
+### The recorder's missing half is the decoder, not the recorder
+
+The F0 sketch (`desktop/features/browser/recorder.ts:263-348`) already injected
+DOM listeners that emit `console.log('__ABACO_REC__', json)`. Nothing in the app
+listened to `console-message`, so a recording was always empty. F2 therefore
+adds the consumer, not another emitter:
+
+```
+page document                     renderer                 main
+─────────────                     ────────                 ────
+installRecorderInPage  ──►  console.log  ──►  webContents.on('console-message')
+                                                          │
+                              decodeAbacoRecordedMessage ─┤ parse + re-redact
+                                                          │
+                                AbacoBrowserRecorder.append ─► merge policy
+                                                          │
+                       <userData>/abaco-browser/recordings/<stamp>.json
+```
+
+`webContents.on('console-message', (details) => …)` is the Electron 43 shape
+(one `details` object with `{ message, level, lineNumber, sourceId, frame }`; the
+positional `(event, level, message, line, sourceId)` form is the deprecated one,
+and `src/main/index.ts` already reads the modern one for renderer errors). The
+subscription lives in `abaco-browser-controller.ts:250-262`, and every line goes
+to `AbacoBrowserRecorder.consumeConsoleMessage`.
+
+A console channel is used because the browsed page is a *remote document*: no
+preload, no `ipcRenderer`, no route back into the shell, and a hostile page
+cannot be trusted to implement a bus we invent. `console-message` is the one
+channel every page already has.
+
+### Only trusted events are recorded
+
+The listener script ignores any event whose `isTrusted` is not `true`. That is
+what keeps the agent out of a user recording: the F1 tools click and type with
+`dispatchEvent`/`.click()`, which produce untrusted events, so an agent action
+performed while a recording runs cannot be recorded as if the human had done it
+— and a page cannot fabricate "user steps" either. `executeJavaScript` cannot
+forge a trusted event, so this is a boundary rather than a formality. (It is
+also why recording hands ownership to `manual` before it starts: two independent
+reasons the file stays a record of one driver.)
+
+### Redaction is two layers, because the input is hostile
+
+1. **Before serialization**, the page script replaces a sensitive value with
+   `***REDACTED***`. The decision is taken from the element's `type`,
+   `autocomplete`, `name` and `id`, plus a token list
+   (`password|passwd|pwd|secret|token|otp|cvv|cvc|csc|iban|ssn|…`, matched on
+   `-`-separated segments so `user_password`, `userPassword` and `cvv2` all
+   match). A password therefore never reaches the console channel at all.
+2. **After decoding**, `decodeAbacoRecordedMessage` re-derives the verdict from
+   the field metadata the page attached, so a page that claims `sensitive: false`
+   still gets its `type="password"` value masked.
+
+The bias is deliberate: a false positive costs one masked value the user can
+still see on screen, a false negative writes a password into a file an agent will
+read back. `test/abaco-browser-recorder.test.ts` asserts the first law — the
+plaintext password never appears in the serialized JSON.
+
+### The raw event stream is not a procedure, so it is merged
+
+One `input` event per keystroke, a `will-navigate` *and* a `did-navigate` per
+trip, hundreds of scroll events per flick — recorded verbatim that is not a set
+of steps F3 could compile. `mergeRecordedAction` (pure, unit-tested) collapses
+consecutive same-type rows within a per-type window: a typed word becomes one
+step keeping the *latest* value, a navigation pair becomes one step merging the
+title onto the intent, and scroll momentum is dropped after the first position.
+
+### Recording owns the page while it runs
+
+`startRecording()` flips the mode to `manual` first. The agent's gate is the
+mode, so this is what actually stops it mid-click; the strip paints `MANUAL`
+next to the ⏺ for as long as it lasts. Closing the browser while recording
+*saves* it (final URL, title and closing screenshot are still readable at that
+moment) rather than dropping the demonstration; `abort()` — used when the window
+itself is going away — writes nothing and removes the bookend PNGs it had already
+made, so the recordings directory only ever holds complete recordings.
+
+### Accelerators are one table, read by two surfaces
+
+`abacoBrowserShortcutFor` maps a keystroke to one of five commands (`⌘L`, `⌘R`,
+`⌘W`, `⌘←`, `⌘→`; `Ctrl` is accepted everywhere, `Alt` disqualifies a match).
+Two callers feed it: the chrome strip's own `keydown` (it sees only the
+keystrokes typed while *it* has focus) and the controller's `before-input-event`
+on the page view (the only place that sees the ones typed into the page). The
+strip forwards the commands the controller owns through
+`abaco:browser:shortcut`, so `⌘R` cannot mean two things depending on where the
+caret is. `⌘L` from the page needs one extra hop: main can focus the strip's
+`webContents` but cannot touch its DOM, so it sends
+`abaco-browser-chrome:focus-address` and the strip's preload selects the input.
+
+### The strip follows the Harness theme, not the OS
+
+The chrome bar has its own `prefers-color-scheme`, which is the right default
+before anyone has spoken. The authority is the Harness: `syncNativeTheme()`
+already resolves the app's actual theme (`data-ds-dark-theme` on the Harness
+body, falling back to its computed background), so F2 pushes that value to the
+controller there, and the controller pushes it on
+`abaco:browser:theme-changed`. A dark Harness on a light desktop no longer opens
+a white browser bar. The state push (URL, title, loading, mode, recording count)
+is throttled to one per 120 ms: recording makes every keystroke an action, and a
+counter that costs an IPC round trip per letter is not worth the flicker.
+
+## Not verified by a launch
+
+Two F2 behaviours depend on the runtime and were implemented as specified in the
+F0 backlog; neither can be confirmed without starting the app (which this phase
+deliberately did not do):
+
+- **`-webkit-app-region: drag` inside a child `WebContentsView`.** The strip is a
+  child view, not the window's main `webContents`, and Electron only applies
+  declared drag regions for the latter. The CSS is in place and `darwin`-only
+  (Windows and Linux keep a native frame), and the 84px traffic-light gutter is
+  native titlebar area, so the window stays movable there even if the property is
+  ignored. Worth a click-test on the first launch.
+- **Screenshot timing on a page that is still loading.** `capturePage()` on a
+  hidden or not-yet-painted view returns an empty image; that is recorded as a
+  note inside the JSON (`lastError`) rather than failing the recording, so the
+  file is complete either way, but the opening PNG may be missing on a fast
+  start.
+
 ## Backlog
 
 - **F1 — chrome and agent surface. Done** (see above), except the two items that
   were never about the agent: keeping the overlay alive across close/open
-  (history and scroll preserved), a download surface instead of cancelled
-  downloads, and following the Harness theme (not just `prefers-color-scheme`)
-  through a `theme-changed` push. Those move to F2.
-- **F2 — window integration.** Draggable strip (`-webkit-app-region` on the
-  chrome view), traffic-light-aware layout on macOS, keyboard shortcuts
-  (⌘L/⌘R/⌘W/⌘←), find-in-page, zoom controls, per-tab history, overlay lifetime
-  across close/open, a download surface, and theme following.
-- **F3 — tabs and persistence.** Multiple page views with a tab strip, reopen
-  the last session, bookmarks/history storage in the `abaco-browser` partition,
-  and a settings section for the browser (home page, downloads, permissions).
+  (history and scroll preserved), and a download surface instead of cancelled
+  downloads. Those move to F3.
+- **F2 — window integration and recording. Done** (see above): draggable strip,
+  keyboard shortcuts (⌘L/⌘R/⌘W/⌘←/⌘→), loading indicator and page title,
+  Harness theme following, and the `__ABACO_REC__` decoder with redaction,
+  merge policy and persisted recordings. Still open from the original F2 list:
+  find-in-page, zoom controls and per-tab history.
+- **F3 — skills, tabs and persistence.** Turn a recording into a `SKILL.md`
+  under `$DSH_HOME/skills/` (which `dsh-skill-filesystem` discovers), optionally
+  through the Claude API with a heuristic fallback — the ported
+  `desktop/features/browser/skill-generator.ts` consumes exactly the
+  `actions`/`session_id`/`started_at`/`ended_at`/`final_url`/`title` envelope
+  written above. Then: multiple page views with a tab strip, reopen the last
+  session, bookmarks/history storage in the `abaco-browser` partition, and a
+  settings section for the browser (home page, downloads, permissions).

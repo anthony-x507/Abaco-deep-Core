@@ -139,7 +139,13 @@ import {
 } from './state/plugin-market-check'
 import { upgradePluginToGeneration } from './state/plugin-upgrade'
 import { aboutDetail, bundledHarnessVersion } from './version-info'
-import { abacoBrowserChannels, isAbacoBrowserMode } from '../shared/abaco-browser'
+import {
+  ABACO_BROWSER_RECORDINGS_DIRNAME,
+  abacoBrowserChannels,
+  isAbacoBrowserMode,
+  isAbacoBrowserShortcut,
+  isAbacoBrowserTheme
+} from '../shared/abaco-browser'
 import { windowsMenuViewBounds } from './windows-menu-view'
 import { shouldKeepRunningInBackground } from './close-to-tray'
 import {
@@ -563,6 +569,11 @@ async function syncNativeTheme(window: BrowserWindow): Promise<void> {
     })()`
   )
   applyWindowChromeTheme(window, isDark)
+  // F2: the browser's chrome strip follows the *Harness* theme, not the OS one.
+  // This is where that theme is resolved (`data-ds-dark-theme` on the Harness
+  // body, falling back to its computed background), so the push happens here
+  // rather than from a second copy of the same logic.
+  abacoBrowserController?.setTheme(isDark ? 'dark' : 'light')
 }
 
 function dshEntryPath(): string {
@@ -1005,7 +1016,11 @@ function createWindow(): BrowserWindow {
   // it mounts nothing until the launcher opens it.
   abacoBrowserController = new AbacoBrowserController(window, {
     chromeHtmlPath: desktopResourcePath('abaco-browser-chrome.html'),
-    chromePreloadPath: join(import.meta.dirname, '../preload/abaco-browser-chrome.cjs')
+    chromePreloadPath: join(import.meta.dirname, '../preload/abaco-browser-chrome.cjs'),
+    // F2 recordings live beside the rest of the app's state, never inside the
+    // installed bundle: `<userData>/abaco-browser/recordings` is writable on
+    // every platform and survives an app upgrade.
+    recordingsDir: join(app.getPath('userData'), ABACO_BROWSER_RECORDINGS_DIRNAME)
   })
   if (isWindows) attachWindowsMenuView(window)
   return window
@@ -1594,6 +1609,65 @@ function registerAbacoBrowserHandlers(): void {
       throw new Error('The ABACO browser mode must be "agent" or "manual".')
     }
     return requireAbacoBrowser().setBrowserMode(mode)
+  })
+
+  /* ── F2 — recording and theme ─────────────────────────────────────────────
+   * Recording is user-initiated only. The agent's tools reach the controller
+   * through the loopback RPC (`abaco-browser-rpc.ts`), which has no route for
+   * these three channels — an agent that could start a recording could also
+   * decide what the user "did", and the whole point of the file is that it is a
+   * record of a human demonstration.
+   *
+   * The three handlers are `async` on purpose: starting a recording injects the
+   * page script and takes the opening screenshot, and stopping it writes the
+   * JSON plus the closing PNG. Awaiting them means the chrome bar's ⏺ turns red
+   * only once the recorder can really see the user, and its tooltip shows the
+   * real path once the file exists. */
+  ipcMain.removeHandler(abacoBrowserChannels.recordStart)
+  ipcMain.handle(abacoBrowserChannels.recordStart, async (event) => {
+    assertTrustedAbacoBrowserEvent(event)
+    return await requireAbacoBrowser().startRecording()
+  })
+
+  ipcMain.removeHandler(abacoBrowserChannels.recordStop)
+  ipcMain.handle(abacoBrowserChannels.recordStop, async (event) => {
+    assertTrustedAbacoBrowserEvent(event)
+    return await requireAbacoBrowser().stopRecording()
+  })
+
+  ipcMain.removeHandler(abacoBrowserChannels.recordStatus)
+  ipcMain.handle(abacoBrowserChannels.recordStatus, (event) => {
+    assertTrustedAbacoBrowserEvent(event)
+    return requireAbacoBrowser().recordingStatus()
+  })
+
+  /* F2 — one accelerator, pressed in the strip rather than in the page.
+   * `before-input-event` covers the keystrokes typed into the browsed document
+   * (main is the only process that sees those); this covers the ones typed while
+   * the strip has focus, which its own preload captures. Both end in
+   * `runShortcut`, so a key cannot mean two things depending on focus. */
+  ipcMain.removeHandler(abacoBrowserChannels.shortcut)
+  ipcMain.handle(abacoBrowserChannels.shortcut, (event, shortcut?: unknown) => {
+    assertTrustedAbacoBrowserEvent(event)
+    if (!isAbacoBrowserShortcut(shortcut)) {
+      throw new Error('Unknown ABACO browser shortcut.')
+    }
+    return { ok: requireAbacoBrowser().runShortcut(shortcut) }
+  })
+
+  // The Harness page is the only surface that knows the *resolved* app theme
+  // (the chrome strip has its own `prefers-color-scheme`, and the OS is not
+  // always what the user picked), so it may report it here. `syncNativeTheme`
+  // pushes the same value on every Harness load; this channel is the seam for a
+  // live change.
+  ipcMain.removeHandler(abacoBrowserChannels.themeReport)
+  ipcMain.handle(abacoBrowserChannels.themeReport, (event, theme?: unknown) => {
+    assertTrustedAbacoBrowserEvent(event)
+    if (!isAbacoBrowserTheme(theme)) {
+      throw new Error('The ABACO browser theme must be "light" or "dark".')
+    }
+    requireAbacoBrowser().setTheme(theme)
+    return theme
   })
 }
 

@@ -3,6 +3,8 @@ import {
   ABACO_BROWSER_ACTION_MAX_TIMEOUT_MS,
   ABACO_BROWSER_ACTION_TIMEOUT_MS,
   ABACO_BROWSER_CHROME_HEIGHT,
+  ABACO_BROWSER_CHROME_FOCUS_ADDRESS_CHANNEL,
+  ABACO_BROWSER_CHROME_MIN_STATE_INTERVAL_MS,
   ABACO_BROWSER_CHROME_STATE_CHANNEL,
   ABACO_BROWSER_DEFAULT_MODE,
   ABACO_BROWSER_DEFAULT_URL,
@@ -15,16 +17,22 @@ import {
   ABACO_BROWSER_READ_DOM_MAX_LINKS,
   ABACO_BROWSER_RPC_GRACE_MS,
   ABACO_BROWSER_TAKEOVER_MESSAGE,
+  ABACO_BROWSER_THEME_CHANGED_CHANNEL,
   ABACO_BROWSER_WAIT_FOR_MAX_TIMEOUT_MS,
   ABACO_BROWSER_WAIT_FOR_TIMEOUT_MS,
+  abacoBrowserShortcutFor,
   isHttpUrl,
   normalizeBrowserUrl,
   type AbacoBrowserChromeState,
   type AbacoBrowserClickResult,
   type AbacoBrowserDomReading,
   type AbacoBrowserMode,
+  type AbacoBrowserRecordingResult,
+  type AbacoBrowserRecordingStatus,
   type AbacoBrowserScreenshot,
+  type AbacoBrowserShortcut,
   type AbacoBrowserState,
+  type AbacoBrowserTheme,
   type AbacoBrowserTypingResult,
   type AbacoBrowserWaitResult
 } from '../shared/abaco-browser'
@@ -36,6 +44,7 @@ import {
   type PageDomReading,
   type PageElementRef
 } from './abaco-browser-page-scripts'
+import { AbacoBrowserRecorder, type AbacoBrowserRecorderPort } from './abaco-browser-recorder'
 
 /**
  * Clamp a caller-supplied budget to a sane range.
@@ -55,6 +64,11 @@ export interface AbacoBrowserViewPaths {
   chromeHtmlPath: string
   /** `out/preload/abaco-browser-chrome.cjs`. */
   chromePreloadPath: string
+  /**
+   * Where recordings are written: `<userData>/abaco-browser/recordings`. Main
+   * passes it in because only main may touch `app.getPath`.
+   */
+  recordingsDir: string
 }
 
 /**
@@ -101,18 +115,69 @@ export interface AbacoBrowserViewPaths {
  *     so a tool's result describes the state its own action produced;
  *  3. they run page code through {@link runInPage}, i.e. inside the browsed
  *     document, never in the shell.
+ *
+ * ## F2 — chrome behaviour, recording and shortcuts
+ *
+ * Three responsibilities land here, all of them because main is the only place
+ * that can see the browsed page:
+ *
+ *  - **the recorder's decoder.** {@link startRecording} installs the page-side
+ *    listener script and this class subscribes to `console-message`, feeding
+ *    every line to `AbacoBrowserRecorder`. Nothing consumed that channel before
+ *    F2, which is why user actions were never recorded.
+ *  - **navigation as a recorded action.** `will-navigate` and
+ *    `did-navigate`/`did-navigate-in-page` are forwarded to the recorder, so a
+ *    recording holds the pages the user visited and not only what they clicked.
+ *  - **the accelerators.** The chrome strip has its own document and sees only
+ *    the keystrokes that happen while *it* has focus; ⌘R/⌘W/⌘← typed into the
+ *    page reach this class through `before-input-event` instead. Both surfaces
+ *    map their event onto the same table
+ *    ({@link abacoBrowserShortcutFor}) so they cannot disagree.
  */
 export class AbacoBrowserController {
   private pageView: WebContentsView | undefined
   private chromeBarView: WebContentsView | undefined
   private mode: AbacoBrowserMode = ABACO_BROWSER_DEFAULT_MODE
   private disposed = false
+  /** The Harness theme, pushed to the chrome bar so the strip is not OS-bound. */
+  private theme: AbacoBrowserTheme = 'light'
+  /** Trailing-publish timer behind {@link scheduleChromeState}. */
+  private chromeStateTimer: NodeJS.Timeout | undefined
+  private lastChromeStateAt = 0
+  private readonly recorder: AbacoBrowserRecorder
 
   constructor(
     private readonly parent: BrowserWindow,
     private readonly paths: AbacoBrowserViewPaths
   ) {
     this.parent.once('closed', this.dispose)
+    // The recorder talks to the page through this port, never through
+    // `WebContents` directly: that is what keeps `abaco-browser-recorder.ts`
+    // (and its tests) free of `electron`. Every method is a closure over
+    // `this.pageView`, so it always addresses the *current* view.
+    const port: AbacoBrowserRecorderPort = {
+      pageInfo: () => {
+        const contents = this.livePageContents()
+        if (!contents) return { url: '', title: '' }
+        return { url: contents.getURL(), title: contents.getTitle() }
+      },
+      evaluate: async (source: string) => {
+        const contents = this.livePageContents()
+        if (!contents) throw new Error(ABACO_BROWSER_NOT_OPEN_MESSAGE)
+        return await contents.executeJavaScript(source, true)
+      },
+      capturePng: async () => {
+        const contents = this.livePageContents()
+        if (!contents) return undefined
+        const image = await contents.capturePage()
+        return image.isEmpty() ? undefined : image.toPNG()
+      }
+    }
+    this.recorder = new AbacoBrowserRecorder({
+      port,
+      outputDir: paths.recordingsDir,
+      log: (message) => console.warn(`[abaco-browser-recorder] ${message}`)
+    })
   }
 
   /** True while the overlay is mounted and usable. */
@@ -178,6 +243,58 @@ export class AbacoBrowserController {
       console.warn(`[abaco-browser] blocked navigation to ${url}`)
     })
 
+    /* ── F2 — the recorder's decoder ────────────────────────────────────────
+     * This subscription is the missing half of the recording feature: the page
+     * script emits `console.log(PREFIX, json)` and nothing in the app read the
+     * channel until F2. Electron 43 passes a single details object here
+     * (`webContents.on('console-message', (details) => ...)`, with
+     * `{ message, level, lineNumber, sourceId, frame }`; the positional
+     * `(event, level, message, line, sourceId)` form is the deprecated one) —
+     * the same shape `src/main/index.ts` already reads for renderer errors. */
+    pageContents.on('console-message', (details) => {
+      if (typeof details.message !== 'string') return
+      this.recorder.consumeConsoleMessage(details.message)
+    })
+    // Navigation is an action too. `will-navigate` is the intent (only the main
+    // frame matters), the two `did-*` events are the arrival; the recorder
+    // collapses a matching pair into one step. The intent is filtered the way
+    // the security handler above filters it, so a blocked `file:`/`javascript:`
+    // navigation is not recorded as a step the user performed.
+    pageContents.on('will-navigate', (event, url) => {
+      if (!event.isMainFrame) return
+      if (!isHttpUrl(url) && !url.startsWith('about:blank')) return
+      this.recorder.noteNavigation('will-navigate', url)
+    })
+    pageContents.on('did-navigate', (_event, url) => {
+      this.recorder.noteNavigation('did-navigate', url)
+    })
+    pageContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+      if (!isMainFrame) return
+      this.recorder.noteNavigation('did-navigate-in-page', url)
+    })
+    // A new document means the recorder's listeners are gone with the old one.
+    pageContents.on('dom-ready', () => {
+      void this.recorder.noteDomReady()
+    })
+    // The page title is part of the chrome bar's state, and a single-page app
+    // changes it without navigating.
+    pageContents.on('page-title-updated', this.scheduleChromeState)
+    // The accelerators typed *into the page*. `preventDefault` stops Chromium
+    // from also acting on them (`⌘R` would reload behind the recorder's back).
+    pageContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown') return
+      const shortcut = abacoBrowserShortcutFor({
+        key: input.key,
+        meta: input.meta,
+        ctrl: input.control,
+        alt: input.alt,
+        shift: input.shift
+      })
+      if (!shortcut) return
+      event.preventDefault()
+      this.runShortcut(shortcut)
+    })
+
     const chromeBarView = new WebContentsView({
       webPreferences: {
         contextIsolation: true,
@@ -204,7 +321,11 @@ export class AbacoBrowserController {
     pageContents.on('did-navigate-in-page', this.publishChromeState)
     pageContents.on('did-stop-loading', this.publishChromeState)
     pageContents.on('did-fail-load', this.publishChromeState)
+    pageContents.on('did-start-loading', this.publishChromeState)
     chromeBarView.webContents.on('did-finish-load', this.publishChromeState)
+    // The strip paints its own theme from the push, so it has to receive one as
+    // soon as its document is alive — a page loaded later would never get one.
+    chromeBarView.webContents.on('did-finish-load', this.publishTheme)
 
     this.syncBounds()
     void chromeBarView.webContents
@@ -216,6 +337,22 @@ export class AbacoBrowserController {
 
   /** Unmount the overlay and destroy both views; the launcher can open it again. */
   close(): void {
+    // First, and deliberately before `this.pageView` is dropped: closing the
+    // browser while a recording runs ends it and *saves* it, so a misclick on ✕
+    // cannot throw away a demonstration the user just performed. `stop()` reads
+    // the live page (final URL/title and the closing screenshot) through the
+    // port, which addresses `this.pageView` — clearing the field first would
+    // make both come back empty.
+    if (this.recorder.isRecording()) {
+      void this.recorder.stop().catch((error: unknown) => {
+        console.warn('[abaco-browser-recorder] could not save the recording on close:', error)
+      })
+    }
+    if (this.chromeStateTimer !== undefined) {
+      clearTimeout(this.chromeStateTimer)
+      this.chromeStateTimer = undefined
+    }
+
     const pageView = this.pageView
     const chromeBarView = this.chromeBarView
     this.pageView = undefined
@@ -283,6 +420,87 @@ export class AbacoBrowserController {
     this.mode = mode
     this.publishChromeState()
     return this.mode
+  }
+
+  /* ──────────────────────────────────────────────────────────────────────────
+   * F2 — recording, theme and accelerators
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  /**
+   * Start recording the user's actions in the overlay.
+   *
+   * Ownership is handed to the user *first*, before the first action can land:
+   * a recording is a demonstration by a human, and an agent that kept clicking
+   * while the user was showing how something is done would interleave its own
+   * synthetic steps into the file. Since the agent's tools are gated on
+   * {@link AbacoBrowserMode}, flipping to `manual` is what actually stops them —
+   * and the chrome bar paints `MANUAL` next to the ⏺ for as long as it lasts.
+   */
+  async startRecording(): Promise<AbacoBrowserRecordingStatus> {
+    this.requirePageContents()
+    if (this.mode !== 'manual') this.setBrowserMode('manual')
+    const status = await this.recorder.start(this.mode)
+    this.publishChromeState()
+    return status
+  }
+
+  /** Stop recording, write `<recordingsDir>/<timestamp>.json` (+ PNGs) and report where. */
+  async stopRecording(): Promise<AbacoBrowserRecordingResult> {
+    const result = await this.recorder.stop()
+    this.publishChromeState()
+    return result
+  }
+
+  /** Live recording state; also reads back the last session once it has stopped. */
+  recordingStatus(): AbacoBrowserRecordingStatus {
+    return this.recorder.status()
+  }
+
+  /**
+   * The Harness's resolved theme, pushed to the chrome strip. The strip has its
+   * own `prefers-color-scheme`, but the user's Harness appearance is the
+   * authority: a dark Harness on a light OS must not open a white browser bar.
+   * `src/main/index.ts` calls this from `syncNativeTheme`, which is where the
+   * Harness theme is already resolved for the native chrome.
+   */
+  setTheme(theme: AbacoBrowserTheme): void {
+    this.theme = theme
+    this.publishTheme()
+  }
+
+  /** The theme the strip is currently painting. */
+  browserTheme(): AbacoBrowserTheme {
+    return this.theme
+  }
+
+  /**
+   * Answer one accelerator. Called from two places — the page view's
+   * `before-input-event` and, for the extension's own sake, nothing else: the
+   * chrome strip handles its own keystrokes in its preload. Both resolve the
+   * same key table, so ⌘R means one thing whichever surface has focus.
+   */
+  runShortcut(shortcut: AbacoBrowserShortcut): boolean {
+    if (!this.isOpen()) return false
+    switch (shortcut) {
+      case 'focus-address':
+        // Focus moves to the strip's document; its preload turns that into a
+        // focus+select of the address input.
+        this.chromeBarView?.webContents.focus()
+        this.chromeBarView?.webContents.send(ABACO_BROWSER_CHROME_FOCUS_ADDRESS_CHANNEL)
+        return true
+      case 'reload':
+        this.reload()
+        return true
+      case 'close':
+        this.close()
+        return true
+      case 'back':
+        return this.back()
+      case 'forward':
+        return this.forward()
+      default:
+        return false
+    }
   }
 
   /* ──────────────────────────────────────────────────────────────────────────
@@ -475,19 +693,62 @@ export class AbacoBrowserController {
     })
   }
 
-  /** Push the current address/history/mode state to the chrome bar. */
+  /** Push the current address/history/mode/recording state to the chrome bar. */
   private readonly publishChromeState = (): void => {
+    this.lastChromeStateAt = Date.now()
     const chromeBar = this.chromeBarWebContents()
     const contents = this.pageView?.webContents
     if (!chromeBar || !contents || contents.isDestroyed()) return
+    const status = this.recorder.status()
     const state: AbacoBrowserChromeState = {
       url: contents.getURL(),
+      title: contents.getTitle(),
       canGoBack: contents.navigationHistory.canGoBack(),
       canGoForward: contents.navigationHistory.canGoForward(),
       loading: contents.isLoading(),
-      mode: this.mode
+      mode: this.mode,
+      recording: status.recording,
+      recordingActions: status.recording ? status.actionCount : 0
     }
     chromeBar.send(ABACO_BROWSER_CHROME_STATE_CHANNEL, state)
+  }
+
+  /**
+   * Publish at most once per {@link ABACO_BROWSER_CHROME_MIN_STATE_INTERVAL_MS}:
+   * immediately when the last push is old enough, otherwise once on a trailing
+   * timer, so the strip always ends up showing the *final* state of a burst
+   * (the last keystroke, the last title change) rather than an intermediate one.
+   */
+  private readonly scheduleChromeState = (): void => {
+    const elapsed = Date.now() - this.lastChromeStateAt
+    if (elapsed >= ABACO_BROWSER_CHROME_MIN_STATE_INTERVAL_MS) {
+      this.publishChromeState()
+      return
+    }
+    if (this.chromeStateTimer !== undefined) return
+    this.chromeStateTimer = setTimeout(() => {
+      this.chromeStateTimer = undefined
+      this.publishChromeState()
+    }, ABACO_BROWSER_CHROME_MIN_STATE_INTERVAL_MS - elapsed)
+  }
+
+  /** Push the resolved theme to the strip. */
+  private readonly publishTheme = (): void => {
+    const chromeBar = this.chromeBarWebContents()
+    if (!chromeBar) return
+    chromeBar.send(ABACO_BROWSER_THEME_CHANGED_CHANNEL, this.theme)
+  }
+
+  /**
+   * The page's `WebContents` while it is alive and usable, or `undefined`. Used
+   * by the recorder's port, which must be able to ask "is there still a page?"
+   * without throwing: it runs from a timer and from teardown paths where a
+   * closed overlay is a normal condition, not an error.
+   */
+  private livePageContents(): WebContents | undefined {
+    const view = this.pageView
+    if (this.disposed || !view || view.webContents.isDestroyed()) return undefined
+    return view.webContents
   }
 
   /**
