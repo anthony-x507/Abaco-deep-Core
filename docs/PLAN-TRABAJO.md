@@ -98,6 +98,12 @@ Modelo (de otro agente del usuario):
 5. Apple Notary Service puede estar en cola horas (incidente documentado) — no bloquearse.
 6. La app DSH Desktop vanilla corre en esta Mac (aloja otra sesión) — no matarla ni compartir userData.
 7. Delegar trabajo pesado a subagentes para no saturar la ventana de contexto.
+8. **`npx` / `npm run` están ROTOS en este shell**: `node` en PATH es un shim (`~/Library/Application Support/dsh-desktop/harness/.desktop-bin/node`) que ejecuta el binario Electron con `ELECTRON_RUN_AS_NODE=1`, y Electron inyecta un argv extra → `Unknown argument`. Para builds usar Node real explícito y PATH saneado:
+   `env -u ELECTRON_RUN_AS_NODE CSC_IDENTITY_AUTO_DISCOVERY=false PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" /usr/local/bin/node node_modules/electron-builder/cli.js --mac --arm64 --config <cfg>`
+9. **`extraResources` del config base es una LISTA EXPLÍCITA de 12 entradas** (`build/electron-builder.dev.cjs`): cada recurso nuevo (p.ej. `abaco-browser-chrome.html`) hay que AÑADIRLO ahí o no entra en el .app. Esa fue la causa de que el chrome bar faltara en una build.
+10. **`patch-package` falla si node_modules ya tiene una revisión anterior del patch aplicada.** Fix: restaurar el manifest prístino desde `packages/harness-0.1.2-rc.1/npm-dsh/deepseek-ai-dsh-0.1.2-rc.1.tgz` y reaplicar.
+11. **Si se añade un plugin nuevo**: 3 sitios obligatorios — fila `insert` en `build/dsh-desktop.patch.yml`, dep `"<pkg>": "0.1.0"` en `patches/@deepseek-ai+dsh+0.1.2-rc.1.patch` (¡y actualizar el conteo del hunk `@@ -28,6 +28,N @@`!), y dep `file:packages/<pkg>` en `package.json` del fork. Luego `npm install`.
+12. Build unsigned para pruebas (sin cola de Apple ni keychain): override con `mac.identity: null`, `mac.notarize: false`, `CSC_IDENTITY_AUTO_DISCOVERY=false`, y `mac.target: [{target:'dir', arch:['arm64']}]`.
 
 ## 5. CONTACTOS / CREDENCIALES (no exponer passwords)
 - Apple ID: anthonyx507@icloud.com | Team: GKPMCWHU2H (cert real; 7UFWQWWWR7 era de un cert dev viejo)
