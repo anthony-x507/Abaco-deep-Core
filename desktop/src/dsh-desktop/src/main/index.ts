@@ -141,11 +141,17 @@ import { upgradePluginToGeneration } from './state/plugin-upgrade'
 import { aboutDetail, bundledHarnessVersion } from './version-info'
 import {
   ABACO_BROWSER_RECORDINGS_DIRNAME,
+  ABACO_BROWSER_SKILL_MAX_NAME,
   abacoBrowserChannels,
   isAbacoBrowserMode,
   isAbacoBrowserShortcut,
   isAbacoBrowserTheme
 } from '../shared/abaco-browser'
+import {
+  abacoBrowserSkillsDir,
+  resolveAbacoDshHome,
+  writeBrowserSkillFromRecording
+} from './abaco-browser-skill-writer'
 import { windowsMenuViewBounds } from './windows-menu-view'
 import { shouldKeepRunningInBackground } from './close-to-tray'
 import {
@@ -1019,8 +1025,9 @@ function createWindow(): BrowserWindow {
     chromePreloadPath: join(import.meta.dirname, '../preload/abaco-browser-chrome.cjs'),
     // F2 recordings live beside the rest of the app's state, never inside the
     // installed bundle: `<userData>/abaco-browser/recordings` is writable on
-    // every platform and survives an app upgrade.
-    recordingsDir: join(app.getPath('userData'), ABACO_BROWSER_RECORDINGS_DIRNAME)
+    // every platform and survives an app upgrade. F3's `save-skill` handler
+    // reads the same directory back through `abacoBrowserRecordingsDir()`.
+    recordingsDir: abacoBrowserRecordingsDir()
   })
   if (isWindows) attachWindowsMenuView(window)
   return window
@@ -1535,6 +1542,53 @@ function requireAbacoBrowser(): AbacoBrowserController {
   return abacoBrowserController
 }
 
+/** `<userData>/abaco-browser/recordings` — where F2 writes a session. */
+function abacoBrowserRecordingsDir(): string {
+  return join(app.getPath('userData'), ABACO_BROWSER_RECORDINGS_DIRNAME)
+}
+
+/**
+ * The `$DSH_HOME` the Harness child runs with.
+ *
+ * The environment wins when it is set — that is what an operator launching the
+ * app with `DSH_HOME=…` means by it — and otherwise this is the value
+ * `buildHarnessSpawnOptions` injects into the child
+ * (`src/main/runtime/harness-runtime.ts:271`). Resolving it here rather than
+ * guessing is what makes a generated `SKILL.md` land in the same root
+ * `dsh-skill-filesystem` scans.
+ */
+function abacoBrowserDshHome(): string {
+  return resolveAbacoDshHome(process.env, join(app.getPath('userData'), 'harness'))
+}
+
+/**
+ * Validate `abaco:browser:save-skill`'s argument.
+ *
+ * A malformed *argument* is a programming error and is thrown, the way the rest
+ * of the family treats a bad payload; everything that can go wrong with the
+ * *recording* (missing, corrupt, unwritable) is reported as `ok: false` by the
+ * writer instead, because that is a condition the strip must be able to show.
+ */
+function readAbacoSaveSkillRequest(value: unknown): { recordingId?: string; name?: string } {
+  if (value === undefined || value === null) return {}
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('The ABACO browser skill request must be an object.')
+  }
+  const candidate = value as { recordingId?: unknown; name?: unknown }
+  if (candidate.recordingId !== undefined && typeof candidate.recordingId !== 'string') {
+    throw new Error('The ABACO browser skill recording id must be a string.')
+  }
+  if (candidate.name !== undefined && typeof candidate.name !== 'string') {
+    throw new Error('The ABACO browser skill name must be a string.')
+  }
+  const recordingId = candidate.recordingId?.trim() ?? ''
+  const name = candidate.name?.trim().slice(0, ABACO_BROWSER_SKILL_MAX_NAME) ?? ''
+  return {
+    ...(recordingId.length > 0 ? { recordingId } : {}),
+    ...(name.length > 0 ? { name } : {})
+  }
+}
+
 /**
  * Register the integrated browser's control surface. Every channel is idempotent
  * (`removeHandler` first) so a re-registration after a window is recreated
@@ -1639,6 +1693,29 @@ function registerAbacoBrowserHandlers(): void {
   ipcMain.handle(abacoBrowserChannels.recordStatus, (event) => {
     assertTrustedAbacoBrowserEvent(event)
     return requireAbacoBrowser().recordingStatus()
+  })
+
+  /* F3 — compile the last recording into a `SKILL.md` under `$DSH_HOME/skills/`.
+   *
+   * IPC-only, like the three recording channels above and for the same reason: a
+   * skill is the record of a *human* demonstration, so the agent has no route
+   * that mints one. What the agent gets is the result — the file — through the
+   * Harness's own skill provider, which discovers `<dshHome>/skills/<slug>/
+   * SKILL.md` on its next catalog pass.
+   *
+   * `async` because the handler reads, compiles and writes a file: awaiting it
+   * is what lets the strip show the real path (or the real reason it failed)
+   * instead of a promise. */
+  ipcMain.removeHandler(abacoBrowserChannels.saveSkill)
+  ipcMain.handle(abacoBrowserChannels.saveSkill, async (event, request?: unknown) => {
+    assertTrustedAbacoBrowserEvent(event)
+    const parsed = readAbacoSaveSkillRequest(request)
+    return await writeBrowserSkillFromRecording({
+      recordingsDir: abacoBrowserRecordingsDir(),
+      skillsDir: abacoBrowserSkillsDir(abacoBrowserDshHome()),
+      ...(parsed.recordingId !== undefined ? { recordingId: parsed.recordingId } : {}),
+      ...(parsed.name !== undefined ? { requestedName: parsed.name } : {})
+    })
   })
 
   /* F2 — one accelerator, pressed in the strip rather than in the page.

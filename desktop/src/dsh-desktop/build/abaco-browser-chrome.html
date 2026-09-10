@@ -137,7 +137,10 @@
       body[data-platform='darwin'] .addressForm,
       body[data-platform='darwin'] .addressInput,
       body[data-platform='darwin'] .modeButton,
-      body[data-platform='darwin'] .recordButton {
+      body[data-platform='darwin'] .recordButton,
+      body[data-platform='darwin'] .skillForm,
+      body[data-platform='darwin'] .skillName,
+      body[data-platform='darwin'] .skillButton {
         -webkit-app-region: no-drag;
       }
       /* macOS keeps the native window buttons inside the content rect, so the
@@ -295,6 +298,67 @@
       .recordCount[hidden] {
         display: none;
       }
+      /* F3 save-as-skill. Hidden until a finished recording exists on disk: a
+         button that can only fail is worse than no button. The name input is
+         optional — its placeholder says so — and the status line reports the
+         written path or the reason nothing was written. */
+      .skillForm {
+        display: flex;
+        flex: none;
+        align-items: center;
+        gap: 4px;
+      }
+      .skillForm[hidden] {
+        display: none;
+      }
+      .skillName {
+        width: 15ch;
+        height: 24px;
+        padding: 0 8px;
+        color: var(--chrome-label-strong);
+        background: var(--chrome-field);
+        border: 1px solid var(--chrome-field-border);
+        border-radius: 12px;
+        font: inherit;
+        font-size: 11px;
+        user-select: text;
+      }
+      .skillName::placeholder {
+        color: var(--chrome-label);
+      }
+      .skillName:focus {
+        outline: none;
+        border-color: var(--chrome-focus);
+      }
+      .skillButton {
+        color: var(--chrome-label);
+      }
+      .skillButton:hover:not(:disabled) {
+        color: var(--chrome-label-strong);
+        background: var(--chrome-hover);
+      }
+      .skillButton[data-pending='true'] {
+        opacity: 0.5;
+      }
+      .skillButton[data-result='error'] {
+        color: var(--chrome-close);
+      }
+      .skillStatus {
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: 30ch;
+        overflow: hidden;
+        color: var(--chrome-label);
+        font-size: 11px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .skillStatus[hidden] {
+        display: none;
+      }
+      .skillStatus[data-tone='error'] {
+        color: var(--chrome-close);
+      }
       @media (prefers-reduced-motion: reduce) {
         .spinner,
         .recordButton.is-recording svg {
@@ -413,6 +477,47 @@
         </svg>
       </button>
       <span class="recordCount" id="abaco-browser-record-count" hidden></span>
+      <!--
+        F3 — the recording finished, so it can become a skill. A form rather
+        than a bare button because the name is the one field worth letting the
+        user set: it becomes the skill's `name` in the catalog, and an input is
+        the only place to type it (this document runs no page script, so
+        `prompt()` — which Electron does not implement — is not an option).
+        Both elements stay hidden until `hasRecording` arrives on the state
+        push, so the strip never offers a save that has nothing to save.
+      -->
+      <form class="skillForm" id="abaco-browser-skill-form" hidden>
+        <input
+          class="skillName"
+          id="abaco-browser-skill-name"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          autocapitalize="off"
+          maxlength="64"
+          aria-label="Skill name (optional)"
+          placeholder="Skill name"
+        />
+        <button
+          class="iconButton skillButton"
+          id="abaco-browser-skill-save"
+          type="submit"
+          aria-label="Save this recording as a skill"
+          title="Save this recording as a reusable skill (SKILL.md in $DSH_HOME/skills)"
+        >
+          <svg viewBox="0 0 20 20" width="15" height="15" fill="none" aria-hidden="true">
+            <path
+              d="M4 3.5h9.5L16.5 6.5v10H4z"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linejoin="round"
+            />
+            <path d="M7 3.5v4h6v-4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+            <path d="M7 16.5v-4h6v4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </form>
+      <span class="skillStatus" id="abaco-browser-skill-status" role="status" aria-live="polite" hidden></span>
       <!--
         F1 takeover switch. A word rather than a glyph: "who owns this page" is
         the one piece of strip state a user must be able to read at a glance

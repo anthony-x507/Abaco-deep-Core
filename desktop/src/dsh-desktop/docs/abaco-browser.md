@@ -1,4 +1,4 @@
-# Integrated browser (ABACO browser, F0 → F2)
+# Integrated browser (ABACO browser, F0 → F3)
 
 F0 ships the smallest end-to-end slice of the integrated browser: a launcher in
 the sidebar footer, an overlay `WebContentsView` inside the main window, a basic
@@ -18,10 +18,18 @@ policy that turns the raw event stream into steps, and the on-disk recording
 (`<userData>/abaco-browser/recordings/<timestamp>.json` + two PNGs) that F3 will
 turn into a skill.
 
-Status: F2 implemented, statically verified (`npm run typecheck` → 0 errors,
-`vitest run test/abaco-browser.test.ts test/abaco-browser-recorder.test.ts` →
-53/53). No Electron build or app launch was run for F0, F1 or F2; the two things
-only a launch can confirm are listed under *Not verified by a launch*.
+F3 is the far end of that pipeline: the 💾 button in the strip (and the
+`abaco:browser:save-skill` channel behind it) compiles a finished recording into
+a `SKILL.md` under `$DSH_HOME/skills/<slug>/`, which the Harness's own
+`dsh-skill-filesystem` provider discovers on its next catalog pass — so the flow
+the user demonstrated becomes something the **agent** can invoke, with no new
+tool and no new discovery mechanism.
+
+Status: F3 implemented, statically verified (`npm run typecheck` → 0 errors,
+`vitest run test/abaco-browser.test.ts test/abaco-browser-recorder.test.ts
+test/abaco-browser-skill.test.ts` → 80/80). No Electron build or app launch was
+run for F0, F1, F2 or F3; the things only a launch can confirm are listed under
+*Not verified by a launch*.
 
 ## Topology
 
@@ -69,24 +77,51 @@ a renderer, so there is no `ipcRenderer` to hand it and no way to add one. The
 precedent is `mobile/lan-mobile-bridge.ts`, which already runs a loopback server
 in main for the same reason (its client is a phone browser).
 
+## F3 topology
+
+```mermaid
+flowchart LR
+  STRIP["chrome bar: 💾 save as skill<br/>(+ optional name input)"] -->|"abaco:browser:save-skill { recordingId?, name? }"| MAIN["src/main/index.ts (handler)"]
+  PAGE["Harness page: window.dshAbacoBrowser.saveSkill()"] -->|"same channel"| MAIN
+  MAIN --> RES{"which recording?"}
+  RES -->|"id given"| FILE["&lt;recordingsDir&gt;/&lt;id&gt;.json"]
+  RES -->|"id omitted"| NEWEST["newest *.json in &lt;recordingsDir&gt;"]
+  FILE --> WRITER["abaco-browser-skill-writer:<br/>parse → collapse → render"]
+  NEWEST --> WRITER
+  WRITER -->|"&lt;DSH_HOME&gt;/skills/&lt;slug&gt;/SKILL.md (0700/0600)"| SKILL["SKILL.md"]
+  SKILL -->|"chokidar add / next catalog pass"| PROVIDER["dsh-skill-filesystem (user-dsh root)"]
+  PROVIDER --> AGENT["agent's skill catalog"]
+```
+
+`DSH_HOME` is resolved the way the Harness resolves it — `$DSH_HOME` when the
+environment sets it, otherwise the value the shell injects into the Harness child
+(`<userData>/harness`, `src/main/runtime/harness-runtime.ts:271`). The layout
+(`<dshHome>/skills/<dir>/SKILL.md`) is not a convention of ours: it is exactly
+what `@deepseek-ai/dsh-skill-filesystem` scans
+(`lib/index.js:171-180` for the root, `:550-557` for the file), and `name` +
+`description` in the frontmatter are the two fields it refuses a skill without
+(`:679-688`).
+
 ## Files
 
 | Path | Role |
 | --- | --- |
-| `src/shared/abaco-browser.ts` | Channel names, partition, chrome height, URL normalization, the F1 contract (mode, agent result types, control-plane env names, RPC routes) and the F2 contract (recording vocabulary, redaction rules, accelerator table, theme type) |
+| `src/shared/abaco-browser.ts` | Channel names, partition, chrome height, URL normalization, the F1 contract (mode, agent result types, control-plane env names, RPC routes), the F2 contract (recording vocabulary, redaction rules, accelerator table, theme type) and the F3 contract (`saveSkill`, the skills-root and `SKILL.md` names, the save request/result pair, the fragile-selector table) |
 | `src/main/abaco-browser-controller.ts` | Owns both overlay views, navigation commands, bounds sync, view-level security handlers, the takeover gate and the `agent*` actions, plus F2's `console-message` decoder subscription, recording start/stop, theme push and `before-input-event` accelerators |
 | `src/main/abaco-browser-recorder.ts` | **F2:** the `__ABACO_REC__` parser, the redaction layer, the merge policy that turns events into steps, and the persisted session. Imports no `electron` — the page is reached through a three-method port |
+| `src/main/abaco-browser-skill-writer.ts` | **F3:** reads a persisted recording, collapses it into numbered steps, renders the `SKILL.md` (frontmatter + Pasos + Verification + Notes) and writes it under `$DSH_HOME/skills/<slug>/` with a unique slug. Imports no `electron`; every failure is a value, not a throw |
 | `src/main/abaco-browser-page-scripts.ts` | The page-side bodies as real TypeScript functions, serialized with `Function.prototype.toString()`: F1's `click`/`type`/`read-dom`/`wait-for` and F2's recorder install/uninstall |
-| `src/main/abaco-browser-rpc.ts` | Loopback control plane: ephemeral port, per-launch bearer token, one route per agent tool |
-| `src/main/index.ts` | Creates one controller per main window, registers the `abaco:browser:*` handlers and the sender guard, starts/stops the RPC server, derives `recordingsDir` from `userData`, pushes the resolved Harness theme |
-| `src/main/runtime/harness-runtime.ts` | `extraEnvironment` option, merged into the child's env at every spawn |
-| `src/preload/index.ts` | Exposes `window.dshAbacoBrowser` on the Harness page (read-only `mode()`, plus F2's recording trio and `reportTheme`) |
-| `src/preload/abaco-browser-chrome.ts` | Wires the chrome bar DOM — the F1 mode switch, F2's spinner/title/⏺ recorder/theme, and the accelerator table — to the same channels |
+| `src/main/abaco-browser-rpc.ts` | Loopback control plane: ephemeral port, per-launch bearer token, one route per agent tool. **No route mints a skill** (F3 keeps that user-only, like recording) |
+| `src/main/index.ts` | Creates one controller per main window, registers the `abaco:browser:*` handlers and the sender guard, starts/stops the RPC server, derives `recordingsDir` from `userData`, resolves `$DSH_HOME` for the F3 skill root, pushes the resolved Harness theme |
+| `src/main/runtime/harness-runtime.ts` | `extraEnvironment` option, merged into the child's env at every spawn (`DSH_HOME` among them) |
+| `src/preload/index.ts` | Exposes `window.dshAbacoBrowser` on the Harness page (read-only `mode()`, F2's recording trio and `reportTheme`, F3's `saveSkill`) |
+| `src/preload/abaco-browser-chrome.ts` | Wires the chrome bar DOM — the F1 mode switch, F2's spinner/title/⏺ recorder/theme, F3's 💾 save-as-skill form and its result line, and the accelerator table — to the same channels |
 | `build/abaco-browser-chrome.html` | Chrome bar markup + styles (inert document, no page script) |
 | `packages/abaco-browser/index.js` | Host half: the seven `abaco_browser_*` tools over the control plane |
 | `packages/abaco-browser/client.js` | Client half: `sidebar.footer.action` launcher |
 | `test/abaco-browser.test.ts` | F0 structural invariants + F1 control plane, tool schemas and page-script tests |
 | `test/abaco-browser-recorder.test.ts` | **F2:** decoder, redaction, merge policy, a whole recording driven on a temp directory, and the chrome/channel contract |
+| `test/abaco-browser-skill.test.ts` | **F3:** the collapse policy, the rendered document, unique slugs, every failure path, the `$DSH_HOME` it writes into — and a discovery test that runs the **real** `FileSystemSkillProvider` over the generated directory |
 
 Mounting touches the same three places as every desktop plugin: a row in
 `build/dsh-desktop.patch.yml`, a `file:packages/abaco-browser` dependency in the
@@ -357,6 +392,100 @@ a white browser bar. The state push (URL, title, loading, mode, recording count)
 is throttled to one per 120 ms: recording makes every keystroke an action, and a
 counter that costs an IPC round trip per letter is not worth the flicker.
 
+## Decisions taken in F3
+
+### The skill is a file in the Harness's own skill root, not a new catalog
+
+The alternative was a second registry (a table of recorded skills, a settings
+list, a tool that loads one). It would have needed its own discovery, its own
+staleness rules and its own UI, and it would still not be where the agent looks
+for capabilities. F3 writes `SKILL.md` where `dsh-skill-filesystem` already
+scans, so *the agent's existing skill mechanism* is the whole delivery: the
+`standard` preset mounts `skill-filesystem` + `tool-skill`
+(`dsh-agent-presets/presets/standard/agent.cordis.yml:76-101`), the provider
+watches the root with a depth-1 chokidar watcher, and a new
+`<slug>/SKILL.md` shows up in the catalog without a restart.
+
+The cost of that decision is that our frontmatter must be exactly what the
+parser demands: `name` matching `/^[a-z0-9]+(?:-[a-z0-9]+)*$/` and a non-empty
+`description`. `test/abaco-browser-skill.test.ts` therefore does not re-implement
+the check — it instantiates the **real** `FileSystemSkillProvider` over a temp
+`DSH_HOME` and asserts the generated skill is listed and read back.
+
+### The raw log is compiled, not transcribed
+
+A recording is not a procedure and an agent cannot follow one that is. The
+collapse pass (`collapseRecordedActions`, pure and unit-tested) removes exactly
+four kinds of non-step:
+
+1. `screenshot` rows — they are provenance, and they reappear in *Verification*
+   as the reference to compare against;
+2. consecutive presses of the same control on the same page — one step, with
+   `(en la grabación se pulsó N veces seguidas)` instead of N identical lines;
+3. a click that only focused the field the previous step typed into — the
+   recorder logs the focus click *and* the `input`, and only the second one moves
+   the task forward;
+4. a scroll that did not move at least `ABACO_BROWSER_SKILL_SCROLL_MIN_DELTA`
+   (200px) from the last kept position on that page — the page script already
+   throttles inside 400px, so what survives this rule is a second reading pause,
+   and the first position of each pause is the fact worth keeping.
+
+Everything dropped is *counted* and printed in *Notes*. A skill that silently
+lost three steps would be worse than one that says "12 rows were not steps".
+
+### Redaction reaches the skill as a question, never as a value
+
+F2 masks a sensitive value before it is serialized, so the recording holds
+`***REDACTED***` and not a password. The writer does not try to undo that and
+does not invent a placeholder either: the step becomes *"write the real value of
+`#pass` … ask the user before running this step"*, and *Notes* lists every field
+that was masked. The one thing a generated skill must never do is teach the
+agent to guess a credential.
+
+### The output is escaped as hostile input
+
+The body quotes selectors, URLs and the visible labels of the page — all of them
+come from a remote document, and the typed value comes from a field. A recorded
+label can therefore contain a backtick, a newline or `## Notes`, which in a naive
+template would end the code span and forge a heading. `inlineCode` flattens
+whitespace, clamps the length and picks a fence longer than the longest backtick
+run inside the value, so the generated document has exactly the headings and the
+numbered steps the writer put there. The test asserts that with a deliberately
+hostile recording.
+
+### A second save never overwrites the first
+
+Slugs are resolved against the filesystem (`foo`, `foo-2`, … up to
+`ABACO_BROWSER_SKILL_MAX_SUFFIX`, then a timestamp). The Harness keys skills by
+name, so re-saving the same flow would otherwise silently replace what the user
+already had — and the recording it replaced is gone.
+
+### Directories are `0700` and the file `0600`
+
+A skill compiled from a recording can name internal URLs, internal selector names
+and the shape of a login form, and nothing but the Harness (running as the same
+user) needs to read it. A user who wants to share one can copy it out — which is
+also the moment they should re-read what their demonstration recorded.
+
+### The user asks for the skill; the agent cannot
+
+`abaco:browser:save-skill` is IPC-only, exactly like the three recording
+channels: the loopback RPC has no route for it, and the Harness page's bridge
+gets it only because a *client plugin* is still the user's UI. The reason is F2's
+reason — a skill is the record of a human demonstration, and an agent that could
+mint one could also decide what the user "did". What the agent gets is the
+result: the file, through its own catalog.
+
+### The strip offers the button only when there is something to save
+
+`hasRecording` rides the existing chrome-state push and is main's answer to "is
+there a finished `<stamp>.json` on disk". It is false while a recording runs
+(the recorder's `lastRecordingPath` is only set by the write that ends it), so
+the strip cannot offer to compile a half-written session. The name is an optional
+inline input rather than a dialog: this document runs no page script, Electron
+does not implement `prompt()`, and a modal over the strip would need its own
+window.
+
 ## Not verified by a launch
 
 Two F2 behaviours depend on the runtime and were implemented as specified in the
@@ -375,6 +504,26 @@ deliberately did not do):
   file is complete either way, but the opening PNG may be missing on a fast
   start.
 
+Three F3 behaviours likewise need the running app:
+
+- **Discovery latency.** The skill is written correctly and the provider parses
+  it (asserted in the test), but *when* it appears in the agent's catalog depends
+  on the watcher: `dsh-skill-filesystem` watches `<dshHome>/skills` with a
+  depth-1 chokidar watcher, so a new `<slug>/SKILL.md` invalidates the catalog —
+  provided the watcher was already retained by an earlier catalog lookup. A
+  brand-new `skills/` directory, or a save before the provider ever listed its
+  roots, may only show up on the next catalog pass or restart. Worth one manual
+  check: save a skill, then ask the agent to use it.
+- **The strip's width.** The 💾 form adds an input and a button to a 44px bar
+  that already carries back/forward/reload/address/title/spinner/⏺/mode/close.
+  The CSS caps the input at 15ch and the status line at 30ch with ellipsis, but
+  only a real window shows whether a narrow one crowds the address bar.
+- **`window.dshAbacoBrowser.saveSkill()` from the Harness page.** The channel and
+  the bridge are in place and validated, but nothing calls it yet: the launcher
+  plugin (`packages/abaco-browser/client.js`) still only opens/closes the
+  browser. A "save the last recording as a skill" action in the conversation is
+  the natural next caller.
+
 ## Backlog
 
 - **F1 — chrome and agent surface. Done** (see above), except the two items that
@@ -386,11 +535,14 @@ deliberately did not do):
   Harness theme following, and the `__ABACO_REC__` decoder with redaction,
   merge policy and persisted recordings. Still open from the original F2 list:
   find-in-page, zoom controls and per-tab history.
-- **F3 — skills, tabs and persistence.** Turn a recording into a `SKILL.md`
-  under `$DSH_HOME/skills/` (which `dsh-skill-filesystem` discovers), optionally
-  through the Claude API with a heuristic fallback — the ported
-  `desktop/features/browser/skill-generator.ts` consumes exactly the
-  `actions`/`session_id`/`started_at`/`ended_at`/`final_url`/`title` envelope
-  written above. Then: multiple page views with a tab strip, reopen the last
-  session, bookmarks/history storage in the `abaco-browser` partition, and a
-  settings section for the browser (home page, downloads, permissions).
+- **F3 — skills. Done** (see above): a finished recording compiles into a
+  `SKILL.md` under `$DSH_HOME/skills/`, discovered by `dsh-skill-filesystem`,
+  with the collapse policy, the unique slug, the `Verification`/`Notes` sections
+  and the 💾 control in the strip. Still open from the original F3 list:
+  optional generation through an LLM instead of the heuristic compiler (the
+  ported `desktop/features/browser/skill-generator.ts` consumes the same
+  `actions`/`session_id`/`started_at`/`ended_at`/`final_url`/`title` envelope, so
+  it can replace `draftBrowserSkill` without touching the writer), multiple page
+  views with a tab strip, reopening the last session, bookmarks/history storage
+  in the `abaco-browser` partition, and a settings section for the browser (home
+  page, downloads, permissions).

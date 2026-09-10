@@ -295,16 +295,6 @@ export interface AbacoBrowserRecorderOptions {
   log?: (message: string) => void
   /** Wire prefix; defaults to {@link ABACO_BROWSER_RECORD_PREFIX}. */
   prefix?: string
-  /**
-   * The page half. Injectable so the recorder can be exercised without
-   * serializing anything; defaults to the real `abaco-browser-page-scripts`
-   * bodies.
-   */
-  pageScript?: {
-    install: (options: PageRecorderOptions) => unknown
-    uninstall: () => unknown
-    options?: PageRecorderOptions
-  }
 }
 
 /** The redaction state of one session, kept out of the document until `stop()`. */
@@ -336,11 +326,14 @@ export class AbacoBrowserRecorder {
   private readonly removeFile: (path: string) => Promise<void>
   private readonly log: (message: string) => void
   private readonly prefix: string
-  private readonly pageScript: {
-    install: (options: PageRecorderOptions) => unknown
-    uninstall: () => unknown
-    options: PageRecorderOptions
-  }
+  /**
+   * The page half, serialized into the browsed document: the listener installer
+   * and the options it reads. Built once, from the shared contract — the prefix
+   * and the token lists are the *same* literals the decoder below uses, so the
+   * page cannot emit something main would not recognise, or mask with a
+   * different vocabulary.
+   */
+  private readonly pageOptions: PageRecorderOptions
 
   private document: AbacoBrowserRecordingDocument | undefined
   private tally: AbacoRecorderTally = {
@@ -369,19 +362,13 @@ export class AbacoBrowserRecorder {
     this.removeFile = options.removeFile ?? (async (path) => { await rm(path, { force: true }) })
     this.log = options.log ?? ((message) => console.warn(`[abaco-browser-recorder] ${message}`))
     this.prefix = options.prefix ?? ABACO_BROWSER_RECORD_PREFIX
-    this.pageScript = {
-      install: options.pageScript?.install ?? installRecorderInPage,
-      uninstall: options.pageScript?.uninstall ?? uninstallRecorderInPage,
-      options:
-        options.pageScript?.options ??
-        ({
-          prefix: this.prefix,
-          redactedValue: ABACO_BROWSER_REDACTED_VALUE,
-          maxSelector: ABACO_BROWSER_RECORD_MAX_SELECTOR,
-          scrollMergeMs: ABACO_BROWSER_RECORD_SCROLL_MERGE_MS,
-          sensitiveTokens: [...ABACO_BROWSER_SENSITIVE_FIELD_TOKENS],
-          sensitiveAutocomplete: [...ABACO_BROWSER_SENSITIVE_AUTOCOMPLETE]
-        } satisfies PageRecorderOptions)
+    this.pageOptions = {
+      prefix: this.prefix,
+      redactedValue: ABACO_BROWSER_REDACTED_VALUE,
+      maxSelector: ABACO_BROWSER_RECORD_MAX_SELECTOR,
+      scrollMergeMs: ABACO_BROWSER_RECORD_SCROLL_MERGE_MS,
+      sensitiveTokens: [...ABACO_BROWSER_SENSITIVE_FIELD_TOKENS],
+      sensitiveAutocomplete: [...ABACO_BROWSER_SENSITIVE_AUTOCOMPLETE]
     }
   }
 
@@ -512,6 +499,10 @@ export class AbacoBrowserRecorder {
       await this.writeTextFile(path, JSON.stringify(document, null, 2))
     } catch (error) {
       this.noteError(`could not write ${path}: ${describe(error)}`)
+      // Same invariant as `abort()`: a recording the caller was told is not on
+      // disk leaves no half of itself behind, so the directory only ever holds
+      // complete recordings (and a later F3 sweep cannot pick up orphan PNGs).
+      await this.removeScreenshots(document)
       return {
         ok: false,
         path: '',
@@ -542,6 +533,11 @@ export class AbacoBrowserRecorder {
     if (!document) return
     this.document = undefined
     await this.uninstallPageScript(true)
+    await this.removeScreenshots(document)
+  }
+
+  /** Best-effort removal of a session's bookend PNGs. */
+  private async removeScreenshots(document: AbacoBrowserRecordingDocument): Promise<void> {
     for (const path of Object.values(document.screenshots)) {
       try {
         await this.removeFile(path)
@@ -599,7 +595,7 @@ export class AbacoBrowserRecorder {
 
   /** Serialize the page-side installer and run it in the browsed document. */
   private async installPageScript(): Promise<void> {
-    const source = `(${this.pageScript.install.toString()})(${JSON.stringify(this.pageScript.options)})`
+    const source = `(${installRecorderInPage.toString()})(${JSON.stringify(this.pageOptions)})`
     try {
       await this.port.evaluate(source)
     } catch (error) {
@@ -609,7 +605,7 @@ export class AbacoBrowserRecorder {
 
   private async uninstallPageScript(silent = false): Promise<void> {
     try {
-      await this.port.evaluate(`(${this.pageScript.uninstall.toString()})()`)
+      await this.port.evaluate(`(${uninstallRecorderInPage.toString()})()`)
     } catch (error) {
       if (!silent) this.noteError(`could not remove the page recorder: ${describe(error)}`)
     }

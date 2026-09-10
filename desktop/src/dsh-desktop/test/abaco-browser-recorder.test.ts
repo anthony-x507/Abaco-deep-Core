@@ -649,6 +649,9 @@ describe('ABACO browser recorder session (F2)', () => {
     expect(result.ok).toBe(false)
     expect(result.path).toBe('')
     expect(recorder.status().lastError).toContain('disk full')
+    // The bookend PNGs go with it: a recording the caller was told is not on
+    // disk must not leave half of itself in the directory.
+    expect(await readdir(directory)).toEqual([])
   })
 
   it('aborts without writing anything when the overlay is destroyed', async () => {

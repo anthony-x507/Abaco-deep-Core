@@ -468,16 +468,15 @@ export class AbacoBrowserController {
     this.publishTheme()
   }
 
-  /** The theme the strip is currently painting. */
-  browserTheme(): AbacoBrowserTheme {
-    return this.theme
-  }
-
   /**
-   * Answer one accelerator. Called from two places — the page view's
-   * `before-input-event` and, for the extension's own sake, nothing else: the
-   * chrome strip handles its own keystrokes in its preload. Both resolve the
-   * same key table, so ⌘R means one thing whichever surface has focus.
+   * Answer one accelerator, whichever surface saw it.
+   *
+   * Two callers, one implementation: the page view's `before-input-event` (the
+   * only place that sees a keystroke typed into the *browsed page*) and the
+   * `abaco:browser:shortcut` IPC handler, which the chrome strip invokes from its
+   * own `keydown`. Both resolve the same key table
+   * ({@link abacoBrowserShortcutFor}), so ⌘R means one thing whichever surface
+   * has focus.
    */
   runShortcut(shortcut: AbacoBrowserShortcut): boolean {
     if (!this.isOpen()) return false
@@ -708,7 +707,13 @@ export class AbacoBrowserController {
       loading: contents.isLoading(),
       mode: this.mode,
       recording: status.recording,
-      recordingActions: status.recording ? status.actionCount : 0
+      recordingActions: status.recording ? status.actionCount : 0,
+      // F3 — the strip offers 💾 only for a recording that is *finished*:
+      // `lastRecordingPath` is empty while one is running and is set by the
+      // write that ends it, so the button cannot appear over a half-written
+      // session.
+      hasRecording: !status.recording && status.lastRecordingPath.length > 0,
+      lastRecordingId: status.recording ? '' : status.sessionId
     }
     chromeBar.send(ABACO_BROWSER_CHROME_STATE_CHANNEL, state)
   }

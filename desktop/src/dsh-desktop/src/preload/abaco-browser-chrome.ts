@@ -12,6 +12,7 @@ import {
   type AbacoBrowserMode,
   type AbacoBrowserRecordingResult,
   type AbacoBrowserRecordingStatus,
+  type AbacoBrowserSaveSkillResult,
   type AbacoBrowserShortcut
 } from '../shared/abaco-browser'
 
@@ -37,6 +38,11 @@ import {
  * happen while it has focus, and the controller answers the same table for the
  * ones typed into the page through `before-input-event`, so ⌘R cannot mean two
  * different things depending on where the caret is.
+ *
+ * F3 adds one control, 💾 *save as skill*, which appears only once a recording
+ * has actually been written to disk. It is the last step of the F2 → F3 flow and
+ * the only one the user has to ask for: recording captures a demonstration, and
+ * compiling it into a `SKILL.md` is a deliberate act with a name attached.
  */
 const CONTROL_IDS = {
   back: 'abaco-browser-back',
@@ -49,7 +55,11 @@ const CONTROL_IDS = {
   title: 'abaco-browser-title',
   spinner: 'abaco-browser-spinner',
   record: 'abaco-browser-record',
-  recordCount: 'abaco-browser-record-count'
+  recordCount: 'abaco-browser-record-count',
+  skillForm: 'abaco-browser-skill-form',
+  skillName: 'abaco-browser-skill-name',
+  skillSave: 'abaco-browser-skill-save',
+  skillStatus: 'abaco-browser-skill-status'
 } as const
 
 /** Button label and tooltip per ownership mode, so the strip always states the truth. */
@@ -96,7 +106,10 @@ function readChromeState(value: unknown): AbacoBrowserChromeState | undefined {
     recordingActions:
       typeof candidate.recordingActions === 'number' && Number.isFinite(candidate.recordingActions)
         ? candidate.recordingActions
-        : 0
+        : 0,
+    hasRecording: candidate.hasRecording === true,
+    lastRecordingId:
+      typeof candidate.lastRecordingId === 'string' ? candidate.lastRecordingId : ''
   }
 }
 
@@ -112,6 +125,10 @@ function mountAbacoBrowserChrome(): void {
   const spinner = byId<HTMLSpanElement>(CONTROL_IDS.spinner)
   const recordButton = byId<HTMLButtonElement>(CONTROL_IDS.record)
   const recordCount = byId<HTMLSpanElement>(CONTROL_IDS.recordCount)
+  const skillForm = byId<HTMLFormElement>(CONTROL_IDS.skillForm)
+  const skillName = byId<HTMLInputElement>(CONTROL_IDS.skillName)
+  const skillSave = byId<HTMLButtonElement>(CONTROL_IDS.skillSave)
+  const skillStatus = byId<HTMLSpanElement>(CONTROL_IDS.skillStatus)
   if (
     !back ||
     !forward ||
@@ -123,7 +140,11 @@ function mountAbacoBrowserChrome(): void {
     !title ||
     !spinner ||
     !recordButton ||
-    !recordCount
+    !recordCount ||
+    !skillForm ||
+    !skillName ||
+    !skillSave ||
+    !skillStatus
   ) {
     return
   }
@@ -202,7 +223,20 @@ function mountAbacoBrowserChrome(): void {
         const status = (await invoke(abacoBrowserChannels.recordStart)) as
           | AbacoBrowserRecordingStatus
           | undefined
-        if (status?.recording === true) paintRecording(true, status.actionCount)
+        if (status?.recording === true) {
+          paintRecording(true, status.actionCount)
+        } else {
+          // Main refuses to start on a closed overlay and reports its own
+          // failures through `lastError`; either way the button must not be left
+          // looking as if it had started something.
+          paintRecording(
+            false,
+            0,
+            status?.lastError && status.lastError.length > 0
+              ? `Recording did not start: ${status.lastError}`
+              : 'Recording did not start.'
+          )
+        }
       }
     } finally {
       delete recordButton.dataset.pending
@@ -211,6 +245,83 @@ function mountAbacoBrowserChrome(): void {
   recordButton.addEventListener('click', () => {
     if (recordButton.dataset.pending === 'true') return
     void toggleRecording()
+  })
+
+  /* ── F3 — the recording becomes a skill ────────────────────────────────────
+   * The 💾 form is only on screen while a *finished* recording exists, which is
+   * a fact only main knows: `hasRecording` is its answer to "is there a
+   * `<stamp>.json` on disk", and it is deliberately false while a recording is
+   * still running, so the strip can never compile a half-written session.
+   *
+   * The name is optional and the user's to set — it becomes the skill's `name`
+   * in the catalog — and whatever they type is normalized by main, so a name
+   * with accents or spaces becomes the slug the Harness requires. The outcome
+   * is shown here rather than in a dialog: success is "which skill, and where",
+   * failure is the writer's own sentence. */
+  let lastRecordingId = ''
+  let skillStatusTimer: ReturnType<typeof setTimeout> | undefined
+  const say = (message: string, tone: 'info' | 'error', tooltip?: string): void => {
+    skillStatus.textContent = message
+    skillStatus.dataset.tone = tone
+    skillStatus.title = tooltip ?? message
+    skillStatus.hidden = message.length === 0
+    if (skillStatusTimer !== undefined) clearTimeout(skillStatusTimer)
+    if (message.length > 0) {
+      // Long enough to read a path and copy it mentally, short enough that the
+      // strip is not permanently carrying the last save.
+      skillStatusTimer = setTimeout(() => {
+        skillStatus.hidden = true
+        skillStatus.textContent = ''
+      }, 12000)
+    }
+  }
+  const paintSkill = (available: boolean): void => {
+    skillForm.hidden = !available
+    if (available) return
+    skillName.value = ''
+    say('', 'info')
+  }
+  paintSkill(false)
+
+  skillForm.addEventListener('submit', (event) => {
+    event.preventDefault()
+    if (skillSave.dataset.pending === 'true') return
+    skillSave.dataset.pending = 'true'
+    delete skillSave.dataset.result
+    say('Saving…', 'info')
+    void (async () => {
+      try {
+        const request = {
+          ...(lastRecordingId.length > 0 ? { recordingId: lastRecordingId } : {}),
+          ...(skillName.value.trim().length > 0 ? { name: skillName.value.trim() } : {})
+        }
+        const result = (await invoke(
+          abacoBrowserChannels.saveSkill,
+          request
+        )) as AbacoBrowserSaveSkillResult | undefined
+        if (result?.ok === true) {
+          skillSave.dataset.result = 'ok'
+          // The path is what the user needs to find the file; the CSS truncates
+          // it in the strip and the tooltip carries it whole.
+          say(
+            `Saved skill "${result.name}" (${result.stepCount} steps) — ${result.path}`,
+            'info',
+            `${result.path}\n\n${result.description}`
+          )
+          skillName.value = ''
+        } else {
+          skillSave.dataset.result = 'error'
+          say(
+            result !== undefined && result.error.length > 0
+              ? result.error
+              : 'The skill could not be saved.',
+            'error'
+          )
+        }
+      } finally {
+        delete skillSave.dataset.pending
+      }
+    })()
   })
 
   addressForm.addEventListener('submit', (event) => {
@@ -284,6 +395,12 @@ function mountAbacoBrowserChrome(): void {
     // the strip honest; the tooltip is only reset when nothing pending said
     // something more specific.
     if (next.recording || recording) paintRecording(next.recording, next.recordingActions)
+    // Same reasoning for F3's 💾: the recording it compiles may have been
+    // stopped by main (browser closed), so availability and the session id both
+    // come from the push. A push never clears the name the user is typing —
+    // `paintSkill(true)` leaves the form alone.
+    if (next.lastRecordingId.length > 0) lastRecordingId = next.lastRecordingId
+    paintSkill(next.hasRecording)
   })
 }
 

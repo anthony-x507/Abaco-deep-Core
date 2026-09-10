@@ -1,5 +1,5 @@
 /**
- * Shared contract of the ABACO DEEP HARNES integrated browser (F0 + F1 + F2).
+ * Shared contract of the ABACO DEEP HARNES integrated browser (F0 + F1 + F2 + F3).
  *
  * The browser is an overlay `WebContentsView` owned by the main process; the
  * harness page, the browser's own chrome bar and — since F1 — the agent's tools
@@ -24,6 +24,13 @@
  * (`abaco-browser-recorder.ts`) and the *chrome bar* renders the recording
  * state (its own preload). The wire prefix, the action vocabulary and the
  * redaction rules are therefore one constant set rather than three restatements.
+ *
+ * F3 adds the far end of that pipeline: the recording, once finished, is
+ * compiled into a `SKILL.md` under `$DSH_HOME/skills/<slug>/`, which the Harness
+ * skill provider discovers on its own. What lives here is the channel, the
+ * request/result pair the chrome strip and main agree on, and the two path
+ * constants (the skills root and the file name) that must match what
+ * `@deepseek-ai/dsh-skill-filesystem` scans for.
  */
 
 /** Page the overlay opens when the launcher asks for a browser with no target. */
@@ -75,7 +82,15 @@ export const abacoBrowserChannels = {
    */
   shortcut: 'abaco:browser:shortcut',
   /** F2 — the resolved Harness theme, reported by the surface that knows it. */
-  themeReport: 'abaco:browser:theme-report'
+  themeReport: 'abaco:browser:theme-report',
+  /**
+   * F3 — compile the last user recording into a `SKILL.md` the Harness
+   * discovers. IPC-only, for the same reason the three recording channels are:
+   * a skill is the *record of a human demonstration*, so the agent must not be
+   * able to mint one. The agent consumes the result — the file — through its
+   * own skill catalog, not through a tool.
+   */
+  saveSkill: 'abaco:browser:save-skill'
 } as const
 
 /** Main → chrome-bar push of the current navigation state. */
@@ -127,6 +142,14 @@ export interface AbacoBrowserChromeState {
   recording: boolean
   /** How many actions the running recording has captured so far. */
   recordingActions: number
+  /**
+   * F3 — a *saved* recording exists on disk, so the strip can offer 💾 "save as
+   * skill". False while a recording is still running: a skill is compiled from a
+   * finished session, never from the half-written one.
+   */
+  hasRecording: boolean
+  /** Session id of that saved recording; empty when there is none. */
+  lastRecordingId: string
 }
 
 /** Result shape of every control channel except `isOpen`, which returns a boolean. */
@@ -736,4 +759,123 @@ export function redactRecordedText(
   }
 ): string {
   return shouldRedactBrowserValue(input) ? ABACO_BROWSER_REDACTED_VALUE : text
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * F3 — a recording becomes a skill
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Directory of the generated skills, below `$DSH_HOME`.
+ *
+ * This is the *user-scope* skill root `@deepseek-ai/dsh-skill-filesystem`
+ * discovers: for every directory directly under it, it looks for a `SKILL.md`
+ * and parses that file's YAML frontmatter (`node_modules/@deepseek-ai/
+ * dsh-skill-filesystem/lib/index.js:171-180`, `550-557`). Main already knows the
+ * same root — it spawns the Harness child with `DSH_HOME=<userData>/harness`
+ * (`src/main/runtime/harness-runtime.ts:271`) — so F3 writes beside the rest of
+ * the user's skills rather than inventing a fourth location.
+ */
+export const ABACO_BROWSER_SKILLS_DIRNAME = 'skills'
+
+/** File name the filesystem skill provider looks for inside a skill directory. */
+export const ABACO_BROWSER_SKILL_FILENAME = 'SKILL.md'
+
+/**
+ * How many directories are tried when a slug is taken (`foo`, `foo-2`, …)
+ * before the writer gives up on a name and falls back to one with the session's
+ * own timestamp in it. A bound rather than an unbounded loop: 40 recordings of
+ * the same page should not turn into 40 `stat` calls, and a name that long is a
+ * symptom, not a goal.
+ */
+export const ABACO_BROWSER_SKILL_MAX_SUFFIX = 40
+
+/**
+ * Ceiling on how many numbered steps one generated skill holds. The recording
+ * itself is capped at {@link ABACO_BROWSER_RECORD_MAX_ACTIONS}; this is the
+ * second, tighter ceiling, because a hundred-step skill is no longer a
+ * procedure an agent can follow. The overflow is reported in the skill's Notes.
+ */
+export const ABACO_BROWSER_SKILL_MAX_STEPS = 120
+
+/** Ceiling on the `name` a caller may hand to `abaco:browser:save-skill`. */
+export const ABACO_BROWSER_SKILL_MAX_NAME = 64
+
+/** Ceiling on one inline value (a selector, a URL) printed inside a step. */
+export const ABACO_BROWSER_SKILL_MAX_INLINE = 300
+
+/**
+ * How far the page must have moved between two recorded scrolls for the second
+ * one to be a step rather than momentum. Below it, the scroll is dropped: a
+ * recording of a single flick fires hundreds of scroll events, and only the
+ * first position of each reading pause is a fact worth writing down.
+ */
+export const ABACO_BROWSER_SKILL_SCROLL_MIN_DELTA = 200
+
+/**
+ * Page-side selectors that will not survive a redesign. Every entry is a class
+ * of generated name (styled-components, CSS modules, Emotion, a framework's
+ * auto id, a UUID) rather than one site's markup, because the point is to warn
+ * about *kinds* of fragility in the Notes section, not to list one recording's
+ * bad selectors.
+ */
+export const ABACO_BROWSER_FRAGILE_SELECTOR_PATTERNS = [
+  /:r[0-9a-z]{1,5}\\?:/iu,
+  /(^|[^\w-])ember\d+/iu,
+  /\.(css|sc|jsx)-[0-9a-z]{4,}/iu,
+  /#[\w-]*\d{4,}/u,
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/iu,
+  /\[(data-reactid|data-react-checksum|ng-reflect[\w-]*)\b/iu,
+  /:nth-(child|of-type)\(/u,
+  /\[(class|id)\*=/u
+] as const
+
+/**
+ * True when a recorded selector is likely to break on the next deploy: too
+ * deep, or built out of a generated name. Used for the "Notes" section, not to
+ * reject a step — a fragile selector is still the only evidence the recording
+ * holds about what the user clicked.
+ */
+export function isFragileBrowserSelector(selector: string): boolean {
+  const value = selector.trim()
+  if (value.length === 0) return false
+  if (value.length > 80) return true
+  // Deep descendant chains (`main > div > div > ul > li:nth-child(3) > a`) name
+  // a position in today's DOM, not an element.
+  if (value.split(/[>\s]+/u).filter((part) => part.length > 0).length > 5) return true
+  return ABACO_BROWSER_FRAGILE_SELECTOR_PATTERNS.some((pattern) => pattern.test(value))
+}
+
+/**
+ * What the chrome strip asks for on `abaco:browser:save-skill`.
+ *
+ * Both fields are optional: the 💾 button sends `{}` when the user did not type
+ * a name, and an empty `recordingId` means "the most recent recording", which is
+ * the only one the strip can be showing.
+ */
+export interface AbacoBrowserSaveSkillRequest {
+  /** Session id (`<timestamp>` file stem), or empty/omitted for the newest one. */
+  recordingId?: string
+  /** Slug the user typed; the writer normalizes it. Omitted = derived from the page. */
+  name?: string
+}
+
+/**
+ * Result of `abaco:browser:save-skill`. A failure is a value rather than a
+ * throw: the strip has one line of text to show and no stack to print.
+ */
+export interface AbacoBrowserSaveSkillResult {
+  ok: boolean
+  /** Skill slug written into the frontmatter and used as the directory name. */
+  name: string
+  /** Absolute path of the `SKILL.md`. Empty when nothing was written. */
+  path: string
+  /** Absolute path of the skill directory. Empty when nothing was written. */
+  directory: string
+  /** One-line summary of what the skill does, as the catalog will show it. */
+  description: string
+  /** How many numbered steps the body holds. */
+  stepCount: number
+  /** Why nothing was written; empty on success. */
+  error: string
 }

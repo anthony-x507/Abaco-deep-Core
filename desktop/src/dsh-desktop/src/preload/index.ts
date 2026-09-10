@@ -6,6 +6,8 @@ import {
   type AbacoBrowserMode,
   type AbacoBrowserRecordingResult,
   type AbacoBrowserRecordingStatus,
+  type AbacoBrowserSaveSkillRequest,
+  type AbacoBrowserSaveSkillResult,
   type AbacoBrowserTheme
 } from '../shared/abaco-browser'
 import { setupDesktopStoragePersistence } from './desktop-storage'
@@ -200,7 +202,16 @@ contextBridge.exposeInMainWorld('dshAbacoBrowser', {
   recordingStatus: (): Promise<AbacoBrowserRecordingStatus> =>
     ipcRenderer.invoke(abacoBrowserChannels.recordStatus),
   reportTheme: (theme: AbacoBrowserTheme): Promise<AbacoBrowserTheme> =>
-    ipcRenderer.invoke(abacoBrowserChannels.themeReport, theme)
+    ipcRenderer.invoke(abacoBrowserChannels.themeReport, theme),
+  /* ── F3 — the recording becomes a skill ──────────────────────────────────
+   * The far end of the F2 pipeline, exposed on the page for the same reason the
+   * recording trio is: a client plugin can offer "save this as a skill" in the
+   * conversation, not only from the strip's 💾. The request is optional — an
+   * empty one means "compile the newest recording under its own name" — and the
+   * result is a value either way, so a caller never has to catch a rejected
+   * `invoke` to find out that the flow could not be compiled. */
+  saveSkill: (request?: AbacoBrowserSaveSkillRequest): Promise<AbacoBrowserSaveSkillResult> =>
+    ipcRenderer.invoke(abacoBrowserChannels.saveSkill, request)
 })
 
 /**
