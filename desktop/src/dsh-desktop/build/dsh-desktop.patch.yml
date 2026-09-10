@@ -128,11 +128,12 @@
 # Layer 1 of the 3-layer context system: the working window and its summary
 # policy. `compaction-basic` freezes its policy at construction and reads it
 # from its composition row, so the only supported way to change WHEN the agent
-# summarizes (80% → 60% of the routed window), WHAT it keeps verbatim (16% → 8%)
-# and HOW BIG the summary may be (8k → 16k tokens) is to mount a preset whose
-# row carries that config. This plugin installs the ABACO preset — the shipped
-# `standard` composition with exactly those deltas plus the delegation and
-# durable-memory persona — into the roster's USER preset root
+# summarizes (80% → 90% of the routed window), WHAT it keeps verbatim (16% → 12%)
+# and HOW BIG the summary may be (8k tokens — the engine's own default, so it is
+# not a delta) is to mount a preset whose row carries that config. This plugin
+# installs the ABACO preset — the shipped `standard` composition with exactly
+# those deltas plus the delegation and durable-memory persona — into the
+# roster's USER preset root
 # (`<DSH_HOME>/.agent-presets/abaco`, scanned by the stock `includeUserRoot`),
 # then selects it once as the default and never again: a preset edited by hand,
 # or one the person picked in the UI, is left alone. Host-plane row, so it also
