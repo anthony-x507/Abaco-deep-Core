@@ -133,9 +133,9 @@ Ni flag, ni servicio de aprobación, ni rama. Y las decisiones abiertas son de d
 
 ### 4.4 D — no existe, y hay que cubrir tres rutas, no una
 
-1. **Truncado mecánico:** el pruner no lee `isError` (`dsh-compaction-tool-result-pruner/lib/index.js:141`).
-2. **Reescritura por LLM:** la sección "Errors and Fixes" del prompt invita a condensar (`dsh-compaction-basic/lib/index.js:232`).
-3. **Camino de overflow:** `compactIfNeeded` con `trigger === "context-overflow"` (`:814-815`) **salta el umbral y la validación de proporción por completo**. Una guarda en el pruner del stock cubre la ruta del motor; esta hay que verificarla aparte.
+1. **Truncado mecánico:** el pruner no lee `isError` (`dsh-compaction-tool-result-pruner/lib/index.js:137` — `pruneSession`; 0 ocurrencias en todo el archivo). *La cita anterior `:141` era falsa: `:141` es un comentario `/* v8 ignore next … */` dentro del bucle.* Ojo: el prune **conserva** la marca `isError` en el bloque sustituido (`:157-160`) — lo que falta es una guarda que **actúe** sobre ella.
+2. **Reescritura por LLM:** la sección "Errors and Fixes" del prompt invita a condensar (`dsh-compaction-basic/lib/index.js:234`; la cita previa `:232` estaba desfasada). Es una sección **dedicada**, no una bala genérica.
+3. **Camino de overflow:** `compactIfNeeded` con `trigger === "context-overflow"` (`dsh-compaction-basic/lib/index.js:870-875`; invocado desde `:815`) **no llama nunca a `resolveCompactSpec`**: usa `selectCompactableRange(..., 0)` (`:875`) y resume todo. La guarda del pruner **sí** alcanza esta ruta (misma `prune.pruneSession`, `:872`), pero no impide que el error entre en el resumen.
 
 ### 4.5 El preset no se adopta
 
@@ -195,7 +195,7 @@ Estas ocho son las que bloquean el plan. Ninguna es retórica: cada una tiene un
 
 **3. Cómo implementas "pide permiso la primera vez".** ¿Qué API usas para preguntar, dónde guardas el flag, y cómo sobrevive ese flag al evento que él mismo autoriza (la compactación sustituye el tramo viejo, así que el flag no puede vivir ahí)? Y sobre todo: **si el usuario rechaza, ¿qué pasa en el siguiente `agent/pre-step` con la presión aún por encima del umbral?** El listener corre en cada paso (`dsh-compaction-basic/lib/index.js:781-783`): ¿cómo evitas exactamente el bucle R4 (N peticiones para 1 sesión)?
 
-**4. Cómo garantizas que los errores sobrevivan.** En ABACO fallan las tres rutas: el pruner no lee `isError` (`dsh-compaction-tool-result-pruner/lib/index.js:141`), la sección "Errors and Fixes" invita a condensar (`dsh-compaction-basic/lib/index.js:232`), y el camino de overflow **salta** umbral y validación (`:814-815`). ¿Cubres las tres o solo una? ¿Qué haces cuando el error literal mide 9000 caracteres (R8)?
+**4. Cómo garantizas que los errores sobrevivan.** En ABACO fallan las tres rutas: el pruner no lee `isError` (`dsh-compaction-tool-result-pruner/lib/index.js:137`; la cita `:141` era falsa, y el prune **conserva** la marca aunque no la lea), la sección "Errors and Fixes" invita a condensar (`dsh-compaction-basic/lib/index.js:234`), y el camino de overflow **salta** umbral y validación (`:870-875`). ¿Cubres las tres o solo una? ¿Qué haces cuando el error literal mide 9000 caracteres (R8)?
 
 **5. Qué haces con las tool results en vuelo y el mensaje en curso.** En el stock la protección es **estructural** (fronteras balanceadas: `compactRegion` lanza si partiría un par tool-call/result, `:525-526`), pero **la cola viva se mide por tokens, no por vueltas**: `selectCompactableRange` acumula hasta `retainTokens` (`:379-397`), que a 1M con `retainRatio 0.12` son **120.000 tokens** de cola — pueden ser más o menos de las 5 vueltas que exige el lock (`SPEC:315`, donde consta como **NO satisfecha**). ¿Cómo mides tú "las últimas 5 vueltas" en vueltas y no en tokens?
 
