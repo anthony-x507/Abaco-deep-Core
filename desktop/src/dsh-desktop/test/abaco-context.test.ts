@@ -5,18 +5,20 @@ import { join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  adoptDefault,
   apply,
   defaultMarkerPath,
   name,
   PRESET_ID,
   resolveContextConfig,
+  runAdoptDefault,
+  runApply,
   shippedPresetDir
 } from '../packages/abaco-context/index.js'
 import {
   fingerprint,
   installAbacoPreset,
   planInstall,
+  presetRoot,
   presetTarget,
   readTree,
   resolveDshHome,
@@ -40,6 +42,14 @@ import { projectRoot } from './patch-path'
  *   policy is asserted, including the two "keep" branches, because the whole
  *   reason a copy is tolerable is that it stops clobbering the moment it is
  *   edited.
+ * - **Nothing this plugin hands Cordis is an invalid effect.** Cordis collects
+ *   each plugin body's return value as an effect — a disposer, `null`/
+ *   `undefined`, or a promise settling to one of those — and answers anything
+ *   else with `TypeError: Invalid effect`, which fails the entry and the whole
+ *   tree. The stand-in context below therefore reproduces that rule instead of
+ *   papering over it: the bug this file now guards against reached production
+ *   precisely because the stand-in returned the callback's promise where the
+ *   real `inject` returns a disposal handle.
  */
 
 const temporary: string[] = []
@@ -68,21 +78,107 @@ async function text(file: string): Promise<string> {
   return await readFile(file, 'utf8')
 }
 
-/** A context stand-in: records logs, and runs the injected callback inline. */
-function fakeContext(registration?: {
-  get: () => { default?: string }
-  update: (patch: { default: string }) => Promise<void>
-}) {
+/**
+ * Wait for a condition to hold.
+ *
+ * `apply` starts its install without returning the promise, deliberately, so a
+ * test that wants to observe the finished work waits for its end state instead
+ * of awaiting a value nothing is allowed to hand back.
+ *
+ * @param condition - the predicate to poll.
+ * @param label - what is being waited for, for the timeout message.
+ */
+async function waitFor(condition: () => boolean, label: string): Promise<void> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    if (condition()) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error(`timed out after 2s waiting for ${label}`)
+}
+
+/** A logger that records every line written to it. */
+function recordingLogger() {
   const logs: string[] = []
   return {
     logs,
+    logger: { info: (message: string) => logs.push(message), warn: (message: string) => logs.push(message) }
+  }
+}
+
+/** One `agentPresets` settings registration, plus the updates it received. */
+function registration(current?: string) {
+  const updates: { default: string }[] = []
+  return {
+    updates,
+    value: {
+      get: () => (current === undefined ? {} : { default: current }),
+      update: async (patch: { default: string }) => {
+        updates.push(patch)
+      }
+    }
+  }
+}
+
+/** The `rosterCtx` a stand-in `inject` hands the callback. */
+function fakeRoster(registrationValue?: { get: () => { default?: string }; update: (patch: { default: string }) => Promise<void> }) {
+  return { agentPresets: { settings: () => registrationValue } }
+}
+
+/** Whether a value carries a `then`, which is all Cordis's own check looks for. */
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return false
+  return typeof (value as PromiseLike<unknown>).then === 'function'
+}
+
+/**
+ * Collect a plugin body's return value exactly the way Cordis does.
+ *
+ * `Fiber._execute` accepts a disposer function, `null`/`undefined`, or a
+ * promise settling to one of those; every other value is passed to its
+ * `safeCollect`, which throws `TypeError: Invalid effect` and fails the plugin.
+ * This is that rule in miniature, so a test can hold the plugin to the contract
+ * Cordis actually enforces rather than to a convenient one.
+ *
+ * @param value - whatever a plugin body returned.
+ */
+async function collectEffect(value: unknown): Promise<void> {
+  const settled = isThenable(value) ? await value : value
+  if (typeof settled === 'function' || settled === null || settled === undefined) return
+  throw new TypeError('Invalid effect')
+}
+
+/**
+ * A context stand-in that obeys the contract the real one has.
+ *
+ * `ctx.inject(deps, callback)` starts the callback as its own plugin body and
+ * returns that fiber's wrapper — a disposal handle, never the callback's value.
+ * The previous stand-in returned the callback's promise, so `await apply(...)`
+ * looked like it settled the default write while the real context would have
+ * collected that promise as a disposer and died on `Invalid effect`; 24 green
+ * tests and a dead app. It now returns a disposer and *records* what the
+ * callback returned, so a test can assert on the shape Cordis would collect.
+ */
+function fakeContext(registrationValue?: {
+  get: () => { default?: string }
+  update: (patch: { default: string }) => Promise<void>
+}) {
+  const { logs, logger } = recordingLogger()
+  /** The roster the injected callback receives. */
+  const roster = fakeRoster(registrationValue)
+  /** What each injected callback returned, as Cordis would collect it. */
+  const effects: unknown[] = []
+  return {
+    logs,
+    roster,
+    effects,
     ctx: {
-      logger: {
-        info: (message: string) => logs.push(message),
-        warn: (message: string) => logs.push(message)
-      },
-      inject: (_deps: string[], callback: (ctx: unknown) => unknown) =>
-        callback({ agentPresets: { settings: () => registration } })
+      logger,
+      inject: (_deps: string[], callback: (ctx: unknown) => unknown) => {
+        effects.push(callback(roster))
+        // A disposal handle, never the callback's value: that distinction is
+        // the whole bug.
+        return () => undefined
+      }
     }
   }
 }
@@ -216,26 +312,14 @@ describe('abaco-context: installation on disk', () => {
 })
 
 describe('abaco-context: selecting the default', () => {
-  function registration(current?: string) {
-    const updates: { default: string }[] = []
-    return {
-      updates,
-      value: {
-        get: () => (current === undefined ? {} : { default: current }),
-        update: async (patch: { default: string }) => {
-          updates.push(patch)
-        }
-      }
-    }
-  }
-
   it('replaces the composition default exactly once', async () => {
     const home = await fakeHome()
     const recorder = registration('standard')
-    const { ctx, logs } = fakeContext(recorder.value)
+    const { logs, logger } = recordingLogger()
+    const roster = fakeRoster(recorder.value)
 
-    const first = await apply(ctx, { dshHome: home })
-    expect(first.status).toBe('install')
+    const outcome = await runAdoptDefault(roster, { marker: defaultMarkerPath(home), logger })
+    expect(outcome).toMatchObject({ status: 'selected' })
     expect(recorder.updates).toEqual([{ default: PRESET_ID }])
     expect(existsSync(defaultMarkerPath(home))).toBe(true)
     expect(logs.some((line) => line.includes('is now the default'))).toBe(true)
@@ -243,16 +327,16 @@ describe('abaco-context: selecting the default', () => {
     // The marker is what makes the next boot a no-op, so a person who picks a
     // different preset afterwards is never overruled.
     recorder.value.get = () => ({ default: 'cordis' })
-    await apply(ctx, { dshHome: home })
+    await runAdoptDefault(roster, { marker: defaultMarkerPath(home), logger })
     expect(recorder.updates).toHaveLength(1)
   })
 
   it('keeps a default the person already chose', async () => {
     const home = await fakeHome()
     const recorder = registration('cordis')
-    const { ctx, logs } = fakeContext(recorder.value)
+    const { logs, logger } = recordingLogger()
 
-    await apply(ctx, { dshHome: home })
+    await runAdoptDefault(fakeRoster(recorder.value), { marker: defaultMarkerPath(home), logger })
     expect(recorder.updates).toHaveLength(0)
     expect(existsSync(defaultMarkerPath(home))).toBe(true)
     expect(logs.some((line) => line.includes('leaving the user'))).toBe(true)
@@ -260,29 +344,25 @@ describe('abaco-context: selecting the default', () => {
 
   it('is a no-op when the roster never publishes its settings', async () => {
     const home = await fakeHome()
-    const { ctx } = fakeContext(undefined)
-    await expect(apply(ctx, { dshHome: home })).resolves.toMatchObject({ status: 'install' })
+    const { logs, logger } = recordingLogger()
+    // A roster that is up but has no settings registration is a no-op, not a
+    // failure — and it must leave no marker behind, so the next boot retries.
+    await expect(runAdoptDefault(fakeRoster(undefined), { marker: defaultMarkerPath(home), logger })).resolves.toMatchObject(
+      { status: 'unavailable' }
+    )
     expect(existsSync(defaultMarkerPath(home))).toBe(false)
   })
 
   it('survives a settings write that throws', async () => {
     const home = await fakeHome()
-    const logs: string[] = []
-    const ctx = {
-      logger: { info: () => {}, warn: (message: string) => logs.push(message) },
-      inject: (_deps: string[], callback: (ctx: unknown) => unknown) =>
-        callback({
-          agentPresets: {
-            settings: () => ({
-              get: () => ({ default: 'standard' }),
-              update: async () => {
-                throw new Error('read-only settings')
-              }
-            })
-          }
-        })
-    }
-    const outcome = await adoptDefault(ctx as never, { dshHome: home, logger: ctx.logger })
+    const { logs, logger } = recordingLogger()
+    const roster = fakeRoster({
+      get: () => ({ default: 'standard' }),
+      update: async () => {
+        throw new Error('read-only settings')
+      }
+    })
+    const outcome = await runAdoptDefault(roster, { marker: defaultMarkerPath(home), logger })
     expect(outcome).toMatchObject({ status: 'failed' })
     expect(logs.some((line) => line.includes('read-only settings'))).toBe(true)
     expect(existsSync(defaultMarkerPath(home))).toBe(false)
@@ -291,8 +371,71 @@ describe('abaco-context: selecting the default', () => {
   it('does nothing at all when disabled', async () => {
     const home = await fakeHome()
     const { ctx } = fakeContext(registration('standard').value)
-    await expect(apply(ctx, { dshHome: home, enabled: false })).resolves.toEqual({ status: 'disabled' })
+    await expect(runApply(ctx as never, { dshHome: home, enabled: false })).resolves.toEqual({ status: 'disabled' })
     expect(existsSync(presetTarget(home))).toBe(false)
+  })
+
+  /**
+   * The regression guard for the boot failure this plugin shipped with.
+   *
+   * `harness.log` recorded: `failed to apply loader entry abaco-context
+   * (abaco-context): Invalid effect`, from `safeCollect` inside Cordis's
+   * `Fiber._execute`. Two plugin bodies were handing Cordis a value it collects
+   * as an effect and then rejects: the callback `inject` starts, which returned
+   * `runAdoptDefault`'s promise, and `apply` itself, which was `async` and
+   * resolved to the status object. Both are asserted here the way Cordis sees
+   * them, so reintroducing either one fails this test instead of the app.
+   */
+  it('REGRESSION: no plugin body hands Cordis an effect it would reject', async () => {
+    const home = await fakeHome()
+    const recorder = registration('standard')
+    const { ctx, effects } = fakeContext(recorder.value)
+
+    // Body 2 — the row's own entry, the value the loader collects for
+    // `abaco-context`. `apply` must return `undefined` *synchronously*: a promise
+    // here is an `async apply`, which is what shipped and killed the boot, and a
+    // status object would fail `collectEffect` even without one.
+    const returned = apply(ctx as never, { dshHome: home })
+    expect(returned).toBeUndefined()
+    expect(isThenable(returned)).toBe(false)
+
+    // The install is fire-and-forget by that same rule, so wait for its end
+    // state — the one-time marker, written after the default write — instead of
+    // racing it. This also proves the observable behaviour survived: the preset
+    // lands and the default is adopted exactly as before.
+    await waitFor(() => existsSync(defaultMarkerPath(home)), 'the default marker')
+    expect(existsSync(join(presetTarget(home), 'agent.cordis.yml'))).toBe(true)
+    expect(recorder.updates).toEqual([{ default: PRESET_ID }])
+
+    // Body 1 — the callback `inject` starts. Its return value is collected the
+    // same way, and it used to be `runAdoptDefault`'s promise.
+    expect(effects).toHaveLength(1)
+    expect(effects[0]).toBeUndefined()
+
+    for (const effect of effects) {
+      // A plugin body may hand Cordis a disposer, `null` or `undefined` — never
+      // a thenable settling to a status object.
+      expect(isThenable(effect)).toBe(false)
+      expect(effect === undefined || effect === null || typeof effect === 'function').toBe(true)
+      // And the collector itself agrees: this assertion is what fails with
+      // `TypeError: Invalid effect` on either buggy shape.
+      await expect(collectEffect(effect)).resolves.toBeUndefined()
+    }
+  })
+
+  /**
+   * The other half of the regression, asserted on the declaration itself.
+   *
+   * `apply` being `async` was invisible to any assertion that inspected only the
+   * *resolved* value, because Cordis inspects the returned promise first. This
+   * pins the property that actually distinguishes the fix: what `apply` hands
+   * back, synchronously, is not a promise.
+   */
+  it('REGRESSION: apply is not an async function', () => {
+    expect(apply.constructor.name).not.toBe('AsyncFunction')
+    // `enabled: false` keeps the fire-and-forget work a pure early return, so
+    // this assertion never touches the ambient `$DSH_HOME`.
+    expect(isThenable(apply({ logger: { info: () => {}, warn: () => {} } }, { enabled: false }))).toBe(false)
   })
 })
 

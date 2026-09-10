@@ -123,6 +123,23 @@ function describe(error) {
 }
 
 /**
+ * Warn without letting a broken log sink become a plugin failure.
+ *
+ * The catch handler registered by `adoptDefault` is the last net under async
+ * work, so a throw from inside it would surface as an unhandled rejection.
+ *
+ * @param logger - the resolved logger.
+ * @param message - the line to record.
+ */
+function warnQuietly(logger, message) {
+  try {
+    logger.warn(message)
+  } catch {
+    // Nothing can be reported, and reporting it must not cost the boot either.
+  }
+}
+
+/**
  * Whether the one-time default write already happened.
  *
  * @param marker - absolute marker path.
@@ -160,14 +177,30 @@ async function recordDefaultApplied(marker, from) {
  * roster that never appears, a settings document that is read-only, or a user
  * who already chose a preset all end in a log line and no side effect.
  *
+ * ## Why the callback returns nothing
+ *
+ * Cordis collects a plugin body's return value as an **effect**: a disposer
+ * function, `null`/`undefined`, or a promise settling to one of those. Anything
+ * else reaches `safeCollect`, which throws `TypeError: Invalid effect` and
+ * fails the plugin — and with it the whole tree (`harness.log`: "failed to
+ * apply loader entry abaco-context"). `runAdoptDefault` settles to a plain
+ * status object, so returning its promise is exactly that failure. The work is
+ * therefore *started* here and its settlement is owned by this function: caught,
+ * logged, never returned. The callback keeps a block body so nothing it
+ * evaluates can escape as a value by accident.
+ *
  * @param ctx - the plugin context.
  * @param options - resolved config plus the logger.
- * @returns whatever the injected callback returned: real Cordis ignores it, and
- *   a test's stand-in context uses it to await the write deterministically.
+ * @returns the fiber wrapper `ctx.inject` hands back, which is the disposal
+ *   handle Cordis expects a plugin body to produce.
  */
 export function adoptDefault(ctx, { dshHome, logger }) {
   const marker = defaultMarkerPath(dshHome)
-  return ctx.inject(['agentPresets'], (rosterCtx) => runAdoptDefault(rosterCtx, { marker, logger }))
+  return ctx.inject(['agentPresets'], (rosterCtx) => {
+    runAdoptDefault(rosterCtx, { marker, logger }).catch((error) => {
+      warnQuietly(logger, `abaco-context: the default preset could not be selected: ${describe(error)}`)
+    })
+  })
 }
 
 /**
@@ -213,11 +246,48 @@ export async function runAdoptDefault(rosterCtx, { marker, logger }) {
 /**
  * Install the preset and, once, make it the default.
  *
+ * This is the Cordis plugin body, and it is deliberately **synchronous**.
+ *
+ * `Fiber._execute` collects the body's return value as an effect: a disposer,
+ * `null`/`undefined`, or a promise settling to one of those. An `async` body
+ * resolving to the install status object is therefore *exactly* the same defect
+ * as the promise `adoptDefault`'s callback used to return — the same
+ * `safeCollect`, the same `TypeError: Invalid effect`, the same dead tree. It
+ * is true that an `async` body resolving to `undefined` would also satisfy the
+ * collector, but that contract then rests on every one of `runApply`'s six
+ * return paths; returning nothing at all makes it structural, and it is the
+ * reading that matches this module's own rule that `apply` never throws and
+ * nothing here can break the boot.
+ *
+ * The work is started, not awaited: the loader marks the entry started as soon
+ * as this returns, and the install lands in the background. The promise is
+ * caught here, so a rejection cannot escape as an unhandled rejection (fatal in
+ * Node) nor fail the plugin. The trade is that a session opened in the same
+ * instant may not see `abaco` in the picker yet; the roster rescans, and
+ * `runAdoptDefault`'s marker keeps the default write one-shot either way.
+ *
+ * @param ctx - the host-plane context this row is applied to.
+ * @param config - the row's `config` block.
+ * @returns nothing, which is the only value a plugin body may hand Cordis.
+ */
+export function apply(ctx, config) {
+  runApply(ctx, config).catch((error) => {
+    // `runApply` absorbs its own failures, so this is the net under the rest:
+    // without it a rejection here would be unhandled, and Node answers an
+    // unhandled rejection by killing the process.
+    warnQuietly(safeLogger(ctx), `abaco-context: the ABACO preset was not installed: ${describe(error)}`)
+  })
+}
+
+/**
+ * The install work, as a plain async function so the outcome stays directly
+ * assertable without a Cordis context.
+ *
  * @param ctx - the host-plane context this row is applied to.
  * @param config - the row's `config` block.
  * @returns the install outcome, so tests and diagnostics can assert on it.
  */
-export async function apply(ctx, config) {
+export async function runApply(ctx, config) {
   const logger = safeLogger(ctx)
   const resolved = resolveContextConfig(config)
   if (resolved.enabled === false) {
@@ -239,9 +309,10 @@ export async function apply(ctx, config) {
   logger.info(`abaco-context: ABACO preset ${result.status} at ${result.presetPath} (${result.reason})`)
 
   if (result.status === 'kept') return result
-  // Cordis's `inject` returns a disposer and runs the callback when the roster
-  // is up; a stand-in context returns the callback's promise instead, which is
-  // what makes this line deterministic under test.
+  // `inject` runs the callback once the roster publishes and returns that
+  // fiber's wrapper; awaiting it settles as soon as the roster is up, and
+  // resolves immediately while the roster is still absent, so a missing roster
+  // can never hold the boot open.
   if (resolved.selectAsDefault) await adoptDefault(ctx, { dshHome: resolved.dshHome, logger })
   return result
 }

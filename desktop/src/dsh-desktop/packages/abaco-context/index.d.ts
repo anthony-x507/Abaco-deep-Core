@@ -70,9 +70,15 @@ export interface AdoptDefaultOutcome {
   reason?: string
 }
 
-/** Point the roster's default at the ABACO preset, once. */
+/**
+ * Point the roster's default at the ABACO preset, once.
+ *
+ * The callback is typed `=> void` on purpose: Cordis collects a plugin body's
+ * return value as an effect, so a callback that returns a promise settling to a
+ * status object is `TypeError: Invalid effect` and fails the whole tree.
+ */
 export declare function adoptDefault(
-  ctx: { inject: (deps: string[], callback: (ctx: unknown) => unknown) => unknown },
+  ctx: { inject: (deps: string[], callback: (ctx: unknown) => void) => unknown },
   options: { dshHome: string; logger: { info: (message: string) => void; warn: (message: string) => void } }
 ): unknown
 
@@ -82,5 +88,12 @@ export declare function runAdoptDefault(
   options: { marker: string; logger: { info: (message: string) => void; warn: (message: string) => void } }
 ): Promise<AdoptDefaultOutcome>
 
-/** Install the preset and, once, make it the default. */
-export declare function apply(ctx: unknown, config?: unknown): Promise<AbacoContextApplyResult>
+/** The install work, as a plain awaitable; `apply` is only its Cordis shell. */
+export declare function runApply(ctx: unknown, config?: unknown): Promise<AbacoContextApplyResult>
+
+/**
+ * Cordis plugin body. Synchronous, and returns nothing — never the outcome and
+ * never a promise: a plugin body's return value is collected as an effect, and
+ * a status object is not one. Use {@link runApply} to read the outcome.
+ */
+export declare function apply(ctx: unknown, config?: unknown): void
