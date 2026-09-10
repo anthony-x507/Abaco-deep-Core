@@ -1,0 +1,25 @@
+{
+  "name": "abaco-browser",
+  "version": "0.1.0",
+  "description": "Integrated browser for ABACO DEEP HARNES: a launcher entry in the sidebar footer that opens the native WebContentsView overlay (window.dshAbacoBrowser) on top of the window.",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

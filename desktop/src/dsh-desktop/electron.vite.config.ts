@@ -11,7 +11,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/preload/index.ts'),
-          'windows-menu': resolve('src/preload/windows-menu.ts')
+          'windows-menu': resolve('src/preload/windows-menu.ts'),
+          'abaco-browser-chrome': resolve('src/preload/abaco-browser-chrome.ts')
         },
         output: {
           format: 'cjs',

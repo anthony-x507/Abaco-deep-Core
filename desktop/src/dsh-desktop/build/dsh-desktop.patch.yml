@@ -87,6 +87,17 @@
     - id: abaco-agent-status
       name: abaco-agent-status
 
+# Integrated browser (F0). Registers one launcher entry on the stock
+# `sidebar.footer.action` list slot (root scope, declared by
+# @deepseek-ai/dsh-client-ui-sidebar) whose click calls
+# window.dshAbacoBrowser.open(). That bridge is the desktop preload's; it asks
+# src/main/abaco-browser-controller.ts to mount the WebContentsView overlay
+# (own session partition) on top of the main window, with a local chrome-bar
+# child view carrying the address input.
+- insert:
+    - id: abaco-browser
+      name: abaco-browser
+
 # NOTE: abaco-brand, abaco-device-identity, abaco-cloud-sync, abaco-onboarding
 # and abaco-experimental are TEMPORARILY DISABLED. Their host-half index.js
 # assigned ctx.abacoBrand/ctx.abacoSync directly and read ctx['secureStore'],

@@ -59,6 +59,7 @@ import {
 } from './gpu-fallback'
 import { secureWindow } from './security'
 import { SafeModeOverlay } from './safe-mode-overlay'
+import { AbacoBrowserController } from './abaco-browser-controller'
 import { ensureLaunchRoot } from './state/launch-root'
 import {
   listInstalledProfilePlugins,
@@ -137,6 +138,7 @@ import {
 } from './state/plugin-market-check'
 import { upgradePluginToGeneration } from './state/plugin-upgrade'
 import { aboutDetail, bundledHarnessVersion } from './version-info'
+import { abacoBrowserChannels } from '../shared/abaco-browser'
 import { windowsMenuViewBounds } from './windows-menu-view'
 import { shouldKeepRunningInBackground } from './close-to-tray'
 import {
@@ -166,6 +168,8 @@ const PLUGIN_RECOVERY_ACTIONS = new Set<PluginRecoveryAction>([
 ])
 
 let mainWindow: BrowserWindow | undefined
+/** Integrated browser overlay of the current main window (F0, one per window). */
+let abacoBrowserController: AbacoBrowserController | undefined
 let windowsMenuView: WebContentsView | undefined
 let windowsMenuOpen = false
 let windowsMenuDark = false
@@ -974,6 +978,13 @@ function createWindow(): BrowserWindow {
   installMainWindowRendererRecovery(window)
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = undefined
+    if (abacoBrowserController) {
+      // The controller also tears itself down on this event; dropping the
+      // reference here keeps the closed window's overlay from being reachable
+      // through the IPC handlers.
+      abacoBrowserController.close()
+      abacoBrowserController = undefined
+    }
     if (windowsMenuView && !windowsMenuView.webContents.isDestroyed()) {
       windowsMenuView.webContents.close()
     }
@@ -983,6 +994,12 @@ function createWindow(): BrowserWindow {
     resolveSafeModeAction({ type: 'quit' })
   })
   mainWindow = window
+  // The integrated browser overlay is owned by this window for its whole life;
+  // it mounts nothing until the launcher opens it.
+  abacoBrowserController = new AbacoBrowserController(window, {
+    chromeHtmlPath: desktopResourcePath('abaco-browser-chrome.html'),
+    chromePreloadPath: join(import.meta.dirname, '../preload/abaco-browser-chrome.cjs')
+  })
   if (isWindows) attachWindowsMenuView(window)
   return window
 }
@@ -1457,6 +1474,102 @@ function assertTrustedMainWindowEvent(event: IpcMainInvokeEvent): void {
   ) {
     throw new Error('This action is only available from the main ABACO DEEP HARNES window.')
   }
+}
+
+/**
+ * The overlay answers two trusted surfaces and nothing else:
+ *
+ *  - the Harness page itself (main frame), which reaches the handlers through
+ *    the `window.dshAbacoBrowser` bridge that `src/preload/index.ts` exposes —
+ *    client plugins run in the page and cannot touch `ipcRenderer`;
+ *  - the browser's own chrome bar, a local `WebContentsView` whose preload
+ *    (`abaco-browser-chrome.cjs`) is the only script in that document.
+ *
+ * The browsed page is in neither set: it runs in its own sandboxed partition
+ * with no preload, so it has no route back into the shell. Accepting two
+ * senders for one channel family follows the `desktop-menu:execute` precedent.
+ */
+function assertTrustedAbacoBrowserEvent(event: IpcMainInvokeEvent): void {
+  const fromMainWindow =
+    mainWindow !== undefined &&
+    !mainWindow.isDestroyed() &&
+    event.sender === mainWindow.webContents &&
+    event.senderFrame === mainWindow.webContents.mainFrame
+  const chromeBar = abacoBrowserController?.chromeBarWebContents()
+  const fromChromeBar =
+    chromeBar !== undefined &&
+    !chromeBar.isDestroyed() &&
+    event.sender === chromeBar &&
+    event.senderFrame === chromeBar.mainFrame
+  if (!fromMainWindow && !fromChromeBar) {
+    throw new Error('The ABACO browser is only controllable from the ABACO DEEP HARNES window or its browser bar.')
+  }
+}
+
+function requireAbacoBrowser(): AbacoBrowserController {
+  if (!abacoBrowserController) {
+    throw new Error('The ABACO browser overlay is not available in this window.')
+  }
+  return abacoBrowserController
+}
+
+/**
+ * Register the integrated browser's control surface. Every channel is idempotent
+ * (`removeHandler` first) so a re-registration after a window is recreated
+ * cannot leave a stale handler pointing at a destroyed window.
+ */
+function registerAbacoBrowserHandlers(): void {
+  ipcMain.removeHandler(abacoBrowserChannels.open)
+  ipcMain.handle(abacoBrowserChannels.open, (event, url?: unknown) => {
+    assertTrustedAbacoBrowserEvent(event)
+    if (url !== undefined && typeof url !== 'string') {
+      throw new Error('The ABACO browser destination must be a URL string.')
+    }
+    requireAbacoBrowser().open(url)
+    return { ok: true }
+  })
+
+  ipcMain.removeHandler(abacoBrowserChannels.close)
+  ipcMain.handle(abacoBrowserChannels.close, (event) => {
+    assertTrustedAbacoBrowserEvent(event)
+    requireAbacoBrowser().close()
+    return { ok: true }
+  })
+
+  ipcMain.removeHandler(abacoBrowserChannels.navigate)
+  ipcMain.handle(abacoBrowserChannels.navigate, (event, url?: unknown) => {
+    assertTrustedAbacoBrowserEvent(event)
+    if (typeof url !== 'string' || url.trim().length === 0) {
+      throw new Error('The ABACO browser needs a URL to navigate to.')
+    }
+    requireAbacoBrowser().navigate(url)
+    return { ok: true }
+  })
+
+  ipcMain.removeHandler(abacoBrowserChannels.back)
+  ipcMain.handle(abacoBrowserChannels.back, (event) => {
+    assertTrustedAbacoBrowserEvent(event)
+    return { ok: requireAbacoBrowser().back() }
+  })
+
+  ipcMain.removeHandler(abacoBrowserChannels.forward)
+  ipcMain.handle(abacoBrowserChannels.forward, (event) => {
+    assertTrustedAbacoBrowserEvent(event)
+    return { ok: requireAbacoBrowser().forward() }
+  })
+
+  ipcMain.removeHandler(abacoBrowserChannels.reload)
+  ipcMain.handle(abacoBrowserChannels.reload, (event) => {
+    assertTrustedAbacoBrowserEvent(event)
+    requireAbacoBrowser().reload()
+    return { ok: true }
+  })
+
+  ipcMain.removeHandler(abacoBrowserChannels.isOpen)
+  ipcMain.handle(abacoBrowserChannels.isOpen, (event) => {
+    assertTrustedAbacoBrowserEvent(event)
+    return requireAbacoBrowser().isOpen()
+  })
 }
 
 function assertTrustedSafeModeManagerEvent(event: IpcMainInvokeEvent): void {
@@ -2618,6 +2731,7 @@ async function bootstrap(): Promise<void> {
     }
   })
   registerHarnessHandlers()
+  registerAbacoBrowserHandlers()
   mobileBridge = new LanMobileBridge({
     harnessUrl: () => runtime.snapshot().url,
     harnessAuthToken: () => runtime.snapshot().authToken,

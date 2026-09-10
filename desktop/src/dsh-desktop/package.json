@@ -281,6 +281,7 @@
     "abaco-voice": "file:packages/abaco-voice",
     "abaco-documents": "file:packages/abaco-documents",
     "abaco-agent-status": "file:packages/abaco-agent-status",
+    "abaco-browser": "file:packages/abaco-browser",
     "abaco-cloud-sync": "file:packages/abaco-cloud-sync",
     "abaco-onboarding": "file:packages/abaco-onboarding",
     "abaco-experimental": "file:packages/abaco-experimental",
@@ -382,6 +383,10 @@
       {
         "from": "build/windows-menu.html",
         "to": "windows-menu.html"
+      },
+      {
+        "from": "build/abaco-browser-chrome.html",
+        "to": "abaco-browser-chrome.html"
       }
     ],
     "publish": [

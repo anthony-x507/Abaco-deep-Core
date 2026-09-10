@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AvailableRelease, UpdateStatus } from '../shared/contracts'
+import {
+  abacoBrowserChannels,
+  type AbacoBrowserCommandResult
+} from '../shared/abaco-browser'
 import { setupDesktopStoragePersistence } from './desktop-storage'
 import {
   isUpdateDismissed,
@@ -146,6 +150,29 @@ function runDomSync(): void {
 
 contextBridge.exposeInMainWorld('dshDesktopDirectoryPicker', {
   pick: (): Promise<string | null> => ipcRenderer.invoke('directory-picker:open')
+})
+
+/**
+ * Integrated browser bridge (F0).
+ *
+ * The browser overlay is a `WebContentsView` owned by the main process, so the
+ * Harness page cannot reach it directly — and client plugins, which run as page
+ * script, cannot touch `ipcRenderer` at all. This is the only door: the sidebar
+ * launcher plugin calls `window.dshAbacoBrowser.open()`, main routes it to
+ * `AbacoBrowserController`, and the browser's own chrome bar drives the same
+ * channels from its private preload.
+ */
+contextBridge.exposeInMainWorld('dshAbacoBrowser', {
+  open: (url?: string): Promise<AbacoBrowserCommandResult> =>
+    ipcRenderer.invoke(abacoBrowserChannels.open, url),
+  close: (): Promise<AbacoBrowserCommandResult> => ipcRenderer.invoke(abacoBrowserChannels.close),
+  navigate: (url: string): Promise<AbacoBrowserCommandResult> =>
+    ipcRenderer.invoke(abacoBrowserChannels.navigate, url),
+  back: (): Promise<AbacoBrowserCommandResult> => ipcRenderer.invoke(abacoBrowserChannels.back),
+  forward: (): Promise<AbacoBrowserCommandResult> =>
+    ipcRenderer.invoke(abacoBrowserChannels.forward),
+  reload: (): Promise<AbacoBrowserCommandResult> => ipcRenderer.invoke(abacoBrowserChannels.reload),
+  isOpen: (): Promise<boolean> => ipcRenderer.invoke(abacoBrowserChannels.isOpen)
 })
 
 /**

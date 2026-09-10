@@ -67,6 +67,8 @@ The main Harness window uses:
 
 Only local Harness, packaged file, and desktop recovery URLs are trusted inside the app. Ordinary HTTP and HTTPS links are opened externally. IPC handlers validate the sending window and main frame before performing privileged actions such as opening the native directory picker, restarting Harness, managing Safe Mode, or installing an update.
 
+The integrated browser overlay is the one deliberate exception to "HTTP(S) opens externally": it is a separate `WebContentsView` in its own persistent session partition, with no preload, no shared cookies, its own permission/download policy, and an IPC surface reachable only from the Harness page's preload bridge and the overlay's own chrome bar. See [abaco-browser.md](./abaco-browser.md).
+
 ## Profiles and plugin recovery
 
 The normal web profile may contain community plugins and their transitive packages. Startup performs bounded consistency checks and can repair incomplete package operations before launching Harness.
