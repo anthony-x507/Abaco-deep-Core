@@ -82,7 +82,7 @@ Los dos son del **mismo tipo**: el plugin se escribió contra **APIs imaginadas*
 
 Consecuencia en producción: la app caía a **Safe Mode**, que bloquea todos los bundles de terceros, y el usuario **no veía ninguna función de ABACO** — no solo la compactación: todo.
 
-**ARREGLADO** en `3ddbe73`. El `apply` es hoy síncrono y devuelve `undefined` (`packages/abaco-context/index.js:273` → `export function apply(ctx, config)`), el callback de `ctx.inject` no devuelve la promesa, y hay dos tests de regresión. Verificado por arranque real: sin `Invalid effect`, el árbol monta.
+**ARREGLADO** en `3ddbe73`. El `apply` es hoy síncrono y devuelve `undefined` (`packages/abaco-context/index.js:379` → `export function apply(ctx, config)`), el callback de `ctx.inject` no devuelve la promesa, y hay dos tests de regresión. Verificado por arranque real: sin `Invalid effect`, el árbol monta.
 
 ### Bug 2 — `agentPresets.settings` se trataba como fábrica
 

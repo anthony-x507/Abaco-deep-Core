@@ -8,13 +8,14 @@
 #   1. the persona carries the ABACO identity plus the delegation and memory
 #      discipline (design §5.3),
 #   2. `compaction-basic` is configured (the stock row takes no config): compact
-#      at 90% of the window instead of 80%, retain 12% verbatim instead of 16%,
-#      and allow an 8k-token summary instead of 8k. These three numbers are an
-#      OWNER DECISION for ABACO, not engine defaults and not the values this
-#      preset shipped with before: the owner locked 0.90 / 0.12 / 8192 after
-#      reviewing live compaction behaviour, replacing the earlier 0.60 / 0.08 /
-#      16384. Do not "correct" them back toward stock; change them only on a
-#      new owner decision, and update this comment in the same commit.
+#      at 90% of the window instead of 80%, and retain 12% verbatim instead of
+#      16%. Those two ratios are OWNER DECISIONS for ABACO: the owner locked
+#      0.90 / 0.12 after reviewing live compaction behaviour, replacing the
+#      earlier 0.60 / 0.08. A third value, `maxTokens: 8192`, is NOT a delta —
+#      it is the engine's own default (`resolveConfig({})` returns 8192), so it
+#      restates what the stock row already did; the discarded earlier value was
+#      16384. Do not "correct" the ratios back toward stock; change them only on
+#      a new owner decision, and update this comment in the same commit.
 #   3. `tool-result-pruner` prunes earlier: 6000/3000/800 instead of
 #      8192/4096/1024.
 #
@@ -190,11 +191,13 @@
     toolResultPruner: true
   config:
     # ABACO delta 2: OWNER-LOCKED compaction policy, 0.90 / 0.12 / 8192. Let the
-    # routed model run much closer to its window before compacting, keep a
+    # routed model run much closer to its window before compacting and keep a
     # proportionally larger verbatim tail so the summary lands on more raw
-    # context, and halve the summary's own budget. These are not engine
-    # defaults: stock is 0.80 / 0.16 / 8192 and this preset previously shipped
-    # 0.60 / 0.08 / 16384. The ratio form keeps the load-time invariant
+    # context. The two RATIOS are the delta: engine defaults are 0.80 / 0.16,
+    # and this preset previously shipped 0.60 / 0.08. `maxTokens: 8192` is NOT a
+    # delta — it is the engine's own default (`resolveConfig({})` returns 8192),
+    # restated here because the row is explicit; the discarded earlier value was
+    # 16384. The ratio form keeps the load-time invariant
     # `retainRatio < thresholdRatio` (0.12 < 0.90) true for every window, and at
     # the routed 1M window that resolves to thresholdTokens 900000 /
     # retainTokens 120000.

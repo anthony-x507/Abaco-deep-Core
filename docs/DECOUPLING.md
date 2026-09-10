@@ -421,11 +421,22 @@ desviación introducida por el fork:
   `console.warn('[lan-mobile-bridge] port … is already in use; using an
   ephemeral port')` y escucha en efímero. [V] — por eso hoy degrada en lugar de
   romper.
-- `43127` **ya no aparece** en `src/`, `out/` ni `dist/` del fork: sobrevive solo
-  en tests, y el propio test documenta la causa —
+- `43127` **ya no aparece en el código del fork**: **0 ocurrencias** en `src/` y
+  **0 en `out/`** (`grep -c 43127 out/main/index.js` → `0`), y el puerto que el
+  fork usa es **`44127`** (`44128` en dev), no `43127`. El literal sobrevive en
+  tests, y el propio test documenta la causa —
   `test/lan-mobile-bridge.test.ts:1190`: *"stock DSH Desktop holds the 43127
   LAN-bridge seat on 0.0.0.0"*. [V] Eso confirma que el asiento en disputa era
   el bridge LAN, no el motor.
+- **Matiz obligatorio sobre `dist/`:** `43127` **sí** aparece en el artefacto
+  empaquetado (`dist/mac-arm64/ABACO DEEP HARNES.app`), en **3 ficheros de
+  terceros** — `node_modules/tr46/lib/mappingTable.json` (el rango de
+  codepoints Unicode `[[43124,43127],2]`) y dos copias del mismo path SVG en
+  `node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js` y en el
+  bundle `dsh-web-frontend/dist/assets/index-*.js` (la coordenada `8.43127`).
+  **Ninguna de esas cadenas es un puerto** y ninguna está en el proceso
+  principal. `grep -c 43127 out/main/index.js` → `0`; `grep -c 44127
+  out/main/index.js` → `1`. [V]
 
 **Acción recomendada:** volver a `?? 0`. El puerto fijo no aporta nada (el
 bridge publica su URL por QR) y reintroduce exactamente el modo de fallo
