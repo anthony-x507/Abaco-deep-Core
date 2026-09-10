@@ -38,8 +38,14 @@
 ## 2. TRABAJO EN CURSO (subagentes activos)
 | Frente | Estado | Subagente |
 |---|---|---|
-| **F0 Browser**: overlay WebContentsView + botón 🌐 + IPC | Corriendo | `8541bcb6` |
-| **Memoria 3 capas**: diseño de implementación | Corriendo | `a8ef4dbe` |
+| **F1 Browser**: tools del agente (navigate/click/type/readDOM/screenshot) + RPC loopback main↔harness | Corriendo | `b1a41665` |
+| **Rebuild**: .app con AGENTE TRABAJANDO + navegador F0 (npm install + npm run build + unsigned) | Corriendo | `6d066af4` |
+
+### Completado en sesión reciente
+| Commit | Qué |
+|---|---|
+| `265d855` | **F0 Browser**: AbacoBrowserController (overlay WebContentsView, partición aislada persist:abaco-browser, chrome bar child view con URL/back/forward/reload/close), IPC `abaco:browser:*` con guard, global `window.dshAbacoBrowser`, launcher plugin en `sidebar.footer.action`, 16/16 tests |
+| `4300f18` | **Diseño memoria 3 capas** (956 líneas): Capa 2 viable vía system-prompt section con text función (nunca compactada, persiste sidecar); Capa 1 configurable por preset de agente; Capa 3 spill ya activo con hueco en output de subagentes background |
 
 ## 3. PENDIENTE — PLAN COMPLETO POR FASES
 
