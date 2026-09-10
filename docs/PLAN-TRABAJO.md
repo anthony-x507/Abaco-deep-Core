@@ -35,11 +35,15 @@
 - QR pairing: secret en payload, sin escalada por device_type, admin token, rate limits
 - Docs: AUDIT-2026-09.md, DESIGN-compaction.md, TECH-plugin-loading.md
 
-## 2. TRABAJO EN CURSO (subagentes activos)
+## 2. TRABAJO EN CURSO / RECIÉN TERMINADO (sin commitear todavía)
 | Frente | Estado | Subagente |
 |---|---|---|
-| **Memoria durable (Capa 2)**: plugin `abaco-memory` — tools memory_set/get/forget + inyección vía system-prompt | Corriendo (17 tests: 14 pasan; montaje en patch/pkg pendiente) | `679b225d` |
-| **F3 Browser**: grabación → SKILL.md en `$DSH_HOME/skills/` (renderer, canal save-skill, botón en chrome bar) | Corriendo | `e46f8db1` |
+| **Capa 2 — `abaco-memory`**: store por facetas bajo `<DSH_HOME>/abaco-memory` + 4 tools `abaco_memory_set/get/forget/list` + sección de system-prompt `abaco:durable-memory` evaluada como FUNCIÓN (por eso sobrevive a la compactación: el contrato solo reescribe `user/message`, nunca el system prompt) | **Hecho**: 17/17 tests, typecheck 0, montado en los 3 sitios (`679b225d`) | ✔ |
+| **Capa 1 — `abaco-context`**: instala el preset ABACO (copia del `standard` con `thresholdRatio 0.6`, `retainRatio 0.08`, `maxTokens 16384` y pruner 6000/3000/800 + persona con disciplina de delegación y memoria) en `<DSH_HOME>/.agent-presets/abaco` y lo selecciona como default UNA vez | **Hecho**: 24/24 tests, `--dump-config` verifica la composición | ✔ |
+| **Capa 3 (mitad barata)** — `spill-policy.maxInlineBytes: 50000 → 12000` en el patch del perfil (el stock ya saca el resultado grande de la ventana y deja preview + locator + `retrievalHint`) | **Hecho**, verificado con `--dump-config` | ✔ |
+| **Capa 3 (vault durable)** — plugin `abaco-vault`: trunca los avisos `subagent-settled` gigantes (el hueco real: entran verbatim como `user/message` sin pasar por `tools/post-execute`) y guarda el texto íntegro bajo `<DSH_HOME>` | Corriendo | `53b23cfa` |
+| **F3 Browser** — grabación → `SKILL.md` en `$DSH_HOME/skills/<slug>/`: `abaco-browser-skill-writer.ts` (colapso de acciones, redacción, slug único, escritura atómica 0600), canal `abaco:browser:save-skill`, botón 💾 en la chrome bar. Validado contra el `FileSystemSkillProvider` REAL | **Hecho**: 80/80 tests del browser (27 nuevos), typecheck 0 (`e46f8db1`) | ✔ |
+| **Tests obsoletos del rebrand** — 22 aserciones en 8 ficheros que aún esperaban "DSH Desktop"/`dsh-desktop-*`/`dshdesktop.com` | Corriendo | `549780b8` |
 
 ### Completado en sesión reciente
 | Commit | Qué |
@@ -74,8 +78,24 @@ Modelo (de otro agente del usuario):
 2. **Memoria durable**: preferencias/proyectos/decisiones que sobreviven a compactación (NO existe hoy)
 3. **Delegación**: no llenar ventana con crudo; subagentes devuelven solo resultado útil
 
-- Diseño en curso → `docs/DESIGN-memory-3layer.md` (subagente `a8ef4dbe`)
-- Implementación por fases tras el diseño (verificar hooks: agent-loop pre-step, ctx.systemPrompt.section, dsh-credentials/settings/storage)
+Diseño validado archivo:línea → `docs/DESIGN-memory-3layer.md` (956 líneas). Fases y estado:
+
+| Fase | Qué | Estado |
+|---|---|---|
+| 0 | Telemetría (`abaco-observability`: JSONL con disparos de compactación, spilleos, truncados) | **PENDIENTE** |
+| 1 | Preset ABACO con política de compactación propia | **HECHO** → `packages/abaco-context` (§2) |
+| 2 | `abaco-memory` MVP (Capa 2): store por facetas + tools + inyección | **HECHO** → `packages/abaco-memory` (§2) |
+| 3 | `abaco-context` como motor propio (subclase de `BasicCompactionEngine`: nunca compactar con turno abierto, máx. 1/tarea, sin `retainTokens=0`) | **PENDIENTE** (hoy sólo la política por config; el motor stock sigue gobernando el disparo) |
+| 4 | Capa 3: vault durable + corte del aviso `subagent-settled` | Corriendo → `packages/abaco-vault` |
+| 5 | Recall (`context_recall` sobre `vault/index.jsonl`) + eval + CI | **PENDIENTE** |
+| 6 | Consolidación LLM + UI de memoria en `settings.section` + comando `/memory` | **PENDIENTE** |
+
+**Hechos verificados que no hay que volver a investigar:**
+- El motor de compactación se configura SOLO por la fila del preset (`config` es `readonly`, `resolveConfig` deep-freezea, no hay settings namespace). Los ids shipped no se pueden sombrear (`dsh-agent-presets:1250-1259`), por eso el preset propio es `abaco`.
+- `retainTokens` es absoluto y se valida POR MODELO (`retainTokens < thresholdRatio * contextWindow`); con una ventana pequeña lanza `TargetPressureConfigError` que solo se registra como aviso → compactación desactivada en silencio. Por eso el preset usa `retainRatio`.
+- El patch del perfil SÍ puede sobrescribir filas anidadas de otro patch (probado con `spill-policy` y `--dump-config`).
+- `dsh --profile web --patch <yml> --dump-config` compone el perfil SIN lanzar la app: es la forma barata de validar cualquier cambio del patch.
+
 
 ### D. REGENERAR ICONOS (pendiente de identidad visual)
 - `desktop/brand/icon.icns`, app-icon.png, icon-1024.png, fork build/*.png pueden tener arte DeepSeek viejo (paleta púrpura/cian)

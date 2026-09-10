@@ -1,0 +1,7 @@
+name: ABACO DEEP HARNES
+description: >-
+  Preset propio de ABACO DEEP HARNES: compactación que dispara al 60% de la
+  ventana con resumen de 16k tokens, poda de resultados de herramienta más
+  agresiva, disciplina de delegación y memoria durable. El resto de la
+  composición es idéntica al preset estándar del motor.
+order: 0

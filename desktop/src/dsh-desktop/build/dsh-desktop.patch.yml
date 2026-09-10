@@ -98,6 +98,23 @@
     - id: abaco-browser
       name: abaco-browser
 
+# Layer 1 of the 3-layer context system: the working window and its summary
+# policy. `compaction-basic` freezes its policy at construction and reads it
+# from its composition row, so the only supported way to change WHEN the agent
+# summarizes (80% → 60% of the routed window), WHAT it keeps verbatim (16% → 8%)
+# and HOW BIG the summary may be (8k → 16k tokens) is to mount a preset whose
+# row carries that config. This plugin installs the ABACO preset — the shipped
+# `standard` composition with exactly those deltas plus the delegation and
+# durable-memory persona — into the roster's USER preset root
+# (`<DSH_HOME>/.agent-presets/abaco`, scanned by the stock `includeUserRoot`),
+# then selects it once as the default and never again: a preset edited by hand,
+# or one the person picked in the UI, is left alone. Host-plane row, so it also
+# reaches the `agent-presets` roster's own settings namespace. Nothing is
+# written into `node_modules`, so an engine upgrade cannot revert it.
+- insert:
+    - id: abaco-context
+      name: abaco-context
+
 # NOTE: abaco-brand, abaco-device-identity, abaco-cloud-sync, abaco-onboarding
 # and abaco-experimental are TEMPORARILY DISABLED. Their host-half index.js
 # assigned ctx.abacoBrand/ctx.abacoSync directly and read ctx['secureStore'],
@@ -106,3 +123,19 @@
 # ("Startup recovery - plugin failed during startup"). They must be re-wired
 # with ctx.provide(...)/inject before being re-enabled. voice and documents
 # carry their own localStorage-backed fallbacks and do not depend on them.
+
+# Layer 3 of the 3-layer context system, cheapest half: the stock spill policy
+# already lifts an oversized tool result out of the window and leaves a preview
+# plus an absolute, `read`-able locator and a `retrievalHint` in its place
+# (dsh-spill-policy/lib/index.js:136-153). It ships configured at 50000 bytes —
+# ~12k tokens of a single result, which is exactly the "basura" this policy
+# exists to keep out. Lowering the bar to ~3k tokens means the model keeps the
+# head of a big `bash`/`web_fetch`/`grep` result and can pull the rest back with
+# `read`/`grep` when it actually needs it. `read` and nested calls are excluded
+# by the policy itself, so this cannot become a read → spill → read loop. The
+# durable vault for the same content (a copy under `$DSH_HOME`, surviving
+# reboots) is Layer 3's own plugin and lands separately.
+- id: spill-policy
+  config:
+    maxInlineBytes: 12000
+

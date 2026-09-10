@@ -1,0 +1,28 @@
+{
+  "name": "abaco-context",
+  "version": "0.1.0",
+  "description": "Layer 1 (working window and summary policy) for ABACO DEEP HARNES: installs the ABACO agent preset — compaction at 60% of the window, a 16k-token summary budget, earlier tool-result pruning, and the delegation/durable-memory persona — into the roster's user preset root, then selects it as the default once.",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./preset-installer": "./lib/preset-installer.js",
+    "./presets/abaco/agent.cordis.yml": "./presets/abaco/agent.cordis.yml",
+    "./presets/abaco/preset.yml": "./presets/abaco/preset.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "lib",
+    "presets"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}
