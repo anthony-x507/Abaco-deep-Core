@@ -284,6 +284,7 @@
     "abaco-browser": "file:packages/abaco-browser",
     "abaco-context": "file:packages/abaco-context",
     "abaco-memory": "file:packages/abaco-memory",
+    "abaco-vault": "file:packages/abaco-vault",
     "abaco-cloud-sync": "file:packages/abaco-cloud-sync",
     "abaco-onboarding": "file:packages/abaco-onboarding",
     "abaco-experimental": "file:packages/abaco-experimental",

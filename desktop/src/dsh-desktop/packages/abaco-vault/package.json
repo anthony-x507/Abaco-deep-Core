@@ -1,0 +1,28 @@
+{
+  "name": "abaco-vault",
+  "version": "0.1.0",
+  "description": "Layer 3 (delegation / no junk in the window) for ABACO DEEP HARNES: a durable artifact vault under <DSH_HOME>/abaco-memory/vault plus the two intercepts that feed it — an agent/pre-step rewrite of oversized subagent-settled notices and a best-effort durable copy of oversized tool results.",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-home-paths": "^0.1.2-rc.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-home-paths": {
+      "optional": true
+    }
+  }
+}

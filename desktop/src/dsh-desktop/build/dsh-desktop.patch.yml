@@ -111,6 +111,20 @@
     - id: abaco-memory
       name: abaco-memory
 
+# Layer 3 (delegation — keeping bulk OUT of the window). Host-plane, next to
+# abaco-memory because it shares the tool registry and the `tools` injection.
+# It owns the durable vault under <DSH_HOME>/abaco-memory/vault/ and the two
+# interceptors that feed it: an `agent/pre-step` rewrite of oversized
+# `subagent-settled` notices — the one path that never passes through
+# `tools/post-execute` and therefore has no spill at all today, which is the
+# main remaining leak — and a best-effort durable copy of huge tool results.
+# It never rewrites what the model sees for tool results (the stock spill
+# policy owns that, so listener order cannot matter) and never writes a session
+# event: every artifact is 0600 sidecar text plus one line in vault/index.jsonl.
+- insert:
+    - id: abaco-vault
+      name: abaco-vault
+
 # Layer 1 of the 3-layer context system: the working window and its summary
 # policy. `compaction-basic` freezes its policy at construction and reads it
 # from its composition row, so the only supported way to change WHEN the agent
