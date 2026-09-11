@@ -425,13 +425,27 @@ export class AbacoBrowserController {
 
   /**
    * Hand ownership to the agent or to the user. Called by the chrome bar's mode
-   * button through the F0 IPC surface; the agent cannot flip it (no RPC route
-   * touches it), which is what keeps a runaway tool from lifting its own gate.
+   * button through the F0 IPC surface and by the agent's
+   * `grab-control` / `release-control` RPC routes (same setter, two doors).
+   * The Harness *page* preload still has no `setMode`, so ordinary page script
+   * cannot flip ownership behind the user's back.
    */
   setBrowserMode(mode: AbacoBrowserMode): AbacoBrowserMode {
     this.mode = mode
     this.publishChromeState()
     return this.mode
+  }
+
+  /** Agent tool: take the wheel (`setBrowserMode('agent')`). */
+  agentGrabControl(): AbacoBrowserState {
+    this.setBrowserMode('agent')
+    return this.agentState()
+  }
+
+  /** Agent tool: return the wheel to the user (`setBrowserMode('manual')`). */
+  agentReleaseControl(): AbacoBrowserState {
+    this.setBrowserMode('manual')
+    return this.agentState()
   }
 
   /* ──────────────────────────────────────────────────────────────────────────

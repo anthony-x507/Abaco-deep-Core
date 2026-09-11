@@ -79,6 +79,10 @@ export interface AbacoBrowserControlTarget {
   agentReadDom(options?: { maxChars?: number }): Promise<AbacoBrowserDomReading>
   agentWaitFor(selector: string, timeoutMs?: number): Promise<AbacoBrowserWaitResult>
   agentScreenshot(): Promise<AbacoBrowserScreenshot>
+  /** Same control plane as chrome `setMode('agent')`. */
+  agentGrabControl(): AbacoBrowserState
+  /** Same control plane as chrome `setMode('manual')`. */
+  agentReleaseControl(): AbacoBrowserState
 }
 
 export interface AbacoBrowserRpcOptions {
@@ -110,6 +114,13 @@ class AbacoBrowserRpcError extends Error {
 
 /** Routes that never touch the page and are therefore always allowed. */
 const READ_ONLY_ROUTES: readonly AbacoBrowserRpcRoute[] = ['state']
+
+/**
+ * Ownership flips. They deliberately bypass the takeover gate: grabbing control
+ * is how the agent leaves manual mode, so the gate that refuses clicks must not
+ * also refuse the ask for the wheel. Same `setBrowserMode` the chrome bar uses.
+ */
+const MODE_CONTROL_ROUTES: readonly AbacoBrowserRpcRoute[] = ['grab-control', 'release-control']
 
 /** Routes that may mount the overlay themselves instead of requiring one. */
 const SELF_MOUNTING_ROUTES: readonly AbacoBrowserRpcRoute[] = ['navigate']
@@ -327,13 +338,22 @@ export class AbacoBrowserRpcServer {
         'The ABACO DEEP HARNES window is not available, so the integrated browser cannot be driven.'
       )
     }
-    // `state` is the one route manual mode leaves open: the model has to be able
-    // to learn *why* it is being refused, and a gated state would report the
-    // same "unavailable" for a closed overlay and for a user takeover.
-    if (!READ_ONLY_ROUTES.includes(route) && target.browserMode() !== 'agent') {
+    // `state` stays open in manual mode so the model can learn *why* it is
+    // being refused. `grab-control` / `release-control` also stay open: they
+    // *are* the mode switch (same setter as the chrome bar).
+    if (
+      !READ_ONLY_ROUTES.includes(route) &&
+      !MODE_CONTROL_ROUTES.includes(route) &&
+      target.browserMode() !== 'agent'
+    ) {
       throw new AbacoBrowserRpcError(409, ABACO_BROWSER_TAKEOVER_MESSAGE)
     }
-    if (!SELF_MOUNTING_ROUTES.includes(route) && !target.isOpen()) {
+    if (
+      !SELF_MOUNTING_ROUTES.includes(route) &&
+      !MODE_CONTROL_ROUTES.includes(route) &&
+      !READ_ONLY_ROUTES.includes(route) &&
+      !target.isOpen()
+    ) {
       throw new AbacoBrowserRpcError(503, ABACO_BROWSER_NOT_OPEN_MESSAGE)
     }
 
@@ -355,6 +375,10 @@ export class AbacoBrowserRpcServer {
         return target.agentWaitFor(requireString(body, 'selector'), optionalNumber(body, 'timeoutMs'))
       case 'screenshot':
         return target.agentScreenshot()
+      case 'grab-control':
+        return target.agentGrabControl()
+      case 'release-control':
+        return target.agentReleaseControl()
       default:
         return assertNeverRoute(route)
     }

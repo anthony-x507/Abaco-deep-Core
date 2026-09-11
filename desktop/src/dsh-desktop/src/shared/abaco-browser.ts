@@ -62,10 +62,10 @@ export const abacoBrowserChannels = {
   mode: 'abaco:browser:mode',
   /**
    * F2 normalizes this one literal to the kebab-case the whole family uses
-   * (F1 shipped `abaco:browser:setMode`). Only the chrome bar invokes it, and
-   * both halves ship in the same bundle, so there is no rolling-upgrade seam to
-   * keep open — see {@link AbacoBrowserMode} for why the *agent* still has no
-   * route to it.
+   * (F1 shipped `abaco:browser:setMode`). The chrome bar invokes it over IPC;
+   * the agent reaches the same `setBrowserMode` through the loopback routes
+   * `grab-control` / `release-control` (not this channel — the Harness page
+   * preload still has no `setMode`, so page script cannot flip ownership).
    */
   setMode: 'abaco:browser:set-mode',
   /** F2 — user-action recording (the raw material of a skill). */
@@ -304,9 +304,12 @@ export const ABACO_BROWSER_CTRL_TOKEN_ENV = 'ABACO_BROWSER_CTRL_TOKEN'
 export const ABACO_BROWSER_RPC_MAX_BODY_BYTES = 64 * 1024
 
 /**
- * The RPC surface, one route per agent tool. `/state` is the only read-only
- * route and the only one the takeover gate lets through in manual mode: knowing
- * *why* an action was refused must never require an action.
+ * The RPC surface, one route per agent tool. `/state` is read-only and always
+ * allowed in manual mode so the model can learn *why* an action was refused.
+ * `/grab-control` and `/release-control` also bypass the takeover gate: they
+ * *are* the mode switch (same `setBrowserMode` the chrome bar uses), so the
+ * agent can ask for — or return — the wheel without fighting the gate that
+ * just refused a click.
  */
 export const abacoBrowserRpcRoutes = [
   'navigate',
@@ -315,7 +318,11 @@ export const abacoBrowserRpcRoutes = [
   'read-dom',
   'wait-for',
   'screenshot',
-  'state'
+  'state',
+  /** Hand ownership to the agent (same control plane as chrome `setMode('agent')`). */
+  'grab-control',
+  /** Hand ownership to the user (same control plane as chrome `setMode('manual')`). */
+  'release-control'
 ] as const
 
 export type AbacoBrowserRpcRoute = (typeof abacoBrowserRpcRoutes)[number]

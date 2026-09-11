@@ -25,10 +25,15 @@ export function canGrantWindowPermission(
   requestingUrl: string | undefined,
   isMainFrame: boolean
 ): boolean {
-  return (
-    permission === 'clipboard-sanitized-write' &&
-    isMainFrame &&
-    requestingUrl !== undefined &&
-    isHarnessUrl(requestingUrl)
-  )
+  // Keep the permission surface tight: only the harness main-frame may write
+  // the sanitized clipboard, and only trusted app / harness main-frame may use
+  // getUserMedia (`media` = microphone + camera) for STT / photos.
+  if (!isMainFrame || requestingUrl === undefined) return false
+  if (permission === 'clipboard-sanitized-write') {
+    return isHarnessUrl(requestingUrl)
+  }
+  if (permission === 'media') {
+    return isTrustedAppUrl(requestingUrl)
+  }
+  return false
 }

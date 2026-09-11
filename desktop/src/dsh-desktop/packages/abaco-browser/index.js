@@ -73,7 +73,9 @@ const TIMEOUTS = {
   readDom: 30_000,
   screenshot: 30_000,
   waitFor: 90_000,
-  state: 15_000
+  state: 15_000,
+  grabControl: 15_000,
+  releaseControl: 15_000
 }
 
 /** Default selector wait used when the model does not pass `timeoutMs`. */
@@ -296,6 +298,18 @@ function renderScreenshot(_args, value) {
   return textBlock(lines.join('\n'))
 }
 
+function renderGrabControl(_args, value) {
+  return textBlock(
+    [...describeState(value), 'Grabbed control of the ABACO browser (mode: agent).'].join('\n')
+  )
+}
+
+function renderReleaseControl(_args, value) {
+  return textBlock(
+    [...describeState(value), 'Released control of the ABACO browser (mode: manual).'].join('\n')
+  )
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
  * Screenshot persistence
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -337,7 +351,7 @@ const MODE_NOTE =
   'Fails with a clear message while the browser is in manual mode (the user has taken over) — do not retry in a loop; ask the user to hand control back.'
 
 /**
- * Register the seven browser tools.
+ * Register the nine browser tools (seven page actions + grab/release control).
  *
  * Registration goes through `ctx.tools.register`, whose disposers are
  * effect-scoped: a plugin reload unregisters the previous set, so there is
@@ -581,7 +595,7 @@ function apply(ctx) {
     defineTool({
       name: 'abaco_browser_state',
       description:
-        'Report the state of the ABACO integrated browser without touching the page: current url and title, whether it is loading, whether back and forward are available, whether the overlay is open, and who owns it (agent or manual). This is the only browser tool that works while the browser is in manual mode.',
+        'Report the state of the ABACO integrated browser without touching the page: current url and title, whether it is loading, whether back and forward are available, whether the overlay is open, and who owns it (agent or manual). Safe in manual mode. To take the wheel back, call abaco_browser_grab_control.',
       parameters: {},
       output: {
         schema: {
@@ -645,6 +659,66 @@ function apply(ctx) {
           height: capture.height,
           byteLength: capture.byteLength,
           ...(path === undefined ? {} : { path })
+        }
+      }
+    })
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'abaco_browser_grab_control',
+      description:
+        'Take ownership of the ABACO integrated browser (mode: agent). Same control plane as the chrome AGENT/MANUAL button. Use this after the user took over (manual mode) and has handed the page back, or when you need to drive the page again. Returns the browser state.',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: stateProperties()
+        },
+        render: renderGrabControl
+      },
+      timeoutMs: TIMEOUTS.grabControl,
+      async execute(_args, exec) {
+        const state = await callRoute('grab-control', {}, exec.signal)
+        return {
+          open: state.open === true,
+          mode: state.mode,
+          url: state.url,
+          title: state.title,
+          loading: state.loading === true,
+          canGoBack: state.canGoBack === true,
+          canGoForward: state.canGoForward === true
+        }
+      }
+    })
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'abaco_browser_release_control',
+      description:
+        'Return ownership of the ABACO integrated browser to the user (mode: manual). Same control plane as the chrome AGENT/MANUAL button. After this, page-driving tools will refuse until the user hands control back or you call abaco_browser_grab_control.',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: stateProperties()
+        },
+        render: renderReleaseControl
+      },
+      timeoutMs: TIMEOUTS.releaseControl,
+      async execute(_args, exec) {
+        const state = await callRoute('release-control', {}, exec.signal)
+        return {
+          open: state.open === true,
+          mode: state.mode,
+          url: state.url,
+          title: state.title,
+          loading: state.loading === true,
+          canGoBack: state.canGoBack === true,
+          canGoForward: state.canGoForward === true
         }
       }
     })
