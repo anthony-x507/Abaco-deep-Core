@@ -312,7 +312,7 @@ function parseLabeledReport(text) {
 
 /** Closing-message body of a `dsh-subagent` settlement notice. */
 function closingMessage(text) {
-  if (typeof text !== 'string' || text.length === 0) return ''
+  if (typeof text !== 'string' || text.length === 0) return []
   const marker = 'Its closing message:'
   const index = text.indexOf(marker)
   const body = index >= 0 ? text.slice(index + marker.length) : text

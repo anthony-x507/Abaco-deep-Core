@@ -1011,7 +1011,7 @@ describe('signals', () => {
     expect(spilled?.large).toBe(false)
 
     const vaultNotice =
-      'goal: index\nresult: done\n\n(12345 bytes omitted. Resultado completo en: /tmp/vault/a.txt. Usa read con offset/limit o grep sobre esa ruta.)'
+      'goal: index\nresult: done\n\n(se omitieron 12345 bytes. Resultado completo en: /tmp/vault/a.txt. Usa read con offset/limit o grep sobre esa ruta.)'
     const vaulted = readToolResult(
       { type: 'tool/result', data: { message: { content: [{ name: 'subagent', content: [{ type: 'text', text: vaultNotice }] }] } } },
       12000
