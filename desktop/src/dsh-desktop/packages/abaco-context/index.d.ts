@@ -149,3 +149,38 @@ export declare function runApply(ctx: unknown, config?: unknown): Promise<AbacoC
  * a status object is not one. Use {@link runApply} to read the outcome.
  */
 export declare function apply(ctx: unknown, config?: unknown): void
+
+/** Hard fire: compact at 90% of the routed window. */
+export declare const THRESHOLD_RATIO: 0.9
+
+/** Verbatim tail as a fraction of the routed window. */
+export declare const RETAIN_RATIO: 0.12
+
+/** Summarizer token budget. */
+export declare const MAX_TOKENS: 8192
+
+/** Automatic between-step compaction. */
+export declare const AUTO: true
+
+/** Frozen owner-locked compaction policy. Ratios only — no `retainTokens`. */
+export declare const ABACO_COMPACTION_LOCK: {
+  readonly thresholdRatio: 0.9
+  readonly retainRatio: 0.12
+  readonly maxTokens: 8192
+  readonly auto: true
+}
+
+/** Dead values that must never reappear as the live policy. */
+export declare const DEAD_POLICIES: {
+  readonly stock: { readonly thresholdRatio: 0.8; readonly retainRatio: 0.16 }
+  readonly discardedPreset: { readonly thresholdRatio: 0.6; readonly retainRatio: 0.08; readonly maxTokens: 16384 }
+}
+
+/** Whether a composed policy still matches the lock. */
+export declare function matchesLock(policy: unknown): boolean
+
+/** Alerts for a policy document that drifted off the lock. */
+export declare function lockAlerts(policy: unknown): string[]
+
+/** Throw when a policy is not the lock. */
+export declare function assertLockPolicy(policy: unknown): void

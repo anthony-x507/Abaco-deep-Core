@@ -48,6 +48,9 @@ export const SPILL_MARKERS = Object.freeze([
   'bytes omitted'
 ])
 
+/** Spanish recovery line from `abaco-vault` (`renderOmittedNotice`). */
+export const VAULT_SPILL_MARKERS = Object.freeze(['Resultado completo en:', 'se omitieron'])
+
 /**
  * Count the code points of a tool result's text blocks, exactly as the pruner
  * prices them (`dsh-compaction-tool-result-pruner/lib/index.js:79-83`).
@@ -87,10 +90,13 @@ export function flattenText(content) {
   return parts.length === 0 ? undefined : parts.join('\n')
 }
 
-/** Whether a tool-result's text carries the stock spill notice. */
+/** Whether a tool-result's text carries the stock or vault spill notice. */
 export function looksSpilled(text) {
   if (typeof text !== 'string') return false
-  return SPILL_MARKERS.every((marker) => text.includes(marker))
+  return (
+    SPILL_MARKERS.every((marker) => text.includes(marker)) ||
+    VAULT_SPILL_MARKERS.every((marker) => text.includes(marker))
+  )
 }
 
 /**

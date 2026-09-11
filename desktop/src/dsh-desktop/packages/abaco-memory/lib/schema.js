@@ -100,7 +100,10 @@ export const MEMORY_FACETS = Object.freeze({
   facts: Object.freeze({ scope: 'project', kind: 'collection', cap: 60, ttlDays: 90, injected: true, phase: 'log' }),
   artifacts: Object.freeze({ scope: 'project', kind: 'collection', cap: 60, injected: true, phase: 'log' }),
   tasks: Object.freeze({ scope: 'session', kind: 'collection', cap: 20, ttlDays: 30, injected: true, phase: 'note' }),
-  open_questions: Object.freeze({ scope: 'project', kind: 'collection', cap: 20, injected: true, phase: 'note' })
+  open_questions: Object.freeze({ scope: 'project', kind: 'collection', cap: 20, injected: true, phase: 'note' }),
+  // Session working-state / Principle C flag. Not injected: it must not eat
+  // the render budget, and the consent record is also mirrored on document.meta.
+  meta: Object.freeze({ scope: 'session', kind: 'record', cap: 0, injected: false, phase: 'note' })
 })
 
 /**
@@ -157,6 +160,9 @@ const FACET_ALIASES = Object.freeze({
   preguntas: 'open_questions',
   questions: 'open_questions',
   dudas: 'open_questions',
+  note: 'meta',
+  notes: 'meta',
+  session_meta: 'meta',
   // Multi-segment prefixes: `usuario.preferencias.idioma` is the spelling the
   // design's own example uses (§1.5), and reading it as "entry `preferencias`,
   // field `idioma`" would be a write nobody meant. Matched longest-first, so

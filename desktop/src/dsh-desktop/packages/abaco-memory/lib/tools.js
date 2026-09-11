@@ -27,7 +27,7 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { MEMORY_FACETS, MEMORY_PHASES, MEMORY_SCOPES, MemorySchemaError, phaseOf } from './schema.js'
+import { MEMORY_FACETS, MEMORY_PHASES, MEMORY_SCOPES, MemorySchemaError, canonicalScope, parseMemoryPath, phaseOf } from './schema.js'
 
 /** Local file work; generous for a slow disk, far below any network timeout. */
 const TOOL_TIMEOUT_MS = 15000
@@ -53,7 +53,49 @@ export function ambientOf(exec) {
   return {
     cwd: typeof header.cwd === 'string' ? header.cwd : undefined,
     sessionId: typeof header.id === 'string' ? header.id : undefined,
-    agentPreset: typeof header.agentPreset === 'string' ? header.agentPreset : undefined
+    agentPreset: typeof header.agentPreset === 'string' ? header.agentPreset : undefined,
+    origin: typeof header.origin === 'string' ? header.origin : undefined,
+    delegationDepth: typeof header.delegationDepth === 'number' ? header.delegationDepth : undefined
+  }
+}
+
+/**
+ * Whether the calling session is a delegated child.
+ *
+ * Matches the renderer (`lib/render.js`): `origin: 'subagent'` or a positive
+ * `delegationDepth`. Those children must not write the parent profile.
+ *
+ * @param header - session header, or anything else.
+ * @returns true when the caller is a subagent.
+ */
+export function isSubagentHeader(header) {
+  if (header === null || typeof header !== 'object') return false
+  if (header.origin === 'subagent') return true
+  return typeof header.delegationDepth === 'number' && header.delegationDepth > 0
+}
+
+/**
+ * Refuse a profile write that came from a delegated child.
+ *
+ * @param path - the memory path the tool was asked to write.
+ * @param scope - the requested scope, or `'auto'`.
+ * @param header - the calling session header.
+ */
+export function assertParentProfileWrite(path, scope, header) {
+  if (!isSubagentHeader(header)) return
+  let parsed
+  try {
+    parsed = parseMemoryPath(path)
+  } catch {
+    return
+  }
+  const requested = canonicalScope(scope ?? 'auto')
+  const kind = requested === 'auto' ? MEMORY_FACETS[parsed.facet]?.scope : requested
+  if (kind === 'profile') {
+    throw new MemorySchemaError(
+      'subagents cannot write the parent profile; persist project (log) or session (note) facts instead.',
+      'MEMORY_SUBAGENT_PROFILE'
+    )
   }
 }
 
@@ -89,6 +131,12 @@ export function currentTurn(session) {
  * @returns a provenance accepted by the store's vocabulary.
  */
 export function sourceOf(exec, explicit) {
+  const header = exec?.agent?.session?.header
+  if (isSubagentHeader(header)) {
+    if (typeof explicit === 'string' && explicit.trim().startsWith('subagent:')) return explicit.trim()
+    const turn = currentTurn(exec?.agent?.session)
+    return turn > 0 ? `subagent:turn-${turn}` : 'subagent:tool'
+  }
   if (typeof explicit === 'string' && explicit.trim().length > 0) return explicit.trim()
   const turn = currentTurn(exec?.agent?.session)
   return turn > 0 ? `agent:turn-${turn}` : 'agent:tool'
@@ -200,6 +248,7 @@ export function registerMemoryTools(ctx, options) {
       timeoutMs: TOOL_TIMEOUT_MS,
       async execute(args, exec) {
         try {
+          assertParentProfileWrite(args.key, args.scope, exec?.agent?.session?.header)
           const outcome = await store.set({
             path: args.key,
             value: args.value,
@@ -535,6 +584,7 @@ export function registerMemoryTools(ctx, options) {
         }
         const path = pathByPhase[phase]
         try {
+          assertParentProfileWrite(path, 'auto', exec?.agent?.session?.header)
           const outcome = await store.set({
             path,
             value: args.text,

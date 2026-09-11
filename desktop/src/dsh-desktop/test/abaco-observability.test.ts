@@ -1010,6 +1010,14 @@ describe('signals', () => {
     expect(spilled?.spilled).toBe(true)
     expect(spilled?.large).toBe(false)
 
+    const vaultNotice =
+      'goal: index\nresult: done\n\n(12345 bytes omitted. Resultado completo en: /tmp/vault/a.txt. Usa read con offset/limit o grep sobre esa ruta.)'
+    const vaulted = readToolResult(
+      { type: 'tool/result', data: { message: { content: [{ name: 'subagent', content: [{ type: 'text', text: vaultNotice }] }] } } },
+      12000
+    )
+    expect(vaulted?.spilled).toBe(true)
+
     // Above the ceiling with no notice: the policy was asked to spill this and
     // did not, which is a different fact and is counted as one.
     const big = 'a'.repeat(20000)
@@ -1091,6 +1099,31 @@ describe('signals', () => {
       auto: true
     })
     expect(report.alerts).toEqual([])
+
+    await writeFile(
+      join(home, '.agent-presets', 'abaco', 'agent.cordis.yml'),
+      [
+        'rows:',
+        '  - id: compaction-basic',
+        "    name: '@deepseek-ai/dsh-compaction-basic'",
+        '    config:',
+        '      thresholdRatio: 0.8',
+        '      retainRatio: 0.16',
+        '      retainTokens: 160000',
+        '      maxTokens: 4096',
+        '      auto: true'
+      ].join('\n'),
+      'utf8'
+    )
+    const drifted = readComposedPolicy({ dshHome: home })
+    expect(drifted.alerts).toEqual(
+      expect.arrayContaining([
+        'policy-lock-threshold',
+        'policy-lock-retain',
+        'policy-lock-max-tokens',
+        'policy-lock-retain-tokens'
+      ])
+    )
 
     // An unreadable preset is reported, never thrown.
     const missing = readComposedPolicy({ dshHome: join(home, 'nowhere') })

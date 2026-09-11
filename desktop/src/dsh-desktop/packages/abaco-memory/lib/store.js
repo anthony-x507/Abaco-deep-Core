@@ -512,6 +512,12 @@ export class MemoryStore {
     const scope = canonicalScope(request.scope ?? 'auto')
     const kind = scope === 'auto' ? spec.scope : scope
     const key = scopeKeyFor(kind, request.ambient ?? {})
+    if (isSubagentAmbient(request.ambient) && kind === 'profile') {
+      throw new MemorySchemaError(
+        'subagents cannot write the parent profile; persist project (log) or session (note) facts instead.',
+        'MEMORY_SUBAGENT_PROFILE'
+      )
+    }
     const source = assertSource(request.source)
     const now = stamp(request.now)
     const document = await this.ensure(kind, key)
@@ -684,7 +690,8 @@ export class MemoryStore {
       const document = await this.ensure(target.kind, target.key)
       const names = target.facet === undefined ? Object.keys(document.facets) : [target.facet]
       for (const name of names) {
-        if (!MEMORY_FACETS[name]?.injected) continue
+        if (target.facet === undefined && !MEMORY_FACETS[name]?.injected) continue
+        if (MEMORY_FACETS[name] === undefined) continue
         const value = document.facets[name]
         if (value === undefined) continue
         if (MEMORY_FACETS[name].kind === 'record') {
@@ -809,11 +816,83 @@ export class MemoryStore {
   }
 
   /**
-   * Archive everything that has expired, across every loaded document.
+   * Principle C flag: read the session document's `meta.compactionConsent`.
+   * Lives on the sidecar so it survives the compaction it is gating.
    *
-   * @param now - reference timestamp.
-   * @returns the number of entries archived.
+   * @param ambient - `{ cwd, sessionId, agentPreset }`.
+   * @returns `{ state, armed }`.
    */
+  async readConsent(ambient = {}) {
+    const key = scopeKeyFor('session', ambient)
+    const document = await this.ensure('session', key)
+    return normalizeConsentRecord(document.meta?.compactionConsent)
+  }
+
+  /**
+   * Principle C flag: persist the session consent record.
+   *
+   * Always commits, even on an otherwise empty session document: the flag
+   * must outlive the compaction it allows.
+   *
+   * @param ambient - `{ cwd, sessionId, agentPreset }`.
+   * @param consent - `{ state, armed }` or a legacy string.
+   * @returns the stored record.
+   */
+  async writeConsent(ambient = {}, consent) {
+    const key = scopeKeyFor('session', ambient)
+    const document = await this.ensure('session', key)
+    const next = normalizeConsentRecord(consent)
+    document.meta = {
+      ...document.meta,
+      compactionConsent: next,
+      lastWriteReason: 'compaction-consent',
+      lastWriteAt: new Date().toISOString()
+    }
+    await this.#commit('session', key, new Set())
+    await this.#audit({
+      op: 'compaction-consent',
+      scope: { kind: 'session', key },
+      state: next.state,
+      armed: next.armed
+    })
+    return next
+  }
+
+  /**
+   * Write-protocol step 2: before an authorized compaction, make sure
+   * profile / project (log) documents are on disk and journal the flush.
+   * Does not invent facts — it persists what is already in the store.
+   *
+   * @param ambient - `{ cwd, sessionId, agentPreset }`.
+   * @param reason - audit reason; default `pre-compact`.
+   * @returns `{ ok, persisted }` naming the documents that were committed.
+   */
+  async persistBeforeCompact(ambient = {}, reason = 'pre-compact') {
+    const now = new Date().toISOString()
+    const scopes = [
+      ['profile', ''],
+      ['project', scopeKeyFor('project', ambient)],
+      ['session', scopeKeyFor('session', ambient)]
+    ]
+    const persisted = []
+    for (const [kind, key] of scopes) {
+      const document = await this.ensure(kind, key)
+      const id = `${kind}:${key}`
+      const hasFacets = Object.keys(document.facets ?? {}).length > 0
+      if (!hasFacets && !this.#materialized.has(id) && kind !== 'profile') continue
+      document.meta = { ...document.meta, lastWriteReason: reason, lastWriteAt: now }
+      await this.#commit(kind, key, new Set())
+      persisted.push({ kind, key, path: this.pathFor(kind, key) })
+    }
+    await this.#audit({
+      op: 'pre-compact',
+      ambient: { cwd: ambient.cwd, sessionId: ambient.sessionId },
+      persisted,
+      reason
+    })
+    return { ok: true, persisted }
+  }
+
   async gc(now = new Date().toISOString()) {
     const nowMs = Date.parse(now)
     let archived = 0
@@ -949,6 +1028,32 @@ export class MemoryStore {
 /** Whether a value is a plain JSON object. */
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Whether the caller is a delegated child (must not write the parent profile). */
+function isSubagentAmbient(ambient) {
+  if (ambient === null || typeof ambient !== 'object') return false
+  if (ambient.origin === 'subagent') return true
+  return typeof ambient.delegationDepth === 'number' && ambient.delegationDepth > 0
+}
+
+/**
+ * Normalize a stored Principle C flag. Mirrors `abaco-context/lib/consent.js`
+ * so the sidecar and the wrapper agree on the same three states.
+ */
+function normalizeConsentRecord(value) {
+  if (value === 'allowed' || value === 'accepted' || value === true) {
+    return { state: 'allowed', armed: true }
+  }
+  if (value === 'rejected' || value === false) {
+    return { state: 'rejected', armed: false }
+  }
+  if (isPlainObject(value)) {
+    const state =
+      value.state === 'allowed' || value.state === 'rejected' || value.state === 'unset' ? value.state : 'unset'
+    return { state, armed: value.armed !== false }
+  }
+  return { state: 'unset', armed: true }
 }
 
 /** A readable message out of an unknown thrown value. */

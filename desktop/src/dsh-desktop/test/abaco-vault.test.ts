@@ -10,6 +10,7 @@ import {
   apply,
   artifactFileName,
   composeVaultedText,
+  formatParentReport,
   Config,
   DEFAULT_VAULT_INLINE_CHARS,
   effectiveVaultRoot,
@@ -221,9 +222,38 @@ describe('abaco-vault / pure planning', () => {
     expect(utf8Bytes(plan.head)).toBeLessThanOrEqual(500)
   })
 
-  it('composes head, blank line and notice', () => {
-    expect(composeVaultedText('head', 10, '/v/a.txt')).toBe('head\n\n(se omitieron 10 bytes. Resultado completo en: /v/a.txt. Usa read con offset/limit o grep sobre esa ruta.)')
-    expect(composeVaultedText('', 10, '/v/a.txt').startsWith('(se omitieron')).toBe(true)
+  it('composes a parent report, blank line and notice', () => {
+    const composed = composeVaultedText('head', 10, '/v/a.txt')
+    expect(composed).toContain('goal: head')
+    expect(composed).toContain('result:')
+    expect(composed).toContain('artifacts:')
+    expect(composed).toContain('- /v/a.txt')
+    expect(composed).toContain('errors:')
+    expect(composed).toContain('(se omitieron 10 bytes. Resultado completo en: /v/a.txt. Usa read con offset/limit o grep sobre esa ruta.)')
+    expect(composeVaultedText('', 10, '/v/a.txt')).toContain('(se omitieron')
+  })
+
+  it('formats goal / result / artifacts / errors instead of a transcript', () => {
+    const text = [
+      'goal: index the vault',
+      'result: wrote the locator',
+      'artifacts:',
+      '- /tmp/report.txt',
+      'errors:',
+      'ERROR | bash | exit 1: no such file'
+    ].join('\n')
+    const report = formatParentReport(text, { locator: '/vault/a.txt' })
+    expect(report).toBe(
+      [
+        'goal: index the vault',
+        'result: wrote the locator',
+        'artifacts:',
+        '- /tmp/report.txt',
+        '- /vault/a.txt',
+        'errors:',
+        '- ERROR | bash | exit 1: no such file'
+      ].join('\n')
+    )
   })
 
   it('recognizes only all-text `subagent-settled` messages', () => {
@@ -371,8 +401,18 @@ describe('abaco-vault / arm A: subagent-settled notices', () => {
     // Byte-for-byte, including the two leading lines `dsh-subagent` composed.
     expect(artifact).toBe(full)
     expect(utf8Bytes(artifact)).toBe(utf8Bytes(full))
-    expect(text.startsWith(artifact.split('\n').slice(0, 20).join('\n'))).toBe(true)
-    expect(text).toContain(`(se omitieron ${utf8Bytes(full) - utf8Bytes(artifact.split('\n').slice(0, 20).join('\n'))} bytes. Resultado completo en: ${locator}. Usa read con offset/limit o grep sobre esa ruta.)`)
+    // The window gets the contracted parent format, not the transcript head.
+    expect(text).toMatch(/^goal:/u)
+    expect(text).toContain('result:')
+    expect(text).toContain('artifacts:')
+    expect(text).toContain(`- ${locator}`)
+    expect(text).toContain('errors:')
+    expect(text).toContain('Resultado completo en:')
+    expect(text).toContain('se omitieron')
+    expect(text).toContain(locator)
+    expect(utf8Bytes(text)).toBeLessThan(utf8Bytes(full))
+    expect(text).not.toContain('linea-50')
+    expect(text).not.toContain('linea-200')
 
     // 0600 file inside a 0700 directory, exactly like the harness's own spill.
     expect((await stat(locator)).mode & 0o777).toBe(0o600)
@@ -391,6 +431,13 @@ describe('abaco-vault / arm A: subagent-settled notices', () => {
     expect(Number.isNaN(Date.parse(record.createdAt))).toBe(false)
     // No temporary file was left behind by the atomic write.
     expect(files.some((file) => file.endsWith('.tmp'))).toBe(false)
+
+    const logPath = join(process.env.DSH_HOME as string, 'logs', 'abaco-context.jsonl')
+    const spills = (await readFile(logPath, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { event?: string; kind?: string; vaulted?: boolean; locator?: string })
+    expect(spills.some((row) => row.event === 'spill' && row.kind === 'subagent-settled' && row.vaulted === true && row.locator === locator)).toBe(true)
   })
 
   it('resolves the vault from $DSH_HOME when no `root` is configured', async () => {

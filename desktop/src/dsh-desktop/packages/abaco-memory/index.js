@@ -55,7 +55,7 @@ import { join, resolve } from 'node:path'
 import { MemoryRenderer } from './lib/render.js'
 import { MEMORY_FACETS, MEMORY_MAX_ENTRY_CHARS, MEMORY_MAX_RENDER_CHARS, MEMORY_PHASES, MEMORY_SCOPE_BUDGETS, MEMORY_SECTION_NAME, MEMORY_SECTION_ORDER, facetsForPhase, phaseOf } from './lib/schema.js'
 import { MemoryStore } from './lib/store.js'
-import { registerMemoryTools } from './lib/tools.js'
+import { ambientOf, assertParentProfileWrite, isSubagentHeader, registerMemoryTools, sourceOf } from './lib/tools.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 const name = 'abaco-memory'
@@ -319,5 +319,9 @@ export {
   MEMORY_SECTION_ORDER,
   MemoryRenderer,
   MemoryStore,
-  registerMemoryTools
+  ambientOf,
+  assertParentProfileWrite,
+  isSubagentHeader,
+  registerMemoryTools,
+  sourceOf
 }

@@ -575,7 +575,7 @@ describe('abaco-memory prompt injection', () => {
  * ────────────────────────────────────────────────────────────────────────────── */
 
 describe('abaco-memory mounting', () => {
-  it('registers the four tools against the real defineTool schema compiler', async () => {
+  it('registers the memory tools against the real defineTool schema compiler', async () => {
     const root = await memoryRoot()
     const { ctx, tools, sections, listeners } = recordingContext()
     await apply(ctx, { root })
@@ -586,7 +586,8 @@ describe('abaco-memory mounting', () => {
       'abaco_memory_set',
       'abaco_memory_get',
       'abaco_memory_forget',
-      'abaco_memory_list'
+      'abaco_memory_list',
+      'abaco_memory_note'
     ])
     // `defineTool` compiled and validated every spec against the harness's own
     // DSL before it reached this registry, so a malformed spec would already
@@ -608,7 +609,8 @@ describe('abaco-memory mounting', () => {
       },
       abaco_memory_get: { properties: ['key', 'scope'], required: [] },
       abaco_memory_forget: { properties: ['key', 'scope'], required: ['key'] },
-      abaco_memory_list: { properties: [], required: [] }
+      abaco_memory_list: { properties: [], required: [] },
+      abaco_memory_note: { properties: ['phase', 'source', 'text'], required: ['text'] }
     })
     // The value is `json` in the harness DSL, i.e. an annotation-only schema:
     // a string and an object are both legal, which is what makes the tool
@@ -836,7 +838,7 @@ describe('abaco-memory mounting', () => {
     // resolved by Cordis exactly as it is in the composed profile: a service
     // this plugin reads but does not declare fails here, not in production.
     await ctx.plugin({ name, inject: [...inject], apply })
-    expect(registered).toHaveLength(4)
+    expect(registered).toHaveLength(5)
     expect(sections).toEqual([MEMORY_SECTION_NAME])
     expect(registered).toContain('abaco_memory_set')
   })
@@ -861,7 +863,7 @@ describe('abaco-memory mounting', () => {
 
     // The surface stays mounted: the model can still call the tools, and a
     // failed write is reported to it instead of vanishing.
-    expect(tools).toHaveLength(4)
+    expect(tools).toHaveLength(5)
     expect(listeners.has('agent/turn-stopping')).toBe(true)
     const setTool = toolNamed(tools, 'abaco_memory_set')
     const exec: ToolExec = { agent: { session: { header: HEADER } } }
@@ -899,7 +901,7 @@ describe('abaco-memory mounting', () => {
 
       // The unusable root fell back to <DSH_HOME>/abaco-memory, so the plugin
       // is fully live rather than half-mounted.
-      expect(tools).toHaveLength(4)
+      expect(tools).toHaveLength(5)
       expect(sections).toHaveLength(1)
       const setTool = toolNamed(tools, 'abaco_memory_set')
       const exec: ToolExec = { agent: { session: { header: HEADER } } }
@@ -998,6 +1000,7 @@ describe('abaco-memory configuration', () => {
       'decisions',
       'facts',
       'identity',
+      'meta',
       'open_questions',
       'output_format',
       'preferences_user',
@@ -1008,6 +1011,10 @@ describe('abaco-memory configuration', () => {
     expect(MEMORY_FACETS.facts?.scope).toBe('project')
     expect(MEMORY_FACETS.tasks?.scope).toBe('session')
     expect(MEMORY_FACETS.identity?.scope).toBe('role')
+    expect(MEMORY_FACETS.meta).toMatchObject({ scope: 'session', kind: 'record', injected: false, phase: 'note' })
+    expect(MEMORY_FACETS.preferences_user?.phase).toBe('profile')
+    expect(MEMORY_FACETS.facts?.phase).toBe('log')
+    expect(MEMORY_FACETS.tasks?.phase).toBe('note')
 
     // A disabled plugin mounts nothing at all, rather than mounting a tool the
     // model can call but that writes nowhere.
@@ -1015,5 +1022,104 @@ describe('abaco-memory configuration', () => {
     await apply(ctx, { root, enabled: false })
     expect(tools).toEqual([])
     expect(sections).toEqual([])
+  })
+})
+
+/* ──────────────────────────────────────────────────────────────────────────────
+ * Write protocol: profile / log / note + Principle C flag
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+describe('abaco-memory write protocol', () => {
+  it('persists profile and project (log) facets unchanged before compact', async () => {
+    const root = await memoryRoot()
+    const store = new MemoryStore({ root })
+    await store.load()
+    await store.set({
+      path: 'preferences_user.pref-lang.text',
+      value: 'reporta siempre en español',
+      source: 'user',
+      ambient: AMBIENT
+    })
+    await store.set({
+      path: 'decisions[+]',
+      value: 'sidecar only — never a session event',
+      source: 'agent:tool',
+      ambient: AMBIENT
+    })
+    const facetsOf = (instance: MemoryStore, kind: string) =>
+      JSON.stringify(instance.snapshot(AMBIENT).find((document) => document.kind === kind)?.facets)
+    const profileFacets = facetsOf(store, 'profile')
+    const projectFacets = facetsOf(store, 'project')
+    const flush = await store.persistBeforeCompact(AMBIENT)
+    expect(flush.ok).toBe(true)
+    expect(flush.persisted.some((row) => row.kind === 'profile')).toBe(true)
+    expect(flush.persisted.some((row) => row.kind === 'project')).toBe(true)
+    expect(facetsOf(store, 'profile')).toBe(profileFacets)
+    expect(facetsOf(store, 'project')).toBe(projectFacets)
+
+    const reopened = new MemoryStore({ root })
+    await reopened.load()
+    expect(facetsOf(reopened, 'profile')).toBe(profileFacets)
+    expect(facetsOf(reopened, 'project')).toBe(projectFacets)
+  })
+
+  it('refuses a subagent write to the parent profile, and stamps log writes', async () => {
+    const root = await memoryRoot()
+    const { ctx, tools } = recordingContext()
+    await apply(ctx, { root })
+    const setTool = toolNamed(tools, 'abaco_memory_set')
+    const childExec: ToolExec = {
+      agent: {
+        session: {
+          header: { ...HEADER, origin: 'subagent', delegationDepth: 1 }
+        }
+      }
+    }
+
+    await expect(
+      setTool.execute({ key: 'preferences_user.pref-lang.text', value: 'no', source: 'user' }, childExec)
+    ).rejects.toMatchObject({ code: 'MEMORY_SUBAGENT_PROFILE' })
+
+    const logged = await setTool.execute({ key: 'facts[+]', value: 'child verified the path' }, childExec)
+    expect(logged).toMatchObject({ ok: true, facet: 'facts', scope: 'project' })
+    const store = new MemoryStore({ root })
+    await store.load()
+    const facts = await store.get({ path: 'facts', ambient: AMBIENT })
+    expect(facts.facets[0]?.entries[0]?.source).toMatch(/^subagent:/)
+    expect(facts.facets[0]?.entries[0]?.text).toBe('child verified the path')
+  })
+
+  it('keeps the Principle C flag on the session document across a reload', async () => {
+    const root = await memoryRoot()
+    const store = new MemoryStore({ root })
+    await store.load()
+    expect(await store.readConsent(AMBIENT)).toEqual({ state: 'unset', armed: true })
+    expect(await store.writeConsent(AMBIENT, { state: 'allowed', armed: true })).toEqual({
+      state: 'allowed',
+      armed: true
+    })
+    const reopened = new MemoryStore({ root })
+    await reopened.load()
+    expect(await reopened.readConsent(AMBIENT)).toEqual({ state: 'allowed', armed: true })
+    const document = await reopened.ensure('session', AMBIENT.sessionId as string)
+    expect(document.meta.compactionConsent).toEqual({ state: 'allowed', armed: true })
+  })
+
+  it('does not inject the session meta/note facet into the prompt', async () => {
+    const root = await memoryRoot()
+    const store = new MemoryStore({ root })
+    await store.load()
+    await store.set({
+      path: 'note',
+      value: { text: 'working-state-must-not-eat-budget' },
+      source: 'plugin:compaction',
+      ambient: AMBIENT
+    })
+    const renderer = new MemoryRenderer({ store, config: resolveMemoryConfig({ root }) })
+    expect(renderer.sectionText(promptContext())).not.toContain('working-state-must-not-eat-budget')
+    const listed = await store.list({ ambient: AMBIENT })
+    expect(listed.rows.every((row) => row.facet !== 'meta')).toBe(true)
+    const got = await store.get({ path: 'meta', ambient: AMBIENT })
+    expect(got.facets[0]?.record).toMatchObject({ text: 'working-state-must-not-eat-budget' })
   })
 })

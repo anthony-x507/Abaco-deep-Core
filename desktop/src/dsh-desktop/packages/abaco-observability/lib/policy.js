@@ -102,6 +102,12 @@ export function readComposedPolicy({ dshHome, presetId = PRESET_ID }) {
   }
   const alerts = []
   if (policy.auto === false) alerts.push('compaction-disabled')
+  // Owner lock (CONTRACT §0 / SPEC §8): 0.90 / 0.12 / 8192, ratios only.
+  // Drift must be loud — the same codes `abaco-context/lib/lock.js` uses.
+  if (policy.thresholdRatio !== 0.9) alerts.push('policy-lock-threshold')
+  if (policy.retainRatio !== 0.12) alerts.push('policy-lock-retain')
+  if (policy.maxTokens !== undefined && policy.maxTokens !== 8192) alerts.push('policy-lock-max-tokens')
+  if (policy.retainTokens !== undefined && policy.retainTokens !== null) alerts.push('policy-lock-retain-tokens')
   // `resolveCompactSpec` throws when `retainTokens >= thresholdTokens`
   // (`dsh-compaction-basic/lib/index.js:113`), and that throw is FATAL at load.
   // Reporting the pair here is the cheapest way for the operator to see it

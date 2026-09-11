@@ -10,6 +10,8 @@
       "types": "./index.d.ts",
       "default": "./index.js"
     },
+    "./compaction": "./compaction.js",
+    "./lock": "./lib/lock.js",
     "./preset-installer": "./lib/preset-installer.js",
     "./presets/abaco/agent.cordis.yml": "./presets/abaco/agent.cordis.yml",
     "./presets/abaco/preset.yml": "./presets/abaco/preset.yml",
@@ -18,6 +20,8 @@
   "files": [
     "index.js",
     "index.d.ts",
+    "compaction.js",
+    "compaction.d.ts",
     "lib",
     "presets"
   ],

@@ -152,8 +152,33 @@ export declare function renderOmittedNotice(omittedBytes: number, locator: strin
 /** Decide whether and where a settlement notice is cut. */
 export declare function planSettledRewrite(text: string, config?: { maxSettledBytes?: number; headLines?: number }): SettledRewritePlan
 
-/** Inline head + blank line + recovery notice. */
-export declare function composeVaultedText(head: string, omittedBytes: number, locator: string): string
+/** Parent-facing `goal / result / artifacts / errors` report. */
+export declare function formatParentReport(
+  text: string,
+  extras?: {
+    goal?: string
+    result?: string
+    summary?: string
+    artifacts?: string[]
+    errors?: string[]
+    locator?: string
+  }
+): string
+
+/** Parent report + blank line + recovery notice. */
+export declare function composeVaultedText(
+  head: string,
+  omittedBytes: number,
+  locator: string,
+  options?: {
+    fullText?: string
+    summary?: string
+    goal?: string
+    result?: string
+    artifacts?: string[]
+    errors?: string[]
+  }
+): string
 
 /** The text of a recognized `subagent-settled` message, else `undefined`. */
 export declare function settledMessageText(message: unknown): string | undefined

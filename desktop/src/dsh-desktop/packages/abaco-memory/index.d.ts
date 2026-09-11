@@ -49,6 +49,14 @@ export interface MemoryAmbient {
   cwd?: string
   sessionId?: string
   agentPreset?: string
+  origin?: string
+  delegationDepth?: number
+}
+
+/** Principle C flag stored on the session document's `meta.compactionConsent`. */
+export interface MemoryCompactionConsent {
+  state: 'unset' | 'allowed' | 'rejected'
+  armed: boolean
 }
 
 /** The session header fields the memory layer reads. */
@@ -170,10 +178,20 @@ export interface MemoryFacetSpec {
   cap: number
   ttlDays?: number
   injected: boolean
+  phase?: 'profile' | 'log' | 'note'
 }
+
+/** The three write/aging phases of Layer 2. */
+export declare const MEMORY_PHASES: readonly ['profile', 'log', 'note']
 
 /** The facet registry, keyed by canonical facet name. */
 export declare const MEMORY_FACETS: Record<string, MemoryFacetSpec>
+
+/** Resolve the write/aging phase of a facet. */
+export declare function phaseOf(facet: string): 'profile' | 'log' | 'note' | undefined
+
+/** Facets that belong to one phase, in render order. */
+export declare function facetsForPhase(phase: 'profile' | 'log' | 'note'): string[]
 
 /** Directory created under the harness home: `abaco-memory`. */
 export declare const MEMORY_DIR_NAME: string
@@ -239,6 +257,18 @@ export declare class MemoryStore {
   noteRender(ambient?: MemoryAmbient, drops?: number): void
   /** Archive everything that has expired. */
   gc(now?: string): Promise<number>
+  /** Principle C flag: read the session document's `meta.compactionConsent`. */
+  readConsent(ambient?: MemoryAmbient): Promise<MemoryCompactionConsent>
+  /** Principle C flag: persist the session consent record. */
+  writeConsent(ambient: MemoryAmbient | undefined, consent: unknown): Promise<MemoryCompactionConsent>
+  /**
+   * Write-protocol step 2: persist profile / project (log) / session documents
+   * before an authorized compaction. Does not invent facts.
+   */
+  persistBeforeCompact(
+    ambient?: MemoryAmbient,
+    reason?: string
+  ): Promise<{ ok: true; persisted: Array<{ kind: string; key: string; path: string }> }>
 }
 
 /** Renders the store's snapshot into the `abaco:durable-memory` section. */
@@ -259,6 +289,25 @@ export declare function registerMemoryTools(
   ctx: { tools: { register(definition: never): unknown } },
   options: { store: MemoryStore; config: MemoryConfig }
 ): void
+
+/** Ambient identity of the calling agent, including subagent provenance. */
+export declare function ambientOf(exec: { agent?: { session?: { header?: MemorySessionHeader } } }): MemoryAmbient
+
+/** Whether the calling session is a delegated child. */
+export declare function isSubagentHeader(header: MemorySessionHeader | undefined | null | unknown): boolean
+
+/** Refuse a profile write that came from a delegated child. */
+export declare function assertParentProfileWrite(
+  path: string,
+  scope: string | undefined,
+  header: MemorySessionHeader | undefined | null | unknown
+): void
+
+/** Provenance of one write; subagent callers are stamped `subagent:…`. */
+export declare function sourceOf(
+  exec: { agent?: { session?: { header?: MemorySessionHeader; seq?: number; eventAt?: (seq: number) => { type?: string; data?: { turn?: number } } } } },
+  explicit?: string
+): string
 
 /** Cordis plugin name. */
 export declare const name: string

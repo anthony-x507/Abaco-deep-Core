@@ -61,7 +61,8 @@ import { appendFile, chmod, mkdir, rename, stat, unlink, writeFile } from 'node:
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
-import { artifactFileName, composeVaultedText, flattenPlainText, planSettledRewrite, renderOmittedNotice, settledMessageText, slugify, utf8Bytes, withReplacedContent, DEFAULT_HEAD_LINES, DEFAULT_MAX_SETTLED_BYTES } from './lib/plan.js'
+import { artifactFileName, composeVaultedText, flattenPlainText, formatParentReport, planSettledRewrite, renderOmittedNotice, settledMessageText, slugify, utf8Bytes, withReplacedContent, DEFAULT_HEAD_LINES, DEFAULT_MAX_SETTLED_BYTES } from './lib/plan.js'
+import { emitSpill } from './lib/telemetry.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'abaco-vault'
@@ -414,9 +415,31 @@ async function apply(ctx, config) {
         extra: typeof senderSessionId === 'string' ? { senderSessionId } : {},
         logger
       })
-      return withReplacedContent(message, composeVaultedText(plan.head, plan.omitted, saved.locator))
+      await emitSpill({
+        kind: 'subagent-settled',
+        action: 'vaulted',
+        vaulted: true,
+        bytes: saved.bytes,
+        omitted: plan.omitted,
+        locator: saved.locator,
+        sessionId
+      })
+      return withReplacedContent(
+        message,
+        composeVaultedText(plan.head, plan.omitted, saved.locator, {
+          fullText: text,
+          summary: typeof message.source?.summary === 'string' ? message.source.summary : undefined
+        })
+      )
     } catch (error) {
       logger.warn(`abaco-vault: could not vault a settlement notice for session ${sessionId} (${describe(error)}); keeping it inline`)
+      await emitSpill({
+        kind: 'subagent-settled',
+        action: 'vault-failed',
+        vaulted: false,
+        sessionId,
+        reason: describe(error)
+      })
       return undefined
     }
   }
@@ -461,7 +484,7 @@ async function apply(ctx, config) {
             const sessionId = agentSessionId(exec?.agent)
             if (sessionId !== undefined) {
               const callId = typeof exec?.callId === 'string' ? exec.callId : undefined
-              await vaultText({
+              const saved = await vaultText({
                 root,
                 sessionId,
                 kind: 'tool-result',
@@ -470,6 +493,15 @@ async function apply(ctx, config) {
                 extra: callId === undefined ? { tool: toolName } : { tool: toolName, callId },
                 logger
               })
+              await emitSpill({
+                kind: 'tool-result',
+                action: 'vaulted',
+                vaulted: true,
+                bytes: saved.bytes,
+                locator: saved.locator,
+                sessionId,
+                tool: toolName
+              })
             }
           }
         }
@@ -477,6 +509,14 @@ async function apply(ctx, config) {
         // A throwing listener turns a successful tool call into an error
         // (`dsh-tools/lib/index.js:3373`): swallow everything.
         logger.warn(`abaco-vault: could not vault the result of tool "${exec?.name}" (${describe(error)}); keeping it inline`)
+        await emitSpill({
+          kind: 'tool-result',
+          action: 'vault-failed',
+          vaulted: false,
+          sessionId: agentSessionId(exec?.agent),
+          tool: exec?.name,
+          reason: describe(error)
+        })
       }
       return next()
     }, { prepend: true })
@@ -495,6 +535,7 @@ export {
   artifactFileName,
   composeVaultedText,
   flattenPlainText,
+  formatParentReport,
   planSettledRewrite,
   renderOmittedNotice,
   settledMessageText,

@@ -430,6 +430,17 @@ export async function runApply(ctx, config) {
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export {
+  ABACO_COMPACTION_LOCK,
+  AUTO,
+  DEAD_POLICIES,
+  MAX_TOKENS,
+  RETAIN_RATIO,
+  THRESHOLD_RATIO,
+  assertLockPolicy,
+  lockAlerts,
+  matchesLock
+} from './lib/lock.js'
+export {
   COMPOSITION_FILE,
   METADATA_FILE,
   PRESET_ID,

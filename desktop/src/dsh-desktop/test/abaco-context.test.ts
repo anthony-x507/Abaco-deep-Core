@@ -5,8 +5,10 @@ import { join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  ABACO_COMPACTION_LOCK,
   adoptDefault,
   apply,
+  assertLockPolicy,
   defaultMarkerPath,
   isSettingsScope,
   name,
@@ -661,7 +663,9 @@ describe('abaco-context: the shipped composition', () => {
     // earlier 0.60 / 0.08 / 16384 that this assertion used to pin; stock is
     // 0.80 / 0.16 / 8192. Treating these as engine defaults is the mistake this
     // test exists to prevent.
-    expect(compaction?.config).toEqual({ thresholdRatio: 0.9, retainRatio: 0.12, maxTokens: 8192 })
+    expect(compaction?.config).toEqual({ ...ABACO_COMPACTION_LOCK })
+    assertLockPolicy(compaction?.config)
+    expect(compaction?.config).not.toHaveProperty('retainTokens')
 
     // `retainTokens` is an absolute budget validated per routed model at first
     // use; a fixed value silently disables compaction on any smaller window.
@@ -669,6 +673,9 @@ describe('abaco-context: the shipped composition', () => {
 
     const pruner = find(list, 'tool-result-pruner')
     expect(pruner?.config).toEqual({ thresholdChars: 6000, headChars: 3000, tailChars: 800 })
+
+    const wrapper = find(list, 'abaco-compaction')
+    expect(wrapper?.name).toBe('abaco-context/compaction')
 
     // A ratio-retention policy must stay under the threshold at load time, or
     // `validateRatioRetention` throws and the whole preset is reported broken.
@@ -695,6 +702,9 @@ describe('abaco-context: the shipped composition', () => {
     for (const tool of ['abaco_memory_set', 'abaco_memory_get', 'abaco_memory_list']) {
       expect(config.text).toContain(tool)
     }
+    expect(config.text).toContain('three phases')
+    expect(config.text).toContain('abaco_memory_note')
+    expect(config.text).toContain('Subagents must not write the parent profile')
   })
 
   it('names only plugins that are installed in this deployment', async () => {

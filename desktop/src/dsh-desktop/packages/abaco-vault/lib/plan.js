@@ -183,16 +183,170 @@ export function planSettledRewrite(text, config) {
 }
 
 /**
- * Compose the replacement text: inline head, blank line, recovery notice.
+ * Parent-facing settlement report: `goal / result / artifacts / errors`.
  *
- * @param head - the leading text kept inline.
+ * The window must not receive the child's full transcript. Vaulted verbatim
+ * lives on disk; the parent sees a structured cut plus the locator.
+ *
+ * @param text - the full settlement text (or a short stand-in).
+ * @param extras - `{ goal, result, summary, artifacts, errors, locator }`.
+ * @returns a short multi-line report.
+ */
+export function formatParentReport(text, extras = {}) {
+  const parsed = parseLabeledReport(typeof text === 'string' ? text : '')
+  const goal = firstNonEmpty(extras.goal, extras.summary === 'settled' ? undefined : extras.summary, parsed.goal, inferGoal(text))
+  const result = firstNonEmpty(extras.result, parsed.result, inferResult(text))
+  const artifacts = uniqueStrings([
+    ...(Array.isArray(extras.artifacts) ? extras.artifacts : []),
+    ...parsed.artifacts,
+    extras.locator
+  ])
+  const errors = uniqueStrings([...(Array.isArray(extras.errors) ? extras.errors : []), ...parsed.errors])
+  return [
+    `goal: ${goal || '(unspecified)'}`,
+    `result: ${result || '(see vault)'}`,
+    'artifacts:',
+    ...(artifacts.length > 0 ? artifacts.map((path) => `- ${path}`) : ['- (none)']),
+    'errors:',
+    ...(errors.length > 0 ? errors.map((line) => `- ${line}`) : ['- (none)'])
+  ].join('\n')
+}
+
+/**
+ * Compose the replacement text: parent report, blank line, recovery notice.
+ *
+ * `options.fullText` is the verbatim settlement (used to extract goal / result
+ * / artifacts / errors). When omitted, `head` is parsed instead so a short
+ * stand-in still produces the contracted shape.
+ *
+ * @param head - leading text kept by the planner (ignored for the report body).
  * @param omittedBytes - how many bytes were omitted.
  * @param locator - absolute path of the durable artifact.
+ * @param options - `{ fullText, summary, goal, result, artifacts, errors }`.
  * @returns the model-facing replacement text.
  */
-export function composeVaultedText(head, omittedBytes, locator) {
+export function composeVaultedText(head, omittedBytes, locator, options = {}) {
+  const source = typeof options.fullText === 'string' ? options.fullText : head
+  const body = formatParentReport(source, {
+    locator,
+    summary: options.summary,
+    goal: options.goal,
+    result: options.result,
+    artifacts: options.artifacts,
+    errors: options.errors
+  })
   const notice = renderOmittedNotice(omittedBytes, locator)
-  return typeof head === 'string' && head.length > 0 ? `${head}\n\n${notice}` : notice
+  return `${body}\n\n${notice}`
+}
+
+/** First non-empty trimmed string among the arguments. */
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) return truncateLine(value.trim(), 240)
+  }
+  return ''
+}
+
+/** Deduplicate non-empty strings, preserving order. */
+function uniqueStrings(values) {
+  const seen = new Set()
+  const out = []
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (trimmed.length === 0 || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push(trimmed)
+  }
+  return out
+}
+
+/** Pull labeled `goal` / `result` / `artifacts` / `errors` sections out of prose. */
+function parseLabeledReport(text) {
+  const goal = []
+  const result = []
+  const artifacts = []
+  const errors = []
+  let section = null
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (line.length === 0) continue
+    const labeled =
+      /^(?:#{1,3}\s*)?(goal|objetivo|result(?:ado)?|errors?|errores|artifacts?|artefactos)\s*[:=]\s*(.*)$/iu.exec(line)
+    if (labeled !== null) {
+      const key = labeled[1].toLowerCase()
+      const rest = labeled[2].trim()
+      if (key === 'goal' || key === 'objetivo') {
+        section = 'goal'
+        if (rest.length > 0) goal.push(rest)
+      } else if (key.startsWith('result')) {
+        section = 'result'
+        if (rest.length > 0) result.push(rest)
+      } else if (key.startsWith('artifact') || key === 'artefactos') {
+        section = 'artifacts'
+        if (rest.length > 0) artifacts.push(rest.replace(/^[-*]\s*/u, ''))
+      } else {
+        section = 'errors'
+        if (rest.length > 0) errors.push(rest.replace(/^[-*]\s*/u, ''))
+      }
+      continue
+    }
+    if (/^ERROR\s*\|/u.test(line) || /^error:/iu.test(line)) {
+      errors.push(truncateLine(line, 240))
+      continue
+    }
+    artifacts.push(...extractPaths(line))
+    const stripped = line.replace(/^[-*]\s*/u, '')
+    if (section === 'goal') goal.push(stripped)
+    else if (section === 'result') result.push(stripped)
+    else if (section === 'artifacts') artifacts.push(stripped)
+    else if (section === 'errors') errors.push(stripped)
+  }
+  return {
+    goal: goal.join(' ').trim(),
+    result: result.join(' ').trim(),
+    artifacts: uniqueStrings(artifacts),
+    errors: uniqueStrings(errors)
+  }
+}
+
+/** Closing-message body of a `dsh-subagent` settlement notice. */
+function closingMessage(text) {
+  if (typeof text !== 'string' || text.length === 0) return ''
+  const marker = 'Its closing message:'
+  const index = text.indexOf(marker)
+  const body = index >= 0 ? text.slice(index + marker.length) : text
+  return body
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !/^Subagent\s+".+"\s+settled\.$/u.test(line))
+}
+
+/** First substantial line of the child's closing message. */
+function inferGoal(text) {
+  const lines = closingMessage(text)
+  return lines.length > 0 ? truncateLine(lines[0], 240) : ''
+}
+
+/** Last substantial non-error line of the child's closing message. */
+function inferResult(text) {
+  const lines = closingMessage(text).filter((line) => !/^ERROR\s*\|/u.test(line) && !/^error:/iu.test(line))
+  if (lines.length === 0) return ''
+  return truncateLine(lines[lines.length - 1], 240)
+}
+
+/** Absolute-looking paths mentioned on one line. */
+function extractPaths(line) {
+  if (typeof line !== 'string') return []
+  const found = line.match(/(?:\/|~\/)[^\s)"']+/gu)
+  return found === null ? [] : found.map((path) => path.replace(/[.,;:]+$/u, ''))
+}
+
+/** Cap one report line without rewriting it. */
+function truncateLine(text, budget) {
+  const source = typeof text === 'string' ? text.replace(/\s+/gu, ' ').trim() : ''
+  if (source.length <= budget) return source
+  return `${source.slice(0, Math.max(0, budget - 1))}…`
 }
 
 /**
