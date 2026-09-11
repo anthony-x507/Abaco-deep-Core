@@ -138,15 +138,21 @@
       body[data-platform='darwin'] .addressInput,
       body[data-platform='darwin'] .modeButton,
       body[data-platform='darwin'] .recordButton,
+      body[data-platform='darwin'] .screenRecordButton,
       body[data-platform='darwin'] .skillForm,
       body[data-platform='darwin'] .skillName,
       body[data-platform='darwin'] .skillButton {
         -webkit-app-region: no-drag;
       }
       /* macOS keeps the native window buttons inside the content rect, so the
-         strip leaves them their gutter instead of drawing controls under them. */
+         strip leaves them their gutter instead of drawing controls under them.
+         When docked in the details (right) column those buttons are not in this
+         strip — drop the gutter so the address bar is not indented 84px. */
       body[data-platform='darwin'] .bar {
         padding-left: 84px;
+      }
+      body[data-platform='darwin'][data-placement='panel'] .bar {
+        padding-left: 8px;
       }
       .iconButton {
         appearance: none;
@@ -477,6 +483,23 @@
         </svg>
       </button>
       <span class="recordCount" id="abaco-browser-record-count" hidden></span>
+      <!--
+        P1 desktopCapturer pixel recording. Distinct from the F2 DOM-action
+        ⏺: this captures window pixels (WebM) and notifies the agent on stop.
+      -->
+      <button
+        class="iconButton recordButton screenRecordButton"
+        id="abaco-browser-screen-record"
+        type="button"
+        aria-pressed="false"
+        aria-label="Record screen pixels"
+        title="Record the ABACO window (desktopCapturer). Stopping notifies the agent."
+      >
+        <svg viewBox="0 0 20 20" width="12" height="12" aria-hidden="true">
+          <rect x="4" y="5" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none" />
+          <circle cx="10" cy="10" r="2.2" fill="currentColor" />
+        </svg>
+      </button>
       <!--
         F3 — the recording finished, so it can become a skill. A form rather
         than a bare button because the name is the one field worth letting the

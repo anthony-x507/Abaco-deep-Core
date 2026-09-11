@@ -29,6 +29,8 @@ window.__ModuleLoader__.load({
     const SLOT = 'sidebar.footer.action'
     const OCCUPANT_ID = 'abaco-browser'
     const STYLE_ID = 'abaco-browser-launcher-style'
+    const NOTIFY_SLOT = 'conversation.input.left'
+    const NOTIFY_ID = 'abaco-browser-record-notify'
 
     // ── Bridge ─────────────────────────────────────────────────────────────
     // The preload of the main window is the only place that can reach
@@ -56,6 +58,62 @@ window.__ModuleLoader__.load({
       return lang.indexOf('es') === 0 ? COPY.es : COPY.en
     }
 
+    // ── Details-column measurement (P1) ────────────────────────────────────
+    // The `details` slot is `kind: 'single'` and already occupied by chat's
+    // DetailsPanel, so this plugin must not register a second occupant.
+    // AppFrame is the `display:grid` whose last track is the details column
+    // (`sidebar px | 1fr | details px`). We measure that track and report it
+    // through `reportPanelHostBounds` so the WebContentsViews sit on those
+    // pixels instead of a guessed right strip.
+    function findShellFrame() {
+      if (typeof document === 'undefined') return null
+      const marked = document.querySelector(
+        '[data-details-collapsed], [data-sidebar-collapsed], [data-dragging]',
+      )
+      if (marked) return marked
+      const nodes = document.querySelectorAll('div')
+      for (let i = 0; i < nodes.length; i += 1) {
+        const el = nodes[i]
+        const columns = getComputedStyle(el).gridTemplateColumns
+        if (columns && columns.split(' ').length >= 3 && el.childElementCount >= 3) {
+          return el
+        }
+      }
+      return null
+    }
+
+    function measureDetailsColumn() {
+      const frame = findShellFrame()
+      if (!frame) return null
+      const rect = frame.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) return null
+      const columns = getComputedStyle(frame).gridTemplateColumns
+      const tracks = columns ? columns.split(/\s(?![^(]*\))/u) : []
+      const last = tracks[tracks.length - 1]
+      const detailsPx = last ? Number.parseFloat(last) : Number.NaN
+      if (!Number.isFinite(detailsPx) || detailsPx < 8) return null
+      return {
+        x: Math.round(rect.left + rect.width - detailsPx),
+        y: Math.round(rect.top),
+        width: Math.round(detailsPx),
+        height: Math.round(rect.height),
+      }
+    }
+
+    function reportHostBounds(bridge) {
+      if (!bridge || typeof bridge.reportPanelHostBounds !== 'function') return
+      const bounds = measureDetailsColumn()
+      if (!bounds) return
+      bridge.reportPanelHostBounds(bounds).catch(() => {})
+    }
+
+    function openDetailsColumn() {
+      try {
+        const layout = typeof window !== 'undefined' ? window.__abacoBrowserLayout : undefined
+        if (layout && typeof layout.openDetails === 'function') layout.openDetails()
+      } catch (_) {}
+    }
+
     // ── Launcher ───────────────────────────────────────────────────────────
     // Mirrors the footprint of the shell's own footer occupants: a full-width
     // row with icon + label while the column is wide, a 36px circle in the rail
@@ -67,20 +125,49 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!bridge) return undefined
         let alive = true
+        let observer
         const refresh = () => {
           bridge.isOpen().then(
             (value) => { if (alive) setOpen(value === true) },
             () => {},
           )
         }
+        const dock = () => {
+          openDetailsColumn()
+          window.requestAnimationFrame(() => {
+            reportHostBounds(bridge)
+            const host = findShellFrame()
+            if (!host || typeof ResizeObserver === 'undefined') return
+            if (observer) observer.disconnect()
+            observer = new ResizeObserver(() => reportHostBounds(bridge))
+            observer.observe(host)
+          })
+        }
         refresh()
         // The overlay is a sibling view, so the Harness window loses focus while
         // it is up and gets it back when the overlay closes (including closes
         // made from the browser's own chrome bar) — re-sync there.
         window.addEventListener('focus', refresh)
+        const offOpened = typeof bridge.onOpened === 'function' ? bridge.onOpened(() => {
+          if (!alive) return
+          setOpen(true)
+          dock()
+        }) : undefined
+        const offClosed = typeof bridge.onClosed === 'function' ? bridge.onClosed(() => {
+          if (!alive) return
+          setOpen(false)
+          if (observer) observer.disconnect()
+          observer = undefined
+        }) : undefined
+        bridge.isOpen().then((value) => {
+          if (alive && value === true) dock()
+        }, () => {})
         return () => {
           alive = false
           window.removeEventListener('focus', refresh)
+          if (typeof offOpened === 'function') offOpened()
+          if (typeof offClosed === 'function') offClosed()
+          if (observer) observer.disconnect()
         }
       }, [bridge])
 
@@ -96,14 +183,8 @@ window.__ModuleLoader__.load({
             const isOpenNow = value === true
             setOpen(!isOpenNow)
             if (isOpenNow) return bridge.close()
-            // P1: open the layout details column when available so chat stays
-            // visible beside the browser. We do not occupy the single `details`
-            // slot (that would shadow DetailsPanel); main uses a geometric
-            // right strip (300–520 DIP) unless reportPanelHostBounds is used.
-            try {
-              const layout = typeof window !== 'undefined' ? window.__abacoBrowserLayout : undefined
-              if (layout && typeof layout.openDetails === 'function') layout.openDetails()
-            } catch (_) {}
+            openDetailsColumn()
+            window.requestAnimationFrame(() => reportHostBounds(bridge))
             return bridge.open()
           },
           (error) => console.error('[abaco-browser] unable to toggle the browser overlay', error),
@@ -203,13 +284,46 @@ window.__ModuleLoader__.load({
       document.head.appendChild(style)
     }
 
+    // ── Screen-recording → agent notice (P1) ────────────────────────────────
+    // `conversation.input.left` is a session-scoped list slot whose occupants
+    // receive `inputActions` (`setDraft` + `submit`). A hidden occupant is
+    // enough: when main pushes `screen-recording-stopped`, we write a user
+    // message and submit it so the agent is asked to turn the clip into a
+    // skill. Nothing is rendered.
+    function ScreenRecordingNotifier(props) {
+      const inputActions = props && props.inputActions
+      React.useEffect(() => {
+        const live = browserBridge()
+        if (!live || typeof live.onScreenRecordingStopped !== 'function') return undefined
+        return live.onScreenRecordingStopped((result) => {
+          if (!result || typeof result !== 'object') return
+          const seconds =
+            typeof result.durationMs === 'number' ? Math.round(result.durationMs / 1000) : 0
+          const lines = [
+            'A screen recording of the ABACO window just finished.',
+            result.notice ? String(result.notice) : '',
+            result.path ? `Saved to: ${result.path}` : '',
+            seconds > 0 ? `Duration: ${seconds}s.` : '',
+            'Please review the recording and create a skill that reproduces what was demonstrated.',
+          ].filter((line) => line.length > 0)
+          const text = lines.join('\n')
+          if (inputActions && typeof inputActions.setDraft === 'function') {
+            inputActions.setDraft(text)
+          }
+          if (inputActions && typeof inputActions.submit === 'function') {
+            inputActions.submit()
+          }
+        })
+      }, [inputActions])
+      return null
+    }
+
     // ── Slot injection ─────────────────────────────────────────────────────
-    // `slots` mounts the footer launcher. `layout` is optional: when present we
-    // stash `ctx.layout` so open can call `openDetails()` and reveal the details
-    // column beside chat. We deliberately do NOT register into the single
-    // `details` slot — that would shadow ui-conversation's DetailsPanel — so
-    // panel geometry stays on the main-process geometric right strip
-    // (clamped 300–520 DIP, default 420).
+    // `slots` mounts the footer launcher and the notifier. `layout` is
+    // optional: when present we stash `ctx.layout` so open can call
+    // `openDetails()` and reveal the details column beside chat. We
+    // deliberately do NOT register into the single `details` slot — that
+    // would shadow ui-conversation's DetailsPanel.
     const inject = ['slots', 'layout']
 
     function apply(ctx) {
@@ -221,6 +335,12 @@ window.__ModuleLoader__.load({
         ctx.slots.register(
           { name: SLOT, id: OCCUPANT_ID, order: 0, label: 'ABACO browser' },
           BrowserLauncherButton,
+        ),
+      )
+      ctx.slots.inject(NOTIFY_SLOT, () =>
+        ctx.slots.register(
+          { name: NOTIFY_SLOT, id: NOTIFY_ID, order: 1000, label: 'ABACO browser recording notice' },
+          ScreenRecordingNotifier,
         ),
       )
     }

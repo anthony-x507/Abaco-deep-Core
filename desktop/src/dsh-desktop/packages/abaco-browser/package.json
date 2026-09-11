@@ -1,7 +1,7 @@
 {
   "name": "abaco-browser",
   "version": "0.1.0",
-  "description": "Integrated browser for ABACO DEEP HARNES: a sidebar-footer launcher that opens the native WebContentsView overlay (window.dshAbacoBrowser), plus the agent's abaco_browser_* tools, which drive that same overlay over the desktop shell's loopback control plane.",
+  "description": "Integrated browser for ABACO DEEP HARNES: a sidebar-footer launcher that docks the native WebContentsView in the details (right) column (window.dshAbacoBrowser), plus the agent's abaco_browser_* tools — including grab_control / release_control — over the desktop shell's loopback control plane.",
   "private": true,
   "type": "module",
   "main": "./index.js",

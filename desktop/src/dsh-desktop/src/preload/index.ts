@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AvailableRelease, UpdateStatus } from '../shared/contracts'
 import {
+  ABACO_BROWSER_CLOSED_CHANNEL,
+  ABACO_BROWSER_OPENED_CHANNEL,
+  ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL,
   abacoBrowserChannels,
   type AbacoBrowserCommandResult,
   type AbacoBrowserMode,
@@ -230,8 +233,23 @@ contextBridge.exposeInMainWorld('dshAbacoBrowser', {
   stopScreenRecording: (): Promise<AbacoBrowserScreenRecordingResult> =>
     ipcRenderer.invoke(abacoBrowserChannels.screenRecordStop),
   screenRecordingStatus: (): Promise<AbacoBrowserScreenRecordingStatus> =>
-    ipcRenderer.invoke(abacoBrowserChannels.screenRecordStatus)
+    ipcRenderer.invoke(abacoBrowserChannels.screenRecordStatus),
+  onOpened: (listener: () => void): (() => void) => subscribeAbacoBrowser(ABACO_BROWSER_OPENED_CHANNEL, listener),
+  onClosed: (listener: () => void): (() => void) => subscribeAbacoBrowser(ABACO_BROWSER_CLOSED_CHANNEL, listener),
+  onScreenRecordingStopped: (
+    listener: (result: AbacoBrowserScreenRecordingResult) => void
+  ): (() => void) => subscribeAbacoBrowser(ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL, listener)
 })
+
+function subscribeAbacoBrowser(channel: string, listener: (...args: unknown[]) => void): () => void {
+  const wrapped = (_event: unknown, ...args: unknown[]): void => {
+    listener(...args)
+  }
+  ipcRenderer.on(channel, wrapped)
+  return () => {
+    ipcRenderer.removeListener(channel, wrapped)
+  }
+}
 
 /**
  * `[data-dsh-*]` lookups are attribute selectors with no index behind them, so
