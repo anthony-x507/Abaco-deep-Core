@@ -36,6 +36,16 @@ const TEXT_LIKE_EXTENSIONS = new Set([
   '.txt', '.md', '.markdown', '.csv', '.json', '.yaml', '.yml', '.xml',
 ])
 
+/** Image types the 📎 pipeline accepts (matches native SubmitImageAttachment). */
+const IMAGE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp',
+])
+const IMAGE_MIME = new Set([
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+])
+/** Cap for base64-in-draft embedding (native normalized ceiling). */
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024
+
 function failure(message, status = 422) {
   return Response.json({ ok: false, error: message }, { status })
 }
@@ -46,16 +56,31 @@ function extnameOf(filePath) {
   return idx <= 0 ? '' : base.slice(idx).toLowerCase()
 }
 
-/** Classify the request into 'pdf' | 'docx' | 'text' | null by header, then name. */
+/** Classify the request into 'pdf' | 'docx' | 'text' | 'image' | null by header, then name. */
 function classify(contentType, name) {
   if (contentType === 'application/pdf') return 'pdf'
   if (contentType.includes('openxmlformats-officedocument.wordprocessingml')) return 'docx'
-  if (contentType.startsWith('text/')) return 'text'
+  if (IMAGE_MIME.has(contentType) || contentType.startsWith('image/')) {
+    // Only admit the four media types the session submit plane serializes.
+    if (IMAGE_MIME.has(contentType)) return 'image'
+    const ext = extnameOf(name)
+    if (IMAGE_EXTENSIONS.has(ext)) return 'image'
+    return null
+  }
+  if (contentType.startsWith('text/') || contentType === 'application/json' || contentType === 'application/xml') {
+    return 'text'
+  }
   const ext = extnameOf(name)
   if (ext === '.pdf') return 'pdf'
   if (ext === '.docx') return 'docx'
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image'
   if (TEXT_LIKE_EXTENSIONS.has(ext)) return 'text'
   return null
+}
+
+/** Exported for unit tests (same classifier the extract route uses). */
+export function classifyDocument(contentType, name) {
+  return classify((contentType || '').split(';', 1)[0]?.trim().toLowerCase() || '', name || '')
 }
 
 /** Truncate extracted prose to the shared ceiling, reporting the truncation. */
@@ -134,6 +159,47 @@ async function extractText(bytes) {
   }
 }
 
+function resolveImageMediaType(contentType, name) {
+  if (IMAGE_MIME.has(contentType)) return contentType
+  const ext = extnameOf(name)
+  switch (ext) {
+    case '.png': return 'image/png'
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg'
+    case '.gif': return 'image/gif'
+    case '.webp': return 'image/webp'
+    default: return null
+  }
+}
+
+async function extractImage(bytes, contentType, name) {
+  if (bytes.length > MAX_IMAGE_BYTES) {
+    throw new Error(
+      `Imagen demasiado grande (${(bytes.length / 1024 / 1024).toFixed(1)} MB). ` +
+      `Máximo para el botón 📎: ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)} MB ` +
+      `(arrastra la foto al compositor para el límite nativo de 20 MB).`,
+    )
+  }
+  const mediaType = resolveImageMediaType(contentType, name)
+  if (!mediaType) {
+    throw new Error(`Tipo de imagen no soportado${name ? `: ${name}` : ''}. Aceptados: PNG, JPEG, GIF, WEBP.`)
+  }
+  const data = Buffer.from(bytes).toString('base64')
+  const text = `[image ${mediaType}; base64]\n${data}`
+  const clamped = clampText(text)
+  return {
+    text: clamped.text,
+    meta: {
+      kind: 'image',
+      mediaType,
+      byteLength: bytes.length,
+      charCount: clamped.charCount,
+      wordCount: clamped.wordCount,
+      truncated: clamped.truncated,
+    },
+  }
+}
+
 /**
  * Register the extraction route on the shared API channel.
  *
@@ -172,7 +238,7 @@ export function apply(ctx) {
       const kind = classify(contentType, filename)
       if (kind === null) {
         return failure(
-          `Tipo de archivo no soportado${filename ? `: ${filename}` : ''}. Aceptados: PDF, DOCX, TXT, MD, CSV, JSON, YAML, XML.`,
+          `Tipo de archivo no soportado${filename ? `: ${filename}` : ''}. Aceptados: PDF, DOCX, TXT, MD, CSV, JSON, YAML, XML, PNG, JPEG, GIF, WEBP.`,
           415,
         )
       }
@@ -181,6 +247,7 @@ export function apply(ctx) {
         const extracted =
           kind === 'pdf' ? await extractPdf(bytes)
           : kind === 'docx' ? await extractDocx(bytes)
+          : kind === 'image' ? await extractImage(bytes, contentType, filename)
           : await extractText(bytes)
         return Response.json({
           ok: true,

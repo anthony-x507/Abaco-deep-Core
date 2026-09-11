@@ -1,7 +1,7 @@
 # abaco-documents
 
-Upload PDF / DOCX / TXT / MD / CSV / JSON / YAML / XML documents into the
-chat composer. Text extraction runs entirely client-side; binary content
+Upload PDF / DOCX / TXT / MD / CSV / JSON / YAML / XML documents **and**
+PNG / JPEG / GIF / WEBP photos into the chat composer. Text extraction runs entirely client-side; binary content
 never leaves the device.
 
 ## Supported types
@@ -15,6 +15,7 @@ never leaves the device.
 | `.json` | application/json |
 | `.yaml` / `.yml` | text/yaml |
 | `.xml` | application/xml |
+| `.png` / `.jpg` / `.jpeg` / `.gif` / `.webp` | image/png, image/jpeg, image/gif, image/webp |
 
 ## Limits
 - Max 50 MB per file
@@ -25,8 +26,9 @@ never leaves the device.
 1. Click 📎 in the composer accessory → file picker
 2. Each file is parsed client-side (`pdfjs-dist` for PDF, `mammoth` for DOCX, FileReader for text)
 3. A card appears above input: click × to remove
-4. On submit, all `ready` docs are concatenated as `<attachments>` XML blocks appended to the user message
-5. After send, the queue is cleared
+4. When extraction finishes, context is **auto-inserted** into the draft as `<attachments>` (manual button remains as fallback)
+5. Photos become `<image>` blocks with base64 (≤ 4 MB via 📎; drag-drop uses the native 20 MB path)
+6. After insert, the queue is cleared
 
 ## Security / privacy
 - No binary content is uploaded anywhere

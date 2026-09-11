@@ -561,6 +561,17 @@ describe('navigation trust boundary', () => {
       canGrantWindowPermission('clipboard-sanitized-write', 'file:///tmp/app.html', true)
     ).toBe(false)
   })
+
+  it('grants media from trusted/harness main-frame so mic and camera photos work', () => {
+    expect(canGrantWindowPermission('media', 'http://127.0.0.1:43127/session', true)).toBe(true)
+    expect(canGrantWindowPermission('media', 'http://localhost:43127/session', true)).toBe(true)
+    expect(canGrantWindowPermission('media', 'file:///app/index.html', true)).toBe(true)
+    expect(canGrantWindowPermission('media', 'http://127.0.0.1:43127/session', false)).toBe(false)
+    expect(canGrantWindowPermission('media', 'https://example.com/session', true)).toBe(false)
+    expect(canGrantWindowPermission('display-capture', 'http://127.0.0.1:43127/session', true)).toBe(
+      false
+    )
+  })
 })
 
 describe('Harness window activation', () => {
