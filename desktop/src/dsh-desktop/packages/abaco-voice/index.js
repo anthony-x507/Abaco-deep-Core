@@ -1,12 +1,21 @@
 /**
- * Host half for abaco-voice — local Whisper STT (mlx_whisper / whisper CLI).
+ * Host half for abaco-voice — local Whisper STT mediated by F1 broker.
  *
  * Renderer records with MediaRecorder, POSTs bytes to
- * `/api/abaco-voice.local-transcribe`. The Harness Node process converts
- * (ffmpeg) and runs on-device Whisper. No OpenAI key. No Cordis ctx.store.
+ * `/api/abaco-voice.local-transcribe`. This fiber OWNS the routes (identity).
+ * Before any proc.spawn, authorize() must allow; execution goes to
+ * abaco-mediacion-pilot worker cell. Direct spawn here = LEGACY_UNMEDIATED.
  *
  * @module abaco-voice
  */
+
+import {
+  authorize,
+  hashArgs,
+  markLegacyUnmediated,
+} from '../abaco-effect-broker/index.js'
+import { executeAuthorized } from '../abaco-mediacion-pilot/index.js'
+import { resolveLocalWhisperTools } from '../abaco-mediacion-pilot/ops.js'
 
 export const name = 'abaco-voice'
 
@@ -31,162 +40,8 @@ function installHint() {
   )
 }
 
-/** Extra dirs packaged Electron often omits from PATH. */
-function candidateBinDirs() {
-  const home = process.env.HOME || ''
-  return [
-    '/opt/homebrew/bin',
-    '/usr/local/bin',
-    home ? `${home}/.local/bin` : '',
-    home ? `${home}/Library/Python/3.14/bin` : '',
-    home ? `${home}/Library/Python/3.13/bin` : '',
-    home ? `${home}/Library/Python/3.12/bin` : '',
-  ].filter(Boolean)
-}
-
-async function pathExists(p) {
-  try {
-    const { access } = await import('node:fs/promises')
-    const { constants } = await import('node:fs')
-    await access(p, constants.X_OK)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function resolveBinary(names) {
-  const { join } = await import('node:path')
-  const pathEnv = String(process.env.PATH || '')
-  const dirs = [...pathEnv.split(':').filter(Boolean), ...candidateBinDirs()]
-  const seen = new Set()
-  for (const dir of dirs) {
-    if (seen.has(dir)) continue
-    seen.add(dir)
-    for (const name of names) {
-      const full = join(dir, name)
-      if (await pathExists(full)) return full
-    }
-  }
-  return null
-}
-
-/** Exported for unit tests. */
-export async function resolveLocalWhisperTools() {
-  const mlx = await resolveBinary(['mlx_whisper'])
-  const openaiWhisper = mlx ? null : await resolveBinary(['whisper'])
-  const ffmpeg = await resolveBinary(['ffmpeg'])
-  const engine = mlx ? 'mlx_whisper' : (openaiWhisper ? 'whisper' : null)
-  const bin = mlx || openaiWhisper || null
-  return { engine, bin, ffmpeg, available: !!(bin && ffmpeg) }
-}
-
-function run(cmd, args, opts = {}) {
-  return new Promise(async (resolve, reject) => {
-    const { spawn } = await import('node:child_process')
-    const child = spawn(cmd, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        PATH: ['/opt/homebrew/bin', '/usr/local/bin', process.env.PATH || ''].join(':'),
-        // HuggingFace / mlx caches stay in the user home.
-        HOME: process.env.HOME,
-      },
-      ...opts,
-    })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (c) => { stdout += String(c) })
-    child.stderr.on('data', (c) => { stderr += String(c) })
-    child.on('error', reject)
-    child.on('close', (code) => {
-      resolve({ code: code ?? 1, stdout, stderr })
-    })
-  })
-}
-
-async function convertToWav(ffmpegBin, inputPath, wavPath) {
-  const result = await run(ffmpegBin, [
-    '-y', '-i', inputPath,
-    '-ar', '16000', '-ac', '1',
-    '-c:a', 'pcm_s16le',
-    wavPath,
-  ])
-  if (result.code !== 0) {
-    throw new Error(
-      `ffmpeg no pudo convertir el audio: ${(result.stderr || result.stdout || '').trim().slice(0, 400) || 'sin detalle'}`,
-    )
-  }
-}
-
-async function transcribeLocal({ engine, bin, ffmpeg }, bytes, filename, opts) {
-  const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
-  const { tmpdir } = await import('node:os')
-  const { join } = await import('node:path')
-
-  const dir = await mkdtemp(join(tmpdir(), 'abaco-voice-'))
-  const ext = (filename || '').toLowerCase().endsWith('.wav') ? '.wav' : '.webm'
-  const inputPath = join(dir, `in${ext}`)
-  const wavPath = join(dir, 'audio.wav')
-  const outDir = join(dir, 'out')
-  try {
-    await writeFile(inputPath, Buffer.from(bytes))
-    const { mkdir } = await import('node:fs/promises')
-    await mkdir(outDir, { recursive: true })
-
-    let audioPath = inputPath
-    if (ext !== '.wav') {
-      await convertToWav(ffmpeg, inputPath, wavPath)
-      audioPath = wavPath
-    }
-
-    const model = (opts && opts.model) || DEFAULT_MODEL
-    const language = (opts && opts.language) || 'es'
-    const args = engine === 'mlx_whisper'
-      ? [
-          audioPath,
-          '--model', model,
-          '--language', language,
-          '--output-dir', outDir,
-          '--output-name', 'transcript',
-          '--output-format', 'txt',
-          '--verbose', 'False',
-        ]
-      : [
-          audioPath,
-          '--model', model.includes('/') ? 'tiny' : model,
-          '--language', language,
-          '--output_dir', outDir,
-          '--output_format', 'txt',
-          '--verbose', 'False',
-        ]
-
-    const result = await run(bin, args)
-    if (result.code !== 0) {
-      throw new Error(
-        `Whisper local falló (${engine}): ${(result.stderr || result.stdout || '').trim().slice(0, 500) || 'sin detalle'}`,
-      )
-    }
-
-    let text = ''
-    try {
-      text = (await readFile(join(outDir, 'transcript.txt'), 'utf8')).trim()
-    } catch {
-      // openai-whisper names output after input stem
-      try {
-        const { readdir } = await import('node:fs/promises')
-        const files = (await readdir(outDir)).filter((f) => f.endsWith('.txt'))
-        if (files[0]) text = (await readFile(join(outDir, files[0]), 'utf8')).trim()
-      } catch {}
-    }
-    return {
-      text,
-      meta: { engine, model, language, offline: true },
-    }
-  } finally {
-    try { await rm(dir, { recursive: true, force: true }) } catch {}
-  }
-}
+/** Re-export for tests that still probe tools without spawn. */
+export { resolveLocalWhisperTools }
 
 /**
  * @param {any} ctx
@@ -201,6 +56,24 @@ export function apply(ctx) {
     path: LOCAL_STATUS_PATH,
     methods: ['GET'],
     fetch: async () => {
+      const decision = authorize({
+        channel: { kind: 'host.fetch', path: LOCAL_STATUS_PATH },
+        task_id: null,
+        effect: {
+          kind: 'host.fetch',
+          resource: LOCAL_STATUS_PATH,
+          args_hash: hashArgs({ method: 'GET' }),
+        },
+        trust_in: 'user',
+      })
+      if (decision.decision !== 'allow') {
+        return Response.json({
+          ok: false,
+          available: false,
+          error: decision.reason,
+          mediated: true,
+        }, { status: 403, headers: { 'cache-control': 'no-store' } })
+      }
       const tools = await resolveLocalWhisperTools()
       return Response.json({
         ok: true,
@@ -209,6 +82,8 @@ export function apply(ctx) {
         hasFfmpeg: !!tools.ffmpeg,
         hasWhisper: !!tools.bin,
         hint: tools.available ? null : installHint(),
+        mediated: true,
+        grant_id: decision.grant.grant_id,
       }, { headers: { 'cache-control': 'no-store' } })
     },
   })
@@ -217,11 +92,6 @@ export function apply(ctx) {
     path: LOCAL_TRANSCRIBE_PATH,
     methods: ['POST'],
     fetch: async (request) => {
-      const tools = await resolveLocalWhisperTools()
-      if (!tools.available) {
-        return failure(installHint(), 503)
-      }
-
       const url = new URL(request.url)
       const filename = url.searchParams.get('filename') || 'audio.webm'
       const model = url.searchParams.get('model') || DEFAULT_MODEL
@@ -243,16 +113,88 @@ export function apply(ctx) {
         return failure(`Audio demasiado grande (máximo ${Math.round(MAX_BYTES / 1024 / 1024)} MB).`, 413)
       }
 
+      // 1) Authorize host.fetch on the route (identity = abaco-voice via path).
+      const fetchDecision = authorize({
+        channel: { kind: 'host.fetch', path: LOCAL_TRANSCRIBE_PATH },
+        task_id: null,
+        effect: {
+          kind: 'host.fetch',
+          resource: LOCAL_TRANSCRIBE_PATH,
+          args_hash: hashArgs({ filename, model, language, n: bytes.length }),
+        },
+        trust_in: 'user',
+      })
+      if (fetchDecision.decision !== 'allow') {
+        return failure(`mediación deny: ${fetchDecision.reason}`, 403)
+      }
+
+      // 2) Authorize proc.spawn BEFORE any child process (suite: direct spawn = red).
+      const toolsProbe = await resolveLocalWhisperTools()
+      if (!toolsProbe.available) {
+        return failure(installHint(), 503)
+      }
+      const binResource = toolsProbe.engine === 'mlx_whisper' ? 'bin:mlx_whisper' : 'bin:whisper'
+      const spawnDecision = authorize({
+        channel: { kind: 'host.fetch', path: LOCAL_TRANSCRIBE_PATH },
+        task_id: fetchDecision.grant.task_id,
+        grant_id: fetchDecision.grant.grant_id,
+        effect: {
+          kind: 'proc.spawn',
+          resource: binResource,
+          args_hash: hashArgs({ model, language }),
+        },
+        trust_in: 'user',
+      })
+      if (spawnDecision.decision !== 'allow') {
+        return failure(`mediación deny spawn: ${spawnDecision.reason}`, 403)
+      }
+
+      // Also authorize ffmpeg spawn when conversion needed.
+      const ffmpegDecision = authorize({
+        channel: { kind: 'host.fetch', path: LOCAL_TRANSCRIBE_PATH },
+        task_id: fetchDecision.grant.task_id,
+        grant_id: fetchDecision.grant.grant_id,
+        effect: {
+          kind: 'proc.spawn',
+          resource: 'bin:ffmpeg',
+          args_hash: hashArgs({ convert: true }),
+        },
+        trust_in: 'user',
+      })
+      if (ffmpegDecision.decision !== 'allow') {
+        return failure(`mediación deny ffmpeg: ${ffmpegDecision.reason}`, 403)
+      }
+
       try {
-        const result = await transcribeLocal(tools, bytes, filename, { model, language })
+        const result = await executeAuthorized({
+          grantId: spawnDecision.grant.grant_id,
+          op: 'local-transcribe',
+          args: {
+            bytesBase64: Buffer.from(bytes).toString('base64'),
+            filename,
+            model,
+            language,
+          },
+          timeoutMs: 180_000,
+        })
         return Response.json({
           ok: true,
-          text: result.text,
-          meta: result.meta,
+          text: result.text || '',
+          meta: {
+            ...(result.meta || {}),
+            mediated: true,
+            grant_id: spawnDecision.grant.grant_id,
+          },
         }, { headers: { 'cache-control': 'no-store' } })
       } catch (error) {
         return failure(error instanceof Error ? error.message : 'Whisper local falló.', 422)
       }
     },
   })
+}
+
+/** Test-only: prove direct spawn path is marked unmediated if ever called. */
+export function __dangerLegacySpawnProbe() {
+  markLegacyUnmediated()
+  return 'LEGACY_UNMEDIATED'
 }

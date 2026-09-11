@@ -1,0 +1,17 @@
+{
+  "name": "abaco-mediacion-pilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./worker": "./worker.js",
+    "./package.json": "./package.json"
+  },
+  "description": "F1 mediation pilot — authorized executor cell (not a grantor).",
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

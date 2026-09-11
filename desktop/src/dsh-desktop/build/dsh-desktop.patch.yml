@@ -72,6 +72,12 @@
     - id: abaco-voice
       name: abaco-voice
 
+# F1 mediation executor cell (NOT a grantor). Owns no fetch routes.
+# Spawns only after abaco-effect-broker authorize() on voice-owned paths.
+- insert:
+    - id: abaco-mediacion-pilot
+      name: abaco-mediacion-pilot
+
 # Document upload with client-side text extraction (PDF / DOCX / TXT / MD /
 # CSV / JSON / YAML). Injects upload button into composer, document cards
 # above input.
