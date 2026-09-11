@@ -379,6 +379,33 @@ describe('abaco-vault / spill-fix: no early notifySettlement truncate', () => {
 })
 
 describe('abaco-vault / capSettlementOutput gate (vault-first)', () => {
+
+  it('gate >12KB: vault verbatim FULL before cap; parent message carries locator', async () => {
+    const directory = await temporaryDirectory()
+    const { preStep } = await mountPreStep({ root: directory })
+    const output = report(500)
+    const message = settledMessage(output)
+    const full = settledMessageText(message) as string
+    expect(utf8Bytes(full)).toBeGreaterThan(12000)
+
+    // Mirror notifySettlement order: detect over-budget → needs-vault (no truncate) → vault → cap+locator
+    const beforeVault = capSettlementOutput(full, { maxBytes: 12000 })
+    expect(beforeVault.kind).toBe('needs-vault')
+    if (beforeVault.kind !== 'needs-vault') throw new Error('expected needs-vault')
+    expect(beforeVault.text).toBe(full)
+
+    const decision = await runPreStep(preStep, [message])
+    const text = decision.messages[0]?.content[0]?.text as string
+    const outputDirectory = join(directory, VAULT_DIR_NAME, 'parent-session-1')
+    const files = await readdir(outputDirectory)
+    expect(files).toHaveLength(1)
+    const locator = join(outputDirectory, files[0] as string)
+    const artifact = await readFile(locator, 'utf8')
+    expect(artifact).toBe(full)
+    expect(text).toContain(locator)
+    expect(text).toContain('se omitieron')
+    expect(utf8Bytes(text)).toBeLessThan(utf8Bytes(full))
+  })
   it('keeps blocks under the 12KB budget', () => {
     const blocks = [{ type: 'text' as const, text: 'corto' }]
     const result = capSettlementOutput(blocks, { maxBytes: 12000 })

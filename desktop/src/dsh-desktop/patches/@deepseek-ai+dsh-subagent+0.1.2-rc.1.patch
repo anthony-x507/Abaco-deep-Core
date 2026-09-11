@@ -1,0 +1,158 @@
+diff --git a/node_modules/@deepseek-ai/dsh-subagent/lib/index.js b/node_modules/@deepseek-ai/dsh-subagent/lib/index.js
+index 1111111..2222222 100644
+--- a/node_modules/@deepseek-ai/dsh-subagent/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-subagent/lib/index.js
+@@ -10,8 +10,9 @@
+ import { Session, SessionLogOffset, SessionSeq } from "@deepseek-ai/dsh-session";
+ import { brandString } from "@deepseek-ai/dsh-brand";
+ import { snapshotJsonValue } from "@deepseek-ai/dsh-util-values";
+-import { accessSync, constants, statSync } from "node:fs";
+-import { isAbsolute, resolve } from "node:path";
++import { accessSync, chmodSync, constants, mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
++import { isAbsolute, join, resolve } from "node:path";
++import { homedir } from "node:os";
+ //#region lib/types/error.js
+ /**
+ * Typed failures shared by subagent service and provider operations.
+@@ -917,6 +918,120 @@
+ * @param stopReason - how the child's last ordinary turn ended.
+ * @returns the model-facing opening line of the settlement notice.
+ */
++
++/** Hard ceiling for background settlement notices (ABACO Layer 3 spill cap). */
++const MAX_SETTLED_INLINE_BYTES = 12000;
++/**
++ * Flatten settlement content blocks to plain text for vaulting.
++ * @param blocks
++ * @returns concatenated text, or empty string.
++ */
++function flattenSettlementText(blocks) {
++	if (!Array.isArray(blocks) || blocks.length === 0) return "";
++	const parts = [];
++	for (const block of blocks) {
++		if (block !== null && typeof block === "object" && block.type === "text" && typeof block.text === "string") parts.push(block.text);
++	}
++	return parts.join("\n");
++}
++/**
++ * Persist the FULL settlement output verbatim under $DSH_HOME/abaco-memory/vault/
++ * BEFORE any window cap. Best-effort: returns undefined when the write fails so
++ * the caller keeps the inline body (CONTRACT §3).
++ * @param text - verbatim closing message text.
++ * @param parentSessionId - parent session folder under vault/.
++ * @param childId - child id for the artifact slug.
++ * @returns absolute locator, or undefined.
++ */
++function vaultSettlementVerbatim(text, parentSessionId, childId) {
++	try {
++		const home = typeof process.env.DSH_HOME === "string" && process.env.DSH_HOME.trim().length > 0 ? process.env.DSH_HOME.trim() : join(homedir(), ".dsh");
++		const sessionSeg = String(parentSessionId || "settlement").replace(/[^\w.-]+/g, "_").slice(0, 80) || "settlement";
++		const childSeg = String(childId || "child").replace(/[^\w.-]+/g, "_").slice(0, 48) || "child";
++		const dir = join(home, "abaco-memory", "vault", sessionSeg);
++		mkdirSync(dir, {
++			recursive: true,
++			mode: 0o700
++		});
++		const target = join(dir, `${Date.now()}-subagent-settled-${childSeg}.txt`);
++		const temporary = `${target}.${process.pid}.tmp`;
++		writeFileSync(temporary, text, {
++			encoding: "utf8",
++			mode: 0o600
++		});
++		renameSync(temporary, target);
++		try {
++			chmodSync(target, 0o600);
++		} catch {}
++		return target;
++	} catch {
++		return void 0;
++	}
++}
++/**
++ * Cap settlement blocks for the parent window. NEVER truncates without a locator —
++ * that was the Arquitecto FAIL on 5af3469/52af133. Order: vault FULL first, then call
++ * this with the locator.
++ * @param blocks
++ * @param maxBytes
++ * @param locator - absolute vault path required to truncate.
++ */
++function capSettlementOutput(blocks, maxBytes = MAX_SETTLED_INLINE_BYTES, locator) {
++	if (!Array.isArray(blocks) || blocks.length === 0) return blocks;
++	const text = flattenSettlementText(blocks);
++	const total = Buffer.byteLength(text, "utf8");
++	if (total <= maxBytes) return blocks;
++	if (typeof locator !== "string" || locator.length === 0) return blocks;
++	const headBudget = Math.max(256, Math.floor(maxBytes * 0.75));
++	const out = [];
++	let used = 0;
++	for (const block of blocks) {
++		if (block === null || typeof block !== "object") {
++			out.push(block);
++			continue;
++		}
++		if (block.type !== "text" || typeof block.text !== "string") {
++			out.push(block);
++			continue;
++		}
++		const bytes = Buffer.byteLength(block.text, "utf8");
++		if (used >= headBudget) break;
++		if (used + bytes <= headBudget) {
++			out.push(block);
++			used += bytes;
++			continue;
++		}
++		const remain = headBudget - used;
++		let cut = block.text;
++		while (Buffer.byteLength(cut, "utf8") > remain && cut.length > 0) cut = cut.slice(0, Math.floor(cut.length * 0.9));
++		if (cut.length > 0) out.push({
++			...block,
++			text: cut
++		});
++		used += Buffer.byteLength(cut, "utf8");
++		break;
++	}
++	const omitted = total - used;
++	out.push({
++		type: "text",
++		text: `(se omitieron ${omitted} bytes. Resultado completo en: ${locator}. Usa read con offset/limit o grep sobre esa ruta.)`
++	});
++	return out;
++}
++/**
++ * Vault-first spill for notifySettlement: FULL verbatim to disk, then 12KB window
++ * copy with locator. If vault fails, keep the original blocks inline (best-effort).
++ */
++function spillSettlementOutput(blocks, parentSessionId, childId, maxBytes = MAX_SETTLED_INLINE_BYTES) {
++	if (!Array.isArray(blocks) || blocks.length === 0) return blocks;
++	const text = flattenSettlementText(blocks);
++	const total = Buffer.byteLength(text, "utf8");
++	if (total <= maxBytes) return blocks;
++	const locator = vaultSettlementVerbatim(text, parentSessionId, childId);
++	if (locator === void 0) return blocks;
++	return capSettlementOutput(blocks, maxBytes, locator);
++}
++
+ function settlementSummary(childId, stopReason) {
+ 	const subject = `Background subagent ${childId}`;
+ 	switch (stopReason) {
+@@ -1764,17 +1879,18 @@
+ 			const parent = this.ctx.agents.get(activation.parentSession);
+ 			if (parent === void 0) return;
+ 			const summary = settlementSummary(activation.childId, terminal.stopReason);
++			const spilledOutput = terminal.output === void 0 ? void 0 : spillSettlementOutput(terminal.output, activation.parentSession, activation.childId);
+ 			const message = createUserMessage({
+ 				content: [{
+ 					type: "text",
+ 					text: summary
+-				}, ...terminal.output === void 0 ? [{
++				}, ...spilledOutput === void 0 ? [{
+ 					type: "text",
+ 					text: "It left no closing message."
+ 				}] : [{
+ 					type: "text",
+ 					text: "Its closing message:"
+-				}, ...terminal.output]],
++				}, ...spilledOutput]],
+ 				source: {
+ 					kind: "subagent-settled",
+ 					form: "notice",
