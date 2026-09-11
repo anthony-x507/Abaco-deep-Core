@@ -5,6 +5,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { validateJsonSchemaValue, type JsonSchemaNode } from '@deepseek-ai/dsh-tools'
 import { createScope, scopeTarget } from '@deepseek-ai/dsh-scope'
 import { afterEach, describe, expect, it } from 'vitest'
+import { MEMORY_PHASES, phaseOf, facetsForPhase } from '../packages/abaco-memory/lib/schema.js'
 import {
   apply,
   inject,
@@ -586,7 +587,8 @@ describe('abaco-memory mounting', () => {
       'abaco_memory_set',
       'abaco_memory_get',
       'abaco_memory_forget',
-      'abaco_memory_list'
+      'abaco_memory_list',
+      'abaco_memory_note'
     ])
     // `defineTool` compiled and validated every spec against the harness's own
     // DSL before it reached this registry, so a malformed spec would already
@@ -836,7 +838,7 @@ describe('abaco-memory mounting', () => {
     // resolved by Cordis exactly as it is in the composed profile: a service
     // this plugin reads but does not declare fails here, not in production.
     await ctx.plugin({ name, inject: [...inject], apply })
-    expect(registered).toHaveLength(4)
+    expect(registered).toHaveLength(5)
     expect(sections).toEqual([MEMORY_SECTION_NAME])
     expect(registered).toContain('abaco_memory_set')
   })
@@ -1017,3 +1019,50 @@ describe('abaco-memory configuration', () => {
     expect(sections).toEqual([])
   })
 })
+
+describe('abaco-memory / phases profile-log-note', () => {
+  it('exposes MEMORY_PHASES and phaseOf for every facet', () => {
+    expect([...MEMORY_PHASES]).toEqual(['profile', 'log', 'note'])
+    expect(phaseOf('preferences_user')).toBe('profile')
+    expect(phaseOf('constraints_do_not')).toBe('profile')
+    expect(phaseOf('identity')).toBe('profile')
+    expect(phaseOf('facts')).toBe('log')
+    expect(phaseOf('decisions')).toBe('log')
+    expect(phaseOf('artifacts')).toBe('log')
+    expect(phaseOf('tasks')).toBe('note')
+    expect(phaseOf('open_questions')).toBe('note')
+    expect(phaseOf('nope')).toBeUndefined()
+  })
+
+  it('facetsForPhase follows MEMORY_RENDER_ORDER within each phase', () => {
+    expect(facetsForPhase('profile')).toEqual([
+      'identity',
+      'preferences_user',
+      'constraints_do_not',
+      'output_format'
+    ])
+    expect(facetsForPhase('log')).toEqual(['projects_state', 'decisions', 'facts', 'artifacts'])
+    expect(facetsForPhase('note')).toEqual(['tasks', 'open_questions'])
+  })
+
+  it('abaco_memory_note writes into the phase default facet', async () => {
+    const root = await memoryRoot()
+    const { ctx, tools } = recordingContext()
+    await apply(ctx, { root })
+    const noteTool = toolNamed(tools, 'abaco_memory_note')
+    const exec = {
+      agent: {
+        session: {
+          header: { ...HEADER, id: 's-phase-1', cwd: '/tmp/proj-phase' },
+          seq: 0,
+          eventAt: () => undefined
+        }
+      }
+    }
+    const result = await noteTool.execute({ text: 'session todo from test', phase: 'note' }, exec)
+    expect(result).toMatchObject({ ok: true, phase: 'note', facet: 'tasks' })
+    const logResult = await noteTool.execute({ text: 'verified fact', phase: 'log', source: 'user' }, exec)
+    expect(logResult).toMatchObject({ ok: true, phase: 'log', facet: 'facts' })
+  })
+})
+

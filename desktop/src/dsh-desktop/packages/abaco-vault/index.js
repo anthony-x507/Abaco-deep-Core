@@ -61,7 +61,7 @@ import { appendFile, chmod, mkdir, rename, stat, unlink, writeFile } from 'node:
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
-import { artifactFileName, composeVaultedText, flattenPlainText, planSettledRewrite, renderOmittedNotice, settledMessageText, slugify, utf8Bytes, withReplacedContent, DEFAULT_HEAD_LINES, DEFAULT_MAX_SETTLED_BYTES } from './lib/plan.js'
+import { artifactFileName, capSettlementOutput, composeVaultedText, flattenPlainText, planSettledRewrite, renderOmittedNotice, settledMessageText, slugify, utf8Bytes, withReplacedContent, DEFAULT_HEAD_LINES, DEFAULT_MAX_SETTLED_BYTES } from './lib/plan.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'abaco-vault'
@@ -401,20 +401,28 @@ async function apply(ctx, config) {
     try {
       const text = settledMessageText(message)
       if (text === undefined) return undefined
-      const plan = planSettledRewrite(text, resolved)
-      if (plan.kind !== 'rewrite') return undefined
+      // Gate: never cut without a vault locator. Order is vault verbatim → then cap.
+      const gate = capSettlementOutput(text, { maxBytes: resolved.maxSettledBytes, headLines: resolved.headLines })
+      if (gate.kind === 'keep') return undefined
+      if (gate.kind !== 'needs-vault') return undefined
       const senderSessionId = message.source?.senderSessionId
       const slug = slugify(`subagent-settled-${typeof senderSessionId === 'string' ? senderSessionId : ''}`, 'subagent-settled')
       const saved = await vaultText({
         root,
         sessionId,
         kind: 'subagent-settled',
-        text,
+        text: gate.text,
         slug,
         extra: typeof senderSessionId === 'string' ? { senderSessionId } : {},
         logger
       })
-      return withReplacedContent(message, composeVaultedText(plan.head, plan.omitted, saved.locator))
+      const capped = capSettlementOutput(text, {
+        maxBytes: resolved.maxSettledBytes,
+        headLines: resolved.headLines,
+        locator: saved.locator
+      })
+      if (capped.kind !== 'capped') return undefined
+      return withReplacedContent(message, capped.blocks[0].text)
     } catch (error) {
       logger.warn(`abaco-vault: could not vault a settlement notice for session ${sessionId} (${describe(error)}); keeping it inline`)
       return undefined

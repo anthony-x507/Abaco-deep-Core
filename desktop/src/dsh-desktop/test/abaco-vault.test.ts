@@ -17,6 +17,7 @@ import {
   inject,
   MEMORY_DIR_NAME,
   name,
+  capSettlementOutput,
   planSettledRewrite,
   renderOmittedNotice,
   resolveVaultConfig,
@@ -339,6 +340,41 @@ describe('abaco-vault / vault root', () => {
 /* ──────────────────────────────────────────────────────────────────────────────
  * Arm A — the settlement-notice hole
  * ────────────────────────────────────────────────────────────────────────────── */
+
+describe('abaco-vault / capSettlementOutput gate (vault-first)', () => {
+  it('keeps blocks under the 12KB budget', () => {
+    const blocks = [{ type: 'text' as const, text: 'corto' }]
+    const result = capSettlementOutput(blocks, { maxBytes: 12000 })
+    expect(result.kind).toBe('keep')
+    expect(result.bytes).toBeLessThanOrEqual(12000)
+  })
+
+  it('refuses to truncate without a locator (needs-vault)', () => {
+    const text = 'x'.repeat(20000)
+    const result = capSettlementOutput(text, { maxBytes: 12000 })
+    expect(result.kind).toBe('needs-vault')
+    if (result.kind !== 'needs-vault') throw new Error('expected needs-vault')
+    expect(result.bytes).toBeGreaterThan(12000)
+    expect(result.text).toBe(text)
+    // Original content must remain available for vaulting — no destructive cut.
+    expect(result.blocks[0]?.text ?? result.text).toContain('x'.repeat(100))
+  })
+
+  it('caps only after a locator is supplied', () => {
+    const text = ('line\n').repeat(4000)
+    const locator = '/tmp/abaco-memory/vault/session/1-subagent-settled.txt'
+    const gated = capSettlementOutput(text, { maxBytes: 12000 })
+    expect(gated.kind).toBe('needs-vault')
+    const capped = capSettlementOutput(text, { maxBytes: 12000, locator })
+    expect(capped.kind).toBe('capped')
+    if (capped.kind !== 'capped') throw new Error('expected capped')
+    expect(capped.locator).toBe(locator)
+    expect(capped.omitted).toBeGreaterThan(0)
+    expect(capped.blocks[0]?.text).toContain(locator)
+    expect(capped.blocks[0]?.text).toContain('se omitieron')
+    expect(utf8Bytes(capped.blocks[0]?.text ?? '')).toBeLessThan(capped.bytes)
+  })
+})
 
 describe('abaco-vault / arm A: subagent-settled notices', () => {
   it('vaults an oversized notice verbatim, indexes it, and keeps the head inline', async () => {

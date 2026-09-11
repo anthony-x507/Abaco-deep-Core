@@ -196,6 +196,56 @@ export function composeVaultedText(head, omittedBytes, locator) {
 }
 
 /**
+ * Gate for settlement `terminal.output` / notice text blocks (CONTRACT §3 FAIL fix).
+ *
+ * Order is mandatory: **vault full verbatim first**, then cut the window copy.
+ * This helper never truncates without a locator — that was the destructive hole
+ * in the old `dsh-subagent` notifySettlement patch.
+ *
+ * @param blocks - content blocks (`{type:'text', text}`) or a single string.
+ * @param options - `{ maxBytes?, locator? }`. `locator` is required to truncate.
+ * @returns
+ *   - `{ kind: 'keep', blocks, bytes }` under budget
+ *   - `{ kind: 'needs-vault', blocks, bytes, text }` over budget, no locator yet
+ *   - `{ kind: 'capped', blocks, bytes, kept, omitted, locator }` over budget with locator
+ */
+export function capSettlementOutput(blocks, options = {}) {
+  const maxBytes = positiveInteger(options?.maxBytes, DEFAULT_MAX_SETTLED_BYTES)
+  const locator = typeof options?.locator === 'string' && options.locator.length > 0 ? options.locator : undefined
+  const list = typeof blocks === 'string'
+    ? [{ type: 'text', text: blocks }]
+    : Array.isArray(blocks) ? blocks : []
+  const parts = []
+  for (const block of list) {
+    if (block !== null && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string') {
+      parts.push(block.text)
+    }
+  }
+  const text = parts.join('\n')
+  const bytes = utf8Bytes(text)
+  if (bytes <= maxBytes) {
+    return { kind: 'keep', blocks: typeof blocks === 'string' ? list : blocks, bytes }
+  }
+  if (locator === undefined) {
+    return { kind: 'needs-vault', blocks: typeof blocks === 'string' ? list : blocks, bytes, text }
+  }
+  const plan = planSettledRewrite(text, { maxSettledBytes: maxBytes, headLines: options?.headLines })
+  if (plan.kind !== 'rewrite') {
+    return { kind: 'keep', blocks: typeof blocks === 'string' ? list : blocks, bytes }
+  }
+  const cappedText = composeVaultedText(plan.head, plan.omitted, locator)
+  return {
+    kind: 'capped',
+    blocks: [{ type: 'text', text: cappedText }],
+    bytes,
+    kept: plan.kept,
+    omitted: plan.omitted,
+    locator
+  }
+}
+
+
+/**
  * The model-facing text of a settlement notice, or `undefined` when the message
  * is not one we recognize.
  *
