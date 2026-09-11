@@ -793,7 +793,12 @@ window.__ModuleLoader__.load({
       const canWrite = inputActions && typeof inputActions.setDraft === 'function'
       const onInsert = (text) => {
         if (!canWrite) return
-        inputActions.setDraft(draft ? `${draft} ${text}` : text)
+        const trimmed = String(text || '').trim()
+        if (!trimmed) return
+        // Fill the composer, then send — speak-to-send (P0). setDraft is sync on
+        // the input shell snapshot, so submit() sees the new draft immediately.
+        inputActions.setDraft(draft ? `${draft} ${trimmed}` : trimmed)
+        if (typeof inputActions.submit === 'function') inputActions.submit()
       }
       return h(MicButton, { onInsert: canWrite ? onInsert : () => {} })
     }

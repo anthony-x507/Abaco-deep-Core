@@ -144,7 +144,7 @@ window.__ModuleLoader__.load({
         `${window.location.origin}${EXTRACT_PATH}?filename=${encodeURIComponent(file.name)}`,
         {
           method: 'POST',
-          headers: { 'content-type': 'application/octet-stream' },
+          headers: { 'content-type': file.type || 'application/octet-stream' },
           body: bytes,
         },
       )
@@ -196,7 +196,7 @@ window.__ModuleLoader__.load({
         h('button', {
           type: 'button',
           'aria-label': 'Subir documento',
-          title: 'Subir documento (PDF, DOCX, TXT, MD, CSV, JSON, YAML)',
+          title: 'Subir documento o foto (PDF, DOCX, TXT, MD, CSV, JSON, YAML, PNG, JPEG, GIF, WEBP)',
           className: `abaco-doc-upload-btn${busy ? ' abaco-doc-busy' : ''}`,
           onClick: () => inputRef.current && inputRef.current.click(),
         }, busy ? '…' : '📎'),
@@ -204,7 +204,7 @@ window.__ModuleLoader__.load({
           ref: inputRef,
           type: 'file',
           multiple: true,
-          accept: '.pdf,.docx,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.xml,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv',
+          accept: '.pdf,.docx,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.xml,.png,.jpg,.jpeg,.gif,.webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv,image/png,image/jpeg,image/gif,image/webp,image/*',
           onChange: onPick,
           style: { display: 'none' },
         }),
@@ -244,6 +244,7 @@ window.__ModuleLoader__.load({
       if (lower.endsWith('.csv')) return '📊'
       if (lower.endsWith('.json') || lower.endsWith('.yaml') || lower.endsWith('.yml')) return '⚙'
       if (lower.endsWith('.md') || lower.endsWith('.markdown')) return '📑'
+      if (/\.(png|jpe?g|gif|webp)$/.test(lower)) return '🖼'
       return '📃'
     }
 
@@ -260,6 +261,10 @@ window.__ModuleLoader__.load({
       if (!ready.length) return ''
       const parts = ready.map((d) => {
         const meta = d.meta || {}
+        if (meta.kind === 'image' || (meta.mediaType && String(meta.mediaType).startsWith('image/'))) {
+          const media = meta.mediaType || d.type || 'image/*'
+          return `\n\n<image name="${escapeXml(d.name)}" mediaType="${escapeXml(media)}">\n${d.text}\n</image>`
+        }
         const where = meta.pageCount ? ` (${meta.pageCount} pages)` : ` (${meta.charCount || d.text.length} chars)`
         return `\n\n<document name="${escapeXml(d.name)}"${where}>\n${d.text}\n</document>`
       })
@@ -290,17 +295,37 @@ window.__ModuleLoader__.load({
       React.useEffect(() => store.subscribe(setDocs), [store])
       const draft = readCurrentDraft({ useInput }) || (input && input.draft) || ''
       const ready = docs.filter((d) => d.status === 'ready')
+      const extracting = docs.some((d) => d.status === 'extracting')
+      const autoKeyRef = React.useRef('')
 
       const onRemove = (id) => store.remove(id)
 
-      const onInsert = () => {
-        if (!ready.length) return
-        if (!inputActions || typeof inputActions.setDraft !== 'function') return
-        const context = buildContextText(docs)
-        if (!context) return
-        inputActions.setDraft(`${draft}${context}`)
+      const insertReady = React.useCallback(() => {
+        const currentDocs = store.get()
+        const readyNow = currentDocs.filter((d) => d.status === 'ready' && d.text)
+        if (!readyNow.length) return false
+        if (!inputActions || typeof inputActions.setDraft !== 'function') return false
+        const context = buildContextText(currentDocs)
+        if (!context) return false
+        const liveDraft = readCurrentDraft({ useInput }) || (input && input.draft) || ''
+        inputActions.setDraft(`${liveDraft}${context}`)
         store.clear()
-      }
+        return true
+      }, [store, inputActions, useInput, input])
+
+      // P0 one-shot: when every picked file has finished extracting, auto-insert
+      // context into the composer (no second click on "Insertar contexto").
+      React.useEffect(() => {
+        if (extracting) return
+        const readyWithText = docs.filter((d) => d.status === 'ready' && d.text)
+        if (!readyWithText.length) return
+        const key = readyWithText.map((d) => d.id).sort().join('|')
+        if (autoKeyRef.current === key) return
+        autoKeyRef.current = key
+        if (insertReady()) autoKeyRef.current = ''
+      }, [docs, extracting, insertReady])
+
+      const onInsert = () => { insertReady() }
 
       if (!docs.length) return null
 
@@ -313,12 +338,12 @@ window.__ModuleLoader__.load({
           h('button', {
             type: 'button',
             className: 'abaco-doc-action',
-            disabled: !inputActions || typeof inputActions.setDraft !== 'function',
+            disabled: !inputActions || typeof inputActions.setDraft !== 'function' || extracting,
             onClick: onInsert,
             title: inputActions && typeof inputActions.setDraft === 'function'
-              ? 'Añade el texto extraído al mensaje actual (lo verás en el editor para revisarlo antes de enviar)'
+              ? 'Reinserta el contexto si el auto-insert no corrió (también se inserta solo al terminar la extracción)'
               : 'Inserta el texto en el editor del mensaje antes de enviarlo',
-          }, `Insertar contexto en el mensaje (${ready.length})`),
+          }, extracting ? 'Extrayendo…' : `Insertar contexto en el mensaje (${ready.length})`),
           h('button', {
             type: 'button',
             className: 'abaco-doc-action',
