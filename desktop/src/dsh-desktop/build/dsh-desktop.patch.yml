@@ -125,6 +125,25 @@
     - id: abaco-vault
       name: abaco-vault
 
+# Phase 0 telemetry for the 3-layer context system. Every later step of this plan
+# — the subagent spill cap, Principle D, Principle C, the memory protocol — is
+# argued from the claim that compaction degrades the agent, and until now that
+# claim was an inference from reading the engine: nothing in this product had
+# ever recorded a compaction. This row changes nothing about engine behaviour. It
+# is a host-plane observer that listens on the engine's own `session/event`
+# firehose (`dsh-session/lib/index.js:1428-1435`), `agent/status` and
+# `agent/request-error`, reads the `contextPressure` projection the engine
+# already maintains (`dsh-token-meter/lib/index.js:405-409`), and appends one
+# JSON line per observed event to `<DSH_HOME>/logs/abaco-context.jsonl` — so
+# `used_before`/`used_after`/Δ, the span, the compression ratio, truncations,
+# retries and spill counts can be read after one long real session instead of
+# being guessed. It registers no service, adds no tool, writes no session event,
+# and states its own gaps (an inferred trigger, an estimated checkpoint size) in
+# the records themselves rather than filling them with plausible numbers.
+- insert:
+    - id: abaco-observability
+      name: abaco-observability
+
 # Layer 1 of the 3-layer context system: the working window and its summary
 # policy. `compaction-basic` freezes its policy at construction and reads it
 # from its composition row, so the only supported way to change WHEN the agent

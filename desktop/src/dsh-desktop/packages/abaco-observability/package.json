@@ -1,0 +1,21 @@
+{
+  "name": "abaco-observability",
+  "version": "0.1.0",
+  "description": "Phase 0 telemetry for ABACO DEEP HARNES' 3-layer context system: a host-plane row that observes compaction, pruning, spills and context pressure on the engine's own events and projections, and appends one JSON line per observation to <DSH_HOME>/logs/abaco-context.jsonl. It registers no service, adds no tool and never writes a session event.",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": {
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}
