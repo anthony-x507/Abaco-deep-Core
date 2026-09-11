@@ -58,6 +58,7 @@ import {
   serializeGpuFallbackState
 } from './gpu-fallback'
 import { secureWindow } from './security'
+import { classifyConsoleMessage, describePreloadFailure } from './preload-failure'
 import { SafeModeOverlay } from './safe-mode-overlay'
 import { AbacoBrowserController } from './abaco-browser-controller'
 import { AbacoBrowserRpcServer } from './abaco-browser-rpc'
@@ -239,6 +240,10 @@ let gpuFallbackState: GpuFallbackState = defaultGpuFallbackState
 let gpuFallbackRelaunching = false
 let gpuStableLaunchTimer: NodeJS.Timeout | undefined
 
+// Last preload-failure line written to `harness.log`, so a window that keeps
+// reloading cannot flood the log with the same entry.
+let lastPreloadFailureLine: string | undefined
+
 function appendRendererPluginFailureLog(message: string): void {
   const trimmed = message.trim()
   if (!trimmed) return
@@ -311,6 +316,31 @@ function appendPluginRecoveryDetectionLog(plugins: readonly string[]): void {
     )
   } catch (error) {
     console.warn('[desktop] failed to persist plugin recovery detection', error)
+  }
+}
+
+/**
+ * Record a preload that failed to load.
+ *
+ * A sandboxed preload that throws is the quietest failure this app has: the
+ * window still renders, so the only symptom is a UI whose every bridge is
+ * missing. Nothing else in `harness.log` points at it, which is why the line
+ * names the preload, the error, and the consequence, and why it also goes to
+ * stderr — if the log directory itself is unwritable, stderr is the only
+ * evidence left, and this is not a failure worth losing.
+ */
+function appendPreloadFailureLog(origin: string, error: unknown): void {
+  const line = describePreloadFailure(origin, error)
+  console.error(`[desktop] ${line}`)
+  // Like `appendRendererPluginFailureLog`, skip a repeat of the line just
+  // written: a window that reloads in a loop would otherwise fill the log with
+  // the same failure.
+  if (lastPreloadFailureLine === line) return
+  lastPreloadFailureLine = line
+  try {
+    appendFileSync(join(app.getPath('logs'), 'harness.log'), `[desktop] ${line}\n`, 'utf8')
+  } catch (logError) {
+    console.warn('[desktop] failed to persist preload failure evidence', logError)
   }
 }
 
@@ -491,6 +521,12 @@ function attachWindowsMenuView(window: BrowserWindow): void {
   menuView.setBackgroundColor('#00000000')
   menuView.webContents.setZoomFactor(1)
   menuView.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // Same reason the main window listens: this preload is the only script in the
+  // menu document, so a preload that fails to load leaves a menu that opens and
+  // does nothing.
+  menuView.webContents.on('preload-error', (_event, preloadPath, error) => {
+    appendPreloadFailureLog(preloadPath, error)
+  })
   menuView.webContents.on('did-finish-load', () => {
     if (!menuView.webContents.isDestroyed()) {
       menuView.webContents.send('desktop-titlebar:theme-changed', windowsMenuDark)
@@ -990,10 +1026,16 @@ function createWindow(): BrowserWindow {
     event.preventDefault()
     window.setTitle('')
   })
+  window.webContents.on('preload-error', (_event, preloadPath, error) => {
+    appendPreloadFailureLog(preloadPath, error)
+  })
   window.webContents.on('console-message', (details) => {
-    if (details.level !== 'error') return
-    const sourceUrl = details.sourceId || window.webContents.getURL()
-    if (!sourceUrl.startsWith('http://127.0.0.1:')) return
+    const decision = classifyConsoleMessage(details, window.webContents.getURL())
+    if (decision === 'ignore') return
+    if (decision === 'preload-failure') {
+      appendPreloadFailureLog(details.sourceId ?? 'unknown preload', details.message)
+      return
+    }
     appendRendererPluginFailureLog(details.message)
   })
   installPluginRecoveryNavigation(window)
@@ -1027,7 +1069,8 @@ function createWindow(): BrowserWindow {
     // installed bundle: `<userData>/abaco-browser/recordings` is writable on
     // every platform and survives an app upgrade. F3's `save-skill` handler
     // reads the same directory back through `abacoBrowserRecordingsDir()`.
-    recordingsDir: abacoBrowserRecordingsDir()
+    recordingsDir: abacoBrowserRecordingsDir(),
+    onPreloadError: appendPreloadFailureLog
   })
   if (isWindows) attachWindowsMenuView(window)
   return window

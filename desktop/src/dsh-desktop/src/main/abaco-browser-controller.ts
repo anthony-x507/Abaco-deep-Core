@@ -69,6 +69,12 @@ export interface AbacoBrowserViewPaths {
    * passes it in because only main may touch `app.getPath`.
    */
   recordingsDir: string
+  /**
+   * Called when a preload in this overlay fails to load. Main owns the harness
+   * log, so the controller reports the failure instead of deciding what to do
+   * with it. Optional: the overlay still runs without a listener.
+   */
+  onPreloadError?: (preloadPath: string, error: unknown) => void
 }
 
 /**
@@ -306,6 +312,12 @@ export class AbacoBrowserController {
     })
     chromeBarView.setBackgroundColor('#00000000')
     chromeBarView.webContents.setZoomFactor(1)
+    // The strip renders a fully inert document and does all of its work in this
+    // preload, so a preload that fails to load leaves a visible but completely
+    // dead address bar with no other trace. Report it to the harness log.
+    chromeBarView.webContents.on('preload-error', (_event, preloadPath, error) => {
+      this.paths.onPreloadError?.(preloadPath, error)
+    })
 
     this.pageView = pageView
     this.chromeBarView = chromeBarView
