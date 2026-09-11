@@ -95,7 +95,16 @@ window.__ModuleLoader__.load({
           (value) => {
             const isOpenNow = value === true
             setOpen(!isOpenNow)
-            return isOpenNow ? bridge.close() : bridge.open()
+            if (isOpenNow) return bridge.close()
+            // P1: open the layout details column when available so chat stays
+            // visible beside the browser. We do not occupy the single `details`
+            // slot (that would shadow DetailsPanel); main uses a geometric
+            // right strip (300–520 DIP) unless reportPanelHostBounds is used.
+            try {
+              const layout = typeof window !== 'undefined' ? window.__abacoBrowserLayout : undefined
+              if (layout && typeof layout.openDetails === 'function') layout.openDetails()
+            } catch (_) {}
+            return bridge.open()
           },
           (error) => console.error('[abaco-browser] unable to toggle the browser overlay', error),
         )
@@ -195,12 +204,19 @@ window.__ModuleLoader__.load({
     }
 
     // ── Slot injection ─────────────────────────────────────────────────────
-    // `slots` is the only service this plugin touches; the launcher reads nothing
-    // else from the Cordis context and never writes to it.
-    const inject = ['slots']
+    // `slots` mounts the footer launcher. `layout` is optional: when present we
+    // stash `ctx.layout` so open can call `openDetails()` and reveal the details
+    // column beside chat. We deliberately do NOT register into the single
+    // `details` slot — that would shadow ui-conversation's DetailsPanel — so
+    // panel geometry stays on the main-process geometric right strip
+    // (clamped 300–520 DIP, default 420).
+    const inject = ['slots', 'layout']
 
     function apply(ctx) {
       injectStyle()
+      try {
+        if (ctx.layout) window.__abacoBrowserLayout = ctx.layout
+      } catch (_) {}
       ctx.slots.inject(SLOT, () =>
         ctx.slots.register(
           { name: SLOT, id: OCCUPANT_ID, order: 0, label: 'ABACO browser' },
