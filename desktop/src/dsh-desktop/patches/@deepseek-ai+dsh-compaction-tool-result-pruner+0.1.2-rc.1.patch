@@ -1,0 +1,14 @@
+--- a/node_modules/@deepseek-ai/dsh-compaction-tool-result-pruner/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-compaction-tool-result-pruner/lib/index.js
+@@ -148,6 +148,11 @@
+ 		let charsRemoved = 0;
+ 		for (const { seq, event } of candidates) {
+ 			const result = event.data.message.content[0];
++			// Principle D (ABACO): never truncate an isError tool result. Errors are
++			// evidence; paraphrasing or head/tail pruning destroys the raw message.
++			// Format retained elsewhere as `ERROR | tool | raw` — the pruner's job
++			// here is only to leave the bytes alone when isError is true.
++			if (result?.isError === true) continue;
+ 			const content = this.pruneContent(result.content);
+ 			if (content === null) continue;
+ 			const charsBefore = this.measureContent(result.content);

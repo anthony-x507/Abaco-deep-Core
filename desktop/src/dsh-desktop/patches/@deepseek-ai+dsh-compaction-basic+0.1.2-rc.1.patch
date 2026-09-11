@@ -1,0 +1,157 @@
+--- a/node_modules/@deepseek-ai/dsh-compaction-basic/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-compaction-basic/lib/index.js
+@@ -232,7 +232,7 @@
+ 	"- [exact path: why it matters, key changes or snippets]",
+ 	"",
+ 	"## Errors and Fixes",
+-	"- [error: how it was resolved, plus any related user feedback]",
++	"- Transcribe each tool error LITERALLY as: ERROR | <toolName> | <raw message>. Never paraphrase, soften, or write 'how it was resolved'. Truncate stack bytes only if unavoidable; keep the error string intact.",
+ 	"",
+ 	"## Pending Jobs",
+ 	"- [explicitly requested work not yet completed]",
+@@ -651,10 +651,44 @@
+ function buildSummarizationInput(session, shadowedSeqs) {
+ 	const header = session.requestHeader();
+ 	const regionMessages = shadowedSeqs.map((seq) => session.deriveEventMessage(session.eventAt(seq))).filter((message) => message !== null);
++	// Principle D: keep isError tool results out of the LLM condensation corpus.
++	// Replace each with a single literal ERROR | tool | raw line so the
++	// checkpoint must carry the evidence verbatim instead of "how it was resolved".
++	const messages = regionMessages.map((message) => {
++		if (message?.role !== "tool" && message?.role !== "toolResult") {
++			const content0 = message?.content?.[0];
++			if (content0?.type === "tool-result" && content0.isError === true) {
++				const toolName = content0.name ?? content0.toolName ?? message?.source?.name ?? "tool";
++				const raw = Array.isArray(content0.content)
++					? content0.content.filter((b) => b?.type === "text").map((b) => b.text).join("")
++					: typeof content0.content === "string" ? content0.content : String(content0.content ?? "");
++				const clipped = raw.length > 4000 ? `${raw.slice(0, 4000)}…` : raw;
++				return {
++					...message,
++					content: [{ type: "text", text: `ERROR | ${toolName} | ${clipped}` }]
++				}
++			}
++			if (Array.isArray(message?.content)) {
++				const first = message.content[0];
++				if (first?.isError === true) {
++					const toolName = message?.source?.name ?? first.name ?? "tool";
++					const raw = Array.isArray(first.content)
++						? first.content.filter((b) => b?.type === "text").map((b) => b.text).join("")
++						: typeof first.text === "string" ? first.text : "";
++					const clipped = raw.length > 4000 ? `${raw.slice(0, 4000)}…` : raw;
++					return {
++						...message,
++						content: [{ type: "text", text: `ERROR | ${toolName} | ${clipped}` }]
++					};
++				}
++			}
++		}
++		return message;
++	});
+ 	return {
+ 		...header?.system === void 0 ? {} : { system: header.system },
+ 		...header?.tools === void 0 ? {} : { tools: header.tools },
+-		messages: regionMessages
++		messages
+ 	};
+ }
+ /** Inspect open-turn, unmatched-compaction, and latest seed-boundary state independently. */
+@@ -764,6 +798,12 @@
+ 	warnedPressureConfigTargets = /* @__PURE__ */ new Set();
+ 	overflowRetries = /* @__PURE__ */ new WeakMap();
+ 	overflowAgents = /* @__PURE__ */ new WeakMap();
++	/** Principle C: per-session auto-compact grant after the first accepted ask. */
++	principleCAllowed = /* @__PURE__ */ new WeakMap();
++	/** Principle C: anti-loop — do not re-ask while still above threshold after a reject. */
++	principleCDeferred = /* @__PURE__ */ new WeakMap();
++	/** Principle C: whether the previous pressure check was already above threshold. */
++	principleCWasAbove = /* @__PURE__ */ new WeakMap();
+ 	constructor(ctx, config = {}) {
+ 		super(ctx);
+ 		this.config = resolveConfig(config);
+@@ -854,6 +894,60 @@
+ 	* @param signal - live turn cancellation signal forwarded to summarization.
+ 	* @returns the latest summary compaction result, or `null` when no summary ran.
+ 	*/
++	/**
++	* Principle C — first pressure compaction of a session asks the user.
++	* Accept → auto for the rest of the session. Reject → no compact, soft-warn,
++	* do not re-ask every pre-step; only ask again on the *next* threshold crossing
++	* (tokens drop below threshold, then rise again). Never compact in silence
++	* after a reject. Flag lives on the engine WeakMap (survives compaction).
++	* @returns true when compaction may proceed, false when it must skip.
++	*/
++	async _principleCMayCompact(agent, measurement, thresholdTokens, signal) {
++		const session = agent.session;
++		const above = measurement.totalTokens >= thresholdTokens;
++		const wasAbove = this.principleCWasAbove.get(session) === true;
++		this.principleCWasAbove.set(session, above);
++		if (!above) {
++			this.principleCDeferred.delete(session);
++			return false;
++		}
++		if (this.principleCAllowed.get(session) === true) return true;
++		// Still above after a reject for this crossing → soft-warn once-ish, no loop.
++		if (this.principleCDeferred.get(session) === true) {
++			this.ctx.logger.warn("compaction (principle-C): still above threshold after user reject; not compacting and not re-asking this crossing");
++			return false;
++		}
++		// New crossing (or first time above): ask.
++		const approval = this.ctx.get("approval");
++		if (approval === void 0 || typeof approval.request !== "function") {
++			this.ctx.logger.warn("compaction (principle-C): approval service unavailable; refusing to compact in silence (fail closed)");
++			this.principleCDeferred.set(session, true);
++			return false;
++		}
++		let outcome;
++		try {
++			outcome = await approval.request({
++				agent,
++				toolName: "compact",
++				reason: `Context is at ${measurement.totalTokens} tokens (threshold ${thresholdTokens}). Compact older turns into a checkpoint? Accept once to auto-compact for the rest of this session.`,
++				signal
++			});
++		} catch (error) {
++			const message = error instanceof Error ? error.message : String(error);
++			this.ctx.logger.warn(`compaction (principle-C): approval request failed (${message}); not compacting`);
++			this.principleCDeferred.set(session, true);
++			return false;
++		}
++		if (outcome === "allowed-once") {
++			this.principleCAllowed.set(session, true);
++			this.principleCDeferred.delete(session);
++			this.ctx.logger.info("compaction (principle-C): user accepted; auto-compact enabled for this session");
++			return true;
++		}
++		this.principleCDeferred.set(session, true);
++		this.ctx.logger.warn(`compaction (principle-C): user ${outcome}; not compacting this crossing (no silent compact, no ask-loop)`);
++		return false;
++	}
+ 	async compactIfNeeded(agent, trigger, signal) {
+ 		const target = routedTarget(agent.session);
+ 		if (target === void 0) return null;
+@@ -868,6 +962,10 @@
+ 		}
+ 		const prune = this.ctx.get("toolResultPruner");
+ 		if (trigger === "context-overflow") {
++			// Principle C still applies: first compaction of the session must ask.
++			// thresholdTokens=0 keeps "above" true for this hard overflow crossing.
++			const mayOverflowCompact = await this._principleCMayCompact(agent, measurement, 0, signal);
++			if (!mayOverflowCompact) return null;
+ 			if (prune !== void 0) {
+ 				prune.pruneSession(agent.session);
+ 				measurement = meter.measure(agent.session);
+@@ -881,7 +979,13 @@
+ 		const targetKey = `${target.provider}/${target.model}`;
+ 		if (context === void 0) throw new TargetPressureConfigError(targetKey, `compaction-basic: no context capacity for ${targetKey}; configure contextWindow on that adapter model`);
+ 		const spec = resolveCompactSpec(policy, context.contextWindow);
+-		if (measurement.totalTokens < spec.thresholdTokens) return null;
++		if (measurement.totalTokens < spec.thresholdTokens) {
++			this.principleCWasAbove.set(agent.session, false);
++			this.principleCDeferred.delete(agent.session);
++			return null;
++		}
++		const mayCompact = await this._principleCMayCompact(agent, measurement, spec.thresholdTokens, signal);
++		if (!mayCompact) return null;
+ 		if (prune !== void 0) {
+ 			prune.pruneSession(agent.session);
+ 			measurement = meter.measure(agent.session);
