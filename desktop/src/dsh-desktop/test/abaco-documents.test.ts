@@ -121,3 +121,13 @@ describe('abaco-documents HEIC / office UX contracts', () => {
   })
 })
 
+describe('abaco-documents folder picker contract', () => {
+  it('exposes a webkitdirectory folder control', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const client = await readFile('packages/abaco-documents/client.js', 'utf8')
+    expect(client).toContain('webkitdirectory')
+    expect(client).toContain('Subir carpeta')
+    expect(client).toContain('DOC_NAME_RE')
+  })
+})
+

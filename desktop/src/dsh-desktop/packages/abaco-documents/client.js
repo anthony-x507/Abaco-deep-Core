@@ -158,16 +158,20 @@ window.__ModuleLoader__.load({
 
     // ── Upload button (composer right accessory) ─────────────────────────
 
+    const DOC_NAME_RE = /\.(pdf|docx|txt|md|markdown|csv|json|ya?ml|xml|png|jpe?g|gif|webp|heic|heif)$/i
+
     function UploadButton({ store }) {
       const inputRef = React.useRef(null)
+      const folderRef = React.useRef(null)
       const [busy, setBusy] = React.useState(false)
 
-      const onPick = async (e) => {
-        const files = Array.from(e.target.files || [])
-        e.target.value = '' // allow re-pick of same file
+      const ingestFiles = async (fileList) => {
+        const files = Array.from(fileList || [])
         if (!files.length) return
         setBusy(true)
         for (const file of files) {
+          // Folder picks include nested junk — skip obvious non-docs early.
+          if (file.name && file.name.startsWith('.')) continue
           const id = `doc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
           store.add({
             id, name: file.name, size: file.size, type: file.type,
@@ -191,6 +195,28 @@ window.__ModuleLoader__.load({
         setBusy(false)
       }
 
+      const onPick = async (e) => {
+        const list = e.target.files
+        e.target.value = ''
+        await ingestFiles(list)
+      }
+
+      const onFolderPick = async (e) => {
+        const raw = Array.from(e.target.files || [])
+        e.target.value = ''
+        const filtered = raw.filter((f) => DOC_NAME_RE.test(f.name || ''))
+        if (!filtered.length && raw.length) {
+          const id = `doc_${Date.now()}_empty`
+          store.add({
+            id, name: '(carpeta)', size: 0, type: '',
+            status: 'error',
+            error: 'La carpeta no tenía PDF/DOCX/TXT/MD/CSV/JSON/YAML/XML/PNG/JPEG/GIF/WEBP/HEIC.',
+          })
+          return
+        }
+        await ingestFiles(filtered)
+      }
+
       return h(
         React.Fragment, null,
         h('button', {
@@ -200,12 +226,29 @@ window.__ModuleLoader__.load({
           className: `abaco-doc-upload-btn${busy ? ' abaco-doc-busy' : ''}`,
           onClick: () => inputRef.current && inputRef.current.click(),
         }, busy ? '…' : '📎'),
+        h('button', {
+          type: 'button',
+          'aria-label': 'Subir carpeta de documentos',
+          title: 'Subir carpeta (filtra tipos soportados)',
+          className: `abaco-doc-upload-btn${busy ? ' abaco-doc-busy' : ''}`,
+          onClick: () => folderRef.current && folderRef.current.click(),
+        }, busy ? '…' : '📁'),
         h('input', {
           ref: inputRef,
           type: 'file',
           multiple: true,
           accept: '.pdf,.docx,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.xml,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv,image/png,image/jpeg,image/gif,image/webp,image/heic,image/heif,image/*',
           onChange: onPick,
+          style: { display: 'none' },
+        }),
+        h('input', {
+          ref: folderRef,
+          type: 'file',
+          multiple: true,
+          // Chromium/Electron folder picker
+          webkitdirectory: '',
+          directory: '',
+          onChange: onFolderPick,
           style: { display: 'none' },
         }),
       )
