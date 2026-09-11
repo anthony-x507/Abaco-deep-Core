@@ -55,7 +55,12 @@ export async function extract(file) {
     lower.endsWith('.csv') || lower.endsWith('.json') || lower.endsWith('.yaml') || lower.endsWith('.yml') ||
     lower.endsWith('.xml')
   ) return extractText(file)
-  throw new Error(`Tipo de archivo no soportado: ${file.type || name}. Aceptados: PDF, DOCX, TXT, MD, CSV, JSON, YAML, XML.`)
+  if (
+    file.type.startsWith('image/') ||
+    lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') ||
+    lower.endsWith('.gif') || lower.endsWith('.webp')
+  ) return extractImage(file)
+  throw new Error(`Tipo de archivo no soportado: ${file.type || name}. Aceptados: PDF, DOCX, TXT, MD, CSV, JSON, YAML, XML, PNG, JPEG, GIF, WEBP.`)
 }
 
 async function extractPdf(file) {
@@ -111,6 +116,22 @@ async function extractText(file) {
   return { text: out, meta: { charCount: out.length, wordCount, truncated } }
 }
 
+async function extractImage(file) {
+  const mediaType = file.type || (
+    file.name.toLowerCase().endsWith('.png') ? 'image/png'
+    : file.name.toLowerCase().endsWith('.gif') ? 'image/gif'
+    : file.name.toLowerCase().endsWith('.webp') ? 'image/webp'
+    : 'image/jpeg'
+  )
+  const text =
+    `[image attachment: ${file.name}; mime=${mediaType}; size=${file.size} bytes — ` +
+    `binary not inlined on client parser; use host extract for base64 embedding]`
+  return {
+    text,
+    meta: { kind: 'image', mediaType, byteLength: file.size, charCount: text.length },
+  }
+}
+
 export function supportedTypes() {
   return [
     { ext: '.pdf', mime: 'application/pdf', label: 'PDF' },
@@ -120,9 +141,13 @@ export function supportedTypes() {
     { ext: '.csv', mime: 'text/csv', label: 'CSV' },
     { ext: '.json', mime: 'application/json', label: 'JSON' },
     { ext: '.yaml', mime: 'text/yaml', label: 'YAML' },
+    { ext: '.png', mime: 'image/png', label: 'PNG' },
+    { ext: '.jpg', mime: 'image/jpeg', label: 'JPEG' },
+    { ext: '.gif', mime: 'image/gif', label: 'GIF' },
+    { ext: '.webp', mime: 'image/webp', label: 'WEBP' },
   ]
 }
 
 export function acceptString() {
-  return '.pdf,.docx,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.xml,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv'
+  return '.pdf,.docx,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.xml,.png,.jpg,.jpeg,.gif,.webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv,image/png,image/jpeg,image/gif,image/webp,image/*'
 }

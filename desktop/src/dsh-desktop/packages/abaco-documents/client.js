@@ -195,7 +195,7 @@ window.__ModuleLoader__.load({
         React.Fragment, null,
         h('button', {
           type: 'button',
-          'aria-label': 'Subir documento',
+          'aria-label': 'Subir documento o foto',
           title: 'Subir documento o foto (PDF, DOCX, TXT, MD, CSV, JSON, YAML, PNG, JPEG, GIF, WEBP)',
           className: `abaco-doc-upload-btn${busy ? ' abaco-doc-busy' : ''}`,
           onClick: () => inputRef.current && inputRef.current.click(),

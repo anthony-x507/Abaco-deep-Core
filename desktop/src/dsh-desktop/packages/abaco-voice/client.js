@@ -249,7 +249,15 @@ window.__ModuleLoader__.load({
         id: 'web-speech-stt',
         kind: 'stt',
         label: 'Web Speech (browser)',
-        capabilities: { languages: 'system-dependent', requiresKey: false, offline: 'partial', costPerMinute: 0 },
+        // live: true → MicButton drives SpeechRecognition while pressed.
+        // MediaRecorder + blob.transcribe stays for openai-stt / deepgram only.
+        capabilities: {
+          languages: 'system-dependent',
+          requiresKey: false,
+          offline: 'partial',
+          costPerMinute: 0,
+          live: true,
+        },
         configSchema: [
           {
             key: 'language',
@@ -260,35 +268,28 @@ window.__ModuleLoader__.load({
           { key: 'continuous', label: 'Continuous', type: 'boolean', default: false },
         ],
         defaultConfig: { language: 'es-ES', continuous: false },
-        transcribe(blob, opts) {
+        createRecognizer(opts) {
           const Ctor = typeof window !== 'undefined'
             ? (window.SpeechRecognition || window.webkitSpeechRecognition)
             : null
-          if (!Ctor) throw new Error('SpeechRecognition no está disponible en este navegador')
-          return new Promise((resolve, reject) => {
-            const rec = new Ctor()
-            rec.lang = (opts && opts.language) || 'es-ES'
-            rec.continuous = !!(opts && opts.continuous)
-            rec.interimResults = true
-            let finalText = ''
-            let settled = false
-            const finish = (err) => {
-              if (settled) return
-              settled = true
-              if (err) reject(err)
-              else resolve({ text: finalText.trim(), language: rec.lang })
-            }
-            rec.onresult = (e) => {
-              for (let i = e.resultIndex; i < e.results.length; i++) {
-                if (e.results[i].isFinal) finalText += e.results[i][0].transcript + ' '
-              }
-            }
-            rec.onerror = (e) => finish(new Error(`SpeechRecognition error: ${e.error || 'desconocido'}`))
-            rec.onend = () => finish(null)
-            rec.start()
-            // Safety net: never leave a recognizer hanging.
-            setTimeout(() => { try { rec.stop() } catch {} }, 60 * 1000)
-          })
+          if (!Ctor) {
+            throw new Error(
+              'SpeechRecognition no está disponible en este entorno (Electron). ' +
+              'Cambia el proveedor STT a OpenAI Whisper o Deepgram en Ajustes → Voz.',
+            )
+          }
+          const rec = new Ctor()
+          rec.lang = (opts && opts.language) || 'es-ES'
+          rec.continuous = !!(opts && opts.continuous)
+          rec.interimResults = true
+          return rec
+        },
+        // Intentionally not blob-based — calling this means the mic path failed to detect live STT.
+        transcribe(_blob, _opts) {
+          throw new Error(
+            'web-speech-stt es live-only: usa SpeechRecognition mientras el mic está pulsado, ' +
+            'no MediaRecorder + blob.',
+          )
         },
       }
       registerProvider(tts)
@@ -689,25 +690,73 @@ window.__ModuleLoader__.load({
 
     // ── Mic button (composer left accessory) ─────────────────────────────
 
+    function isLiveSttProvider(provider) {
+      if (!provider) return false
+      if (provider.id === 'web-speech-stt') return true
+      return !!(provider.capabilities && provider.capabilities.live)
+    }
+
     function MicButton({ onInsert }) {
       const [state, setState] = React.useState('idle') // idle | recording | transcribing | error
       const [error, setError] = React.useState(null)
       const [duration, setDuration] = React.useState(0)
       const timerRef = React.useRef(null)
+      const liveRecRef = React.useRef(null)
+      const liveTextRef = React.useRef('')
+      const liveModeRef = React.useRef(false)
 
       React.useEffect(() => () => {
         if (timerRef.current) clearInterval(timerRef.current)
+        if (liveRecRef.current) {
+          try { liveRecRef.current.abort() } catch {}
+          try { liveRecRef.current.stop() } catch {}
+          liveRecRef.current = null
+        }
       }, [])
+
+      const stopLiveRecognition = () => new Promise((resolve) => {
+        const rec = liveRecRef.current
+        if (!rec) {
+          resolve(liveTextRef.current.trim())
+          return
+        }
+        let settled = false
+        const finish = () => {
+          if (settled) return
+          settled = true
+          liveRecRef.current = null
+          resolve(liveTextRef.current.trim())
+        }
+        const prevEnd = rec.onend
+        rec.onend = (ev) => {
+          try { if (typeof prevEnd === 'function') prevEnd(ev) } catch {}
+          finish()
+        }
+        try { rec.stop() } catch { finish() }
+        setTimeout(finish, 1500)
+      })
 
       const onClick = async () => {
         setError(null)
         try {
           if (state === 'recording') {
             setState('transcribing')
-            const stopped = await recorderStop()
             clearInterval(timerRef.current)
             setDuration(0)
-            if (stopped) await transcribe(stopped.blob)
+            if (liveModeRef.current) {
+              const textOut = await stopLiveRecognition()
+              liveModeRef.current = false
+              if (textOut) onInsert(textOut)
+              else {
+                setError('No se capturó texto. Habla mientras el mic está activo, o usa OpenAI/Deepgram.')
+                setState('error')
+                return
+              }
+              setState('idle')
+              return
+            }
+            const stopped = await recorderStop()
+            if (stopped) await transcribeBlob(stopped.blob)
             setState('idle')
             return
           }
@@ -716,17 +765,53 @@ window.__ModuleLoader__.load({
           const provider = getProvider(cfg.sttProvider)
           if (!provider) throw new Error('STT provider not configured')
           await ensureDisclosureAccepted(provider)
+          const provCfg = cfg.providers[provider.id] || {}
+
+          if (isLiveSttProvider(provider)) {
+            if (typeof provider.createRecognizer !== 'function') {
+              throw new Error(
+                'SpeechRecognition no está disponible en este entorno (Electron). ' +
+                'Cambia el proveedor STT a OpenAI Whisper o Deepgram en Ajustes → Voz.',
+              )
+            }
+            liveTextRef.current = ''
+            liveModeRef.current = true
+            const rec = provider.createRecognizer(provCfg)
+            rec.onresult = (e) => {
+              for (let i = e.resultIndex; i < e.results.length; i++) {
+                const piece = e.results[i][0] && e.results[i][0].transcript ? e.results[i][0].transcript : ''
+                if (e.results[i].isFinal) liveTextRef.current += piece + ' '
+              }
+            }
+            rec.onerror = (e) => {
+              const msg = e && e.error ? e.error : 'desconocido'
+              if (msg === 'aborted' || msg === 'no-speech') return
+              setError(`SpeechRecognition error: ${msg}`)
+              setState('error')
+            }
+            liveRecRef.current = rec
+            rec.start()
+            setState('recording')
+            setDuration(0)
+            timerRef.current = setInterval(() => setDuration((d) => d + 0.1), 100)
+            return
+          }
+
+          // openai-stt / deepgram: MediaRecorder → provider.transcribe(blob)
+          liveModeRef.current = false
           await recorderStart()
           setState('recording')
           setDuration(0)
           timerRef.current = setInterval(() => setDuration((d) => d + 0.1), 100)
         } catch (e) {
+          liveModeRef.current = false
+          liveRecRef.current = null
           setError(e && e.message ? e.message : String(e))
           setState('error')
         }
       }
 
-      async function transcribe(blob) {
+      async function transcribeBlob(blob) {
         const store = resolveStore()
         const cfg = await loadConfig(store)
         const provider = getProvider(cfg.sttProvider)
@@ -743,7 +828,15 @@ window.__ModuleLoader__.load({
 
       const onCancel = () => {
         clearInterval(timerRef.current)
-        recorderCancel()
+        if (liveModeRef.current && liveRecRef.current) {
+          try { liveRecRef.current.abort() } catch {}
+          try { liveRecRef.current.stop() } catch {}
+          liveRecRef.current = null
+          liveModeRef.current = false
+          liveTextRef.current = ''
+        } else {
+          recorderCancel()
+        }
         setState('idle')
         setDuration(0)
       }
@@ -763,7 +856,7 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+        { style: { display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', maxWidth: 280 } },
         h('button', {
           type: 'button',
           'aria-label': state === 'recording' ? 'Detener grabación' : 'Transcribir voz',
@@ -784,23 +877,81 @@ window.__ModuleLoader__.load({
             background: 'transparent', color: 'var(--abaco-fg-2)', border: 'none', fontSize: 14,
           },
         }, '×'),
+        error && h('span', {
+          role: 'alert',
+          style: {
+            display: 'block', flex: '1 1 100%', fontSize: 11,
+            color: 'var(--abaco-danger, #F87171)', lineHeight: 1.3,
+          },
+        }, error),
       )
+    }
+
+    function resolveSetDraft(props) {
+      const inputActions = props && props.inputActions
+      if (inputActions && typeof inputActions.setDraft === 'function') {
+        return { setDraft: inputActions.setDraft.bind(inputActions), actions: inputActions, source: 'inputActions.setDraft' }
+      }
+      if (props && typeof props.setDraft === 'function') {
+        return { setDraft: props.setDraft, actions: inputActions || null, source: 'props.setDraft' }
+      }
+      if (props && props.input && typeof props.input.setDraft === 'function') {
+        return { setDraft: props.input.setDraft.bind(props.input), actions: inputActions || null, source: 'input.setDraft' }
+      }
+      const win = typeof window !== 'undefined' ? window : null
+      const bridge = win && (win.__abaco_inputActions || (win.__abaco_ctx && win.__abaco_ctx.inputActions))
+      if (bridge && typeof bridge.setDraft === 'function') {
+        return { setDraft: bridge.setDraft.bind(bridge), actions: bridge, source: 'window.__abaco_inputActions' }
+      }
+      return null
     }
 
     function AbacoMicButton(props) {
       const draft = currentDraft(props)
-      const inputActions = props && props.inputActions
-      const canWrite = inputActions && typeof inputActions.setDraft === 'function'
+      const draftRef = React.useRef(draft)
+      draftRef.current = draft
+      const [writeError, setWriteError] = React.useState(null)
+
       const onInsert = (text) => {
-        if (!canWrite) return
+        setWriteError(null)
         const trimmed = String(text || '').trim()
         if (!trimmed) return
-        // Fill the composer, then send — speak-to-send (P0). setDraft is sync on
-        // the input shell snapshot, so submit() sees the new draft immediately.
-        inputActions.setDraft(draft ? `${draft} ${trimmed}` : trimmed)
-        if (typeof inputActions.submit === 'function') inputActions.submit()
+        const resolved = resolveSetDraft(props)
+        if (!resolved) {
+          const msg = 'No se puede escribir en el borrador: setDraft no disponible (inputActions ausente).'
+          setWriteError(msg)
+          console.error('abaco-voice:', msg)
+          return
+        }
+        const current = draftRef.current || ''
+        const next = current ? `${current} ${trimmed}` : trimmed
+        try {
+          resolved.setDraft(next)
+        } catch (e) {
+          const msg = e && e.message ? e.message : String(e)
+          setWriteError(`setDraft falló (${resolved.source}): ${msg}`)
+          return
+        }
+        // mic submit: call submit/send when the composer exposes it; else setDraft is enough.
+        const actions = resolved.actions
+        if (actions) {
+          if (typeof actions.submit === 'function') {
+            try { actions.submit() } catch (e) { console.warn('abaco-voice mic submit failed:', e) }
+          } else if (typeof actions.send === 'function') {
+            try { actions.send() } catch (e) { console.warn('abaco-voice mic send failed:', e) }
+          }
+        }
       }
-      return h(MicButton, { onInsert: canWrite ? onInsert : () => {} })
+
+      return h(
+        'div',
+        { style: { display: 'inline-flex', flexDirection: 'column', gap: 2 } },
+        h(MicButton, { onInsert }),
+        writeError && h('span', {
+          role: 'alert',
+          style: { fontSize: 11, color: 'var(--abaco-danger, #F87171)', maxWidth: 220, lineHeight: 1.3 },
+        }, writeError),
+      )
     }
 
     // ── Speak button (per assistant message) ─────────────────────────────
