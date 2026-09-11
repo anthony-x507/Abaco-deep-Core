@@ -20,6 +20,9 @@ import {
   ABACO_BROWSER_THEME_CHANGED_CHANNEL,
   ABACO_BROWSER_WAIT_FOR_MAX_TIMEOUT_MS,
   ABACO_BROWSER_DEFAULT_PLACEMENT,
+  ABACO_BROWSER_OPENED_CHANNEL,
+  ABACO_BROWSER_CLOSED_CHANNEL,
+  ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL,
   ABACO_BROWSER_WAIT_FOR_TIMEOUT_MS,
   computeAbacoBrowserSyncBounds,
   abacoBrowserShortcutFor,
@@ -239,6 +242,7 @@ export class AbacoBrowserController {
     if (this.isOpen()) {
       if (url !== undefined) this.navigate(url)
       this.focusPage()
+      this.notifyHarness(ABACO_BROWSER_OPENED_CHANNEL)
       return
     }
 
@@ -367,6 +371,7 @@ export class AbacoBrowserController {
       .catch(this.reportLoadFailure)
     void pageContents.loadURL(target).catch(this.reportLoadFailure)
     this.focusPage()
+    this.notifyHarness(ABACO_BROWSER_OPENED_CHANNEL)
   }
 
   /** Unmount the overlay and destroy both views; the launcher can open it again. */
@@ -414,6 +419,7 @@ export class AbacoBrowserController {
     if (!this.disposed && !this.parent.isDestroyed() && this.parent.isFocused()) {
       this.parent.webContents.focus()
     }
+    this.notifyHarness(ABACO_BROWSER_CLOSED_CHANNEL)
   }
 
   /** Load `url` in the overlay, assuming https when no scheme was typed. */
@@ -465,8 +471,9 @@ export class AbacoBrowserController {
     return this.mode
   }
 
-  /** Agent tool: take the wheel (`setBrowserMode('agent')`). */
+  /** Agent tool: take the wheel (`setBrowserMode('agent')`). Self-mounting. */
   agentGrabControl(): AbacoBrowserState {
+    if (!this.isOpen()) this.open()
     this.setBrowserMode('agent')
     return this.agentState()
   }
@@ -535,6 +542,9 @@ export class AbacoBrowserController {
   async agentScreenRecordStop(): Promise<AbacoBrowserScreenRecordingResult> {
     const result = await this.screenRecorder.stop()
     this.publishChromeState()
+    if (result.ok) {
+      this.notifyHarness(ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL, result)
+    }
     return result
   }
 
@@ -838,7 +848,9 @@ export class AbacoBrowserController {
       // write that ends it, so the button cannot appear over a half-written
       // session.
       hasRecording: !status.recording && status.lastRecordingPath.length > 0,
-      lastRecordingId: status.recording ? '' : status.sessionId
+      lastRecordingId: status.recording ? '' : status.sessionId,
+      screenRecording: this.screenRecorder.isRecording(),
+      placement: this.placement
     }
     chromeBar.send(ABACO_BROWSER_CHROME_STATE_CHANNEL, state)
   }
@@ -994,6 +1006,18 @@ export class AbacoBrowserController {
       contents.once('did-stop-loading', settle)
       contents.once('did-fail-load', settle)
     })
+  }
+
+  /**
+   * Push a one-shot fact to the Harness page (opened / closed / screen
+   * recording stopped). The chrome bar has its own channels; this is the
+   * page-side door the client plugin listens on.
+   */
+  private notifyHarness(channel: string, payload?: unknown): void {
+    if (this.parent.isDestroyed()) return
+    const contents = this.parent.webContents
+    if (!contents || contents.isDestroyed()) return
+    contents.send(channel, payload)
   }
 
   private readonly dispose = (): void => {

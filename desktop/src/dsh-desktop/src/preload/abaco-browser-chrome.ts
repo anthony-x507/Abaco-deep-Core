@@ -3,16 +3,20 @@ import {
   ABACO_BROWSER_CHROME_FOCUS_ADDRESS_CHANNEL,
   ABACO_BROWSER_CHROME_STATE_CHANNEL,
   ABACO_BROWSER_DEFAULT_MODE,
+  ABACO_BROWSER_DEFAULT_PLACEMENT,
   ABACO_BROWSER_THEME_CHANGED_CHANNEL,
   abacoBrowserChannels,
   abacoBrowserShortcutFor,
   isAbacoBrowserMode,
+  isAbacoBrowserPlacement,
   isAbacoBrowserTheme,
   type AbacoBrowserChromeState,
   type AbacoBrowserMode,
   type AbacoBrowserRecordingResult,
   type AbacoBrowserRecordingStatus,
   type AbacoBrowserSaveSkillResult,
+  type AbacoBrowserScreenRecordingResult,
+  type AbacoBrowserScreenRecordingStatus,
   type AbacoBrowserShortcut
 } from '../shared/abaco-browser'
 
@@ -56,6 +60,7 @@ const CONTROL_IDS = {
   spinner: 'abaco-browser-spinner',
   record: 'abaco-browser-record',
   recordCount: 'abaco-browser-record-count',
+  screenRecord: 'abaco-browser-screen-record',
   skillForm: 'abaco-browser-skill-form',
   skillName: 'abaco-browser-skill-name',
   skillSave: 'abaco-browser-skill-save',
@@ -109,7 +114,11 @@ function readChromeState(value: unknown): AbacoBrowserChromeState | undefined {
         : 0,
     hasRecording: candidate.hasRecording === true,
     lastRecordingId:
-      typeof candidate.lastRecordingId === 'string' ? candidate.lastRecordingId : ''
+      typeof candidate.lastRecordingId === 'string' ? candidate.lastRecordingId : '',
+    screenRecording: candidate.screenRecording === true,
+    placement: isAbacoBrowserPlacement(candidate.placement)
+      ? candidate.placement
+      : ABACO_BROWSER_DEFAULT_PLACEMENT
   }
 }
 
@@ -125,6 +134,7 @@ function mountAbacoBrowserChrome(): void {
   const spinner = byId<HTMLSpanElement>(CONTROL_IDS.spinner)
   const recordButton = byId<HTMLButtonElement>(CONTROL_IDS.record)
   const recordCount = byId<HTMLSpanElement>(CONTROL_IDS.recordCount)
+  const screenRecordButton = byId<HTMLButtonElement>(CONTROL_IDS.screenRecord)
   const skillForm = byId<HTMLFormElement>(CONTROL_IDS.skillForm)
   const skillName = byId<HTMLInputElement>(CONTROL_IDS.skillName)
   const skillSave = byId<HTMLButtonElement>(CONTROL_IDS.skillSave)
@@ -141,6 +151,7 @@ function mountAbacoBrowserChrome(): void {
     !spinner ||
     !recordButton ||
     !recordCount ||
+    !screenRecordButton ||
     !skillForm ||
     !skillName ||
     !skillSave ||
@@ -154,6 +165,7 @@ function mountAbacoBrowserChrome(): void {
   // Linux keep a native frame); the preload is the only script in this document
   // and still exposes `platform`.
   document.body.dataset.platform = process.platform
+  document.body.dataset.placement = ABACO_BROWSER_DEFAULT_PLACEMENT
 
   back.addEventListener('click', () => void invoke(abacoBrowserChannels.back))
   forward.addEventListener('click', () => void invoke(abacoBrowserChannels.forward))
@@ -245,6 +257,62 @@ function mountAbacoBrowserChrome(): void {
   recordButton.addEventListener('click', () => {
     if (recordButton.dataset.pending === 'true') return
     void toggleRecording()
+  })
+
+  /* ── P1 — desktopCapturer screen recording ────────────────────────────────
+   * Same switch pattern as F2, on a second button. Stopping is what notifies
+   * the agent (main pushes `screen-recording-stopped` to the Harness page). */
+  let screenRecording = false
+  const paintScreenRecording = (active: boolean, tooltip?: string): void => {
+    screenRecording = active
+    screenRecordButton.classList.toggle('is-recording', active)
+    screenRecordButton.setAttribute('aria-pressed', active ? 'true' : 'false')
+    screenRecordButton.setAttribute(
+      'aria-label',
+      active ? 'Stop screen recording' : 'Record screen pixels'
+    )
+    screenRecordButton.title =
+      tooltip ??
+      (active
+        ? 'Recording the ABACO window. Click to stop — the agent will be notified.'
+        : 'Record the ABACO window (desktopCapturer). Stopping notifies the agent.')
+  }
+  paintScreenRecording(false)
+
+  const toggleScreenRecording = async (): Promise<void> => {
+    screenRecordButton.dataset.pending = 'true'
+    try {
+      if (screenRecording) {
+        const result = (await invoke(abacoBrowserChannels.screenRecordStop)) as
+          | AbacoBrowserScreenRecordingResult
+          | undefined
+        if (result && result.ok) {
+          paintScreenRecording(false, result.notice || `Saved to ${result.path}`)
+        } else {
+          paintScreenRecording(false, 'The screen recording could not be saved.')
+        }
+      } else {
+        const status = (await invoke(abacoBrowserChannels.screenRecordStart)) as
+          | AbacoBrowserScreenRecordingStatus
+          | undefined
+        if (status?.recording === true) {
+          paintScreenRecording(true)
+        } else {
+          paintScreenRecording(
+            false,
+            status?.lastError && status.lastError.length > 0
+              ? `Screen recording did not start: ${status.lastError}`
+              : 'Screen recording did not start.'
+          )
+        }
+      }
+    } finally {
+      delete screenRecordButton.dataset.pending
+    }
+  }
+  screenRecordButton.addEventListener('click', () => {
+    if (screenRecordButton.dataset.pending === 'true') return
+    void toggleScreenRecording()
   })
 
   /* ── F3 — the recording becomes a skill ────────────────────────────────────
@@ -395,6 +463,8 @@ function mountAbacoBrowserChrome(): void {
     // the strip honest; the tooltip is only reset when nothing pending said
     // something more specific.
     if (next.recording || recording) paintRecording(next.recording, next.recordingActions)
+    if (next.screenRecording || screenRecording) paintScreenRecording(next.screenRecording)
+    document.body.dataset.placement = next.placement
     // Same reasoning for F3's 💾: the recording it compiles may have been
     // stopped by main (browser closed), so availability and the session id both
     // come from the push. A push never clears the name the user is typing —

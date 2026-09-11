@@ -254,6 +254,23 @@ export const ABACO_BROWSER_THEME_CHANGED_CHANNEL = 'abaco:browser:theme-changed'
 export const ABACO_BROWSER_CHROME_FOCUS_ADDRESS_CHANNEL = 'abaco-browser-chrome:focus-address'
 
 /**
+ * Main → Harness page: the browser just mounted. The client plugin opens the
+ * details column and starts reporting its host rect. Separate from the chrome
+ * state push because the Harness page is a different `webContents`.
+ */
+export const ABACO_BROWSER_OPENED_CHANNEL = 'abaco:browser:opened'
+
+/** Main → Harness page: the browser was unmounted. */
+export const ABACO_BROWSER_CLOSED_CHANNEL = 'abaco:browser:closed'
+
+/**
+ * Main → Harness page: a desktopCapturer recording just finished. The client
+ * plugin submits a user message so the agent is asked to turn the clip into a
+ * skill. Payload is {@link AbacoBrowserScreenRecordingResult}.
+ */
+export const ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL = 'abaco:browser:screen-recording-stopped'
+
+/**
  * Shortest gap between two state pushes to the chrome bar.
  *
  * A recording makes this matter: every keystroke is an action, so the action
@@ -291,6 +308,10 @@ export interface AbacoBrowserChromeState {
   hasRecording: boolean
   /** Session id of that saved recording; empty when there is none. */
   lastRecordingId: string
+  /** P1 — true while a desktopCapturer screen recording is running. */
+  screenRecording: boolean
+  /** P1 — `panel` (details column) or full-window `overlay`. */
+  placement: AbacoBrowserPlacement
 }
 
 /** Result shape of every control channel except `isOpen`, which returns a boolean. */
@@ -329,7 +350,7 @@ export const ABACO_BROWSER_DEFAULT_MODE: AbacoBrowserMode = 'agent'
  * same condition at every layer.
  */
 export const ABACO_BROWSER_TAKEOVER_MESSAGE =
-  'The ABACO browser is in manual mode: the user has taken control of the page, so agent browser actions are refused. Ask the user to hand control back (mode: agent) or try again later.'
+  'The ABACO browser is in manual mode: the user has taken control of the page, so agent browser actions are refused. Call abaco_browser_grab_control to take the wheel back (mode: agent), or ask the user to click AGENT on the chrome bar.'
 
 /**
  * Canonical "nothing is mounted yet" refusal. Shared so the controller, the RPC
