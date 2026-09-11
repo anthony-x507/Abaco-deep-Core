@@ -365,6 +365,40 @@
       .skillStatus[data-tone='error'] {
         color: var(--chrome-close);
       }
+      /*
+        P1 panel — narrow details column. Keep F2 Grabar visible; hide the
+        secondary desktopCapturer button and the page title first so the bar
+        does not clip the record control. Never display:none the F2 .recordButton
+        under [data-placement=panel].
+      */
+      body[data-placement='panel'] .bar {
+        gap: 4px;
+        padding-right: 6px;
+        overflow: visible;
+      }
+      body[data-placement='panel'] .pageTitle {
+        display: none;
+      }
+      body[data-placement='panel'] .screenRecordButton {
+        display: none;
+      }
+      body[data-placement='panel'] .skillName {
+        display: none;
+      }
+      body[data-placement='panel'] .skillStatus {
+        display: none;
+      }
+      body[data-placement='panel'] .modeButton {
+        padding: 0 6px;
+        letter-spacing: 0.02em;
+      }
+      body[data-placement='panel'] .recordButton {
+        display: grid;
+        flex: none;
+      }
+      body[data-placement='panel'] .addressForm {
+        min-width: 72px;
+      }
       @media (prefers-reduced-motion: reduce) {
         .spinner,
         .recordButton.is-recording svg {
@@ -475,8 +509,8 @@
         id="abaco-browser-record"
         type="button"
         aria-pressed="false"
-        aria-label="Record browser actions"
-        title="Record my actions in this page (F2 recorder)"
+        aria-label="Grabar acciones del navegador"
+        title="Grabar mis acciones en esta página (F2). Clic de nuevo para Parar."
       >
         <svg viewBox="0 0 20 20" width="12" height="12" aria-hidden="true">
           <circle cx="10" cy="10" r="5" fill="currentColor" />

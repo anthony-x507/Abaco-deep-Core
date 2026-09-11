@@ -47,8 +47,8 @@ window.__ModuleLoader__.load({
 
     // ── Copy (plain navigator-language sniff, matching abaco-agent-status) ──
     const COPY = {
-      es: { label: 'Navegador', open: 'Abrir el navegador integrado', close: 'Cerrar el navegador integrado' },
-      en: { label: 'Browser', open: 'Open the integrated browser', close: 'Close the integrated browser' },
+      es: { label: 'Navegador', open: 'Abrir navegador', close: 'Cerrar navegador' },
+      en: { label: 'Browser', open: 'Open browser', close: 'Close browser' },
     }
 
     function activeCopy() {
@@ -82,6 +82,38 @@ window.__ModuleLoader__.load({
       return null
     }
 
+    // P1 viewport lock — keep host reports inside the same clamp main applies
+    // (width 360–520, height ≤ 720, aspect ≈ 0.45–0.85).
+    const PANEL_MIN_W = 360
+    const PANEL_MAX_W = 520
+    const PANEL_MAX_H = 720
+    const PANEL_MIN_ASPECT = 0.45
+    const PANEL_MAX_ASPECT = 0.85
+    const PANEL_CHROME_H = 44
+
+    function clampPanelHostReport(bounds) {
+      let width = Math.round(bounds.width)
+      let height = Math.round(bounds.height)
+      width = Math.min(PANEL_MAX_W, Math.max(PANEL_MIN_W, width))
+      const room = Math.max(0, Math.round(bounds.contentHeightHint != null
+        ? bounds.contentHeightHint - bounds.y
+        : height))
+      const maxH = Math.min(room, Math.max(0, room), PANEL_MAX_H)
+      height = Math.min(height, maxH, PANEL_MAX_H)
+      if (height > 0 && width > 0) {
+        const aspect = width / height
+        if (aspect < PANEL_MIN_ASPECT) height = Math.floor(width / PANEL_MIN_ASPECT)
+        else if (aspect > PANEL_MAX_ASPECT) height = Math.floor(width / PANEL_MAX_ASPECT)
+        height = Math.max(PANEL_CHROME_H, Math.min(height, PANEL_MAX_H, room || PANEL_MAX_H))
+      }
+      return {
+        x: Math.round(bounds.x),
+        y: Math.round(bounds.y),
+        width,
+        height,
+      }
+    }
+
     function measureDetailsColumn() {
       const frame = findShellFrame()
       if (!frame) return null
@@ -92,12 +124,13 @@ window.__ModuleLoader__.load({
       const last = tracks[tracks.length - 1]
       const detailsPx = last ? Number.parseFloat(last) : Number.NaN
       if (!Number.isFinite(detailsPx) || detailsPx < 8) return null
-      return {
+      return clampPanelHostReport({
         x: Math.round(rect.left + rect.width - detailsPx),
         y: Math.round(rect.top),
         width: Math.round(detailsPx),
         height: Math.round(rect.height),
-      }
+        contentHeightHint: Math.round(rect.height + rect.top),
+      })
     }
 
     function reportHostBounds(bridge) {
@@ -210,7 +243,7 @@ window.__ModuleLoader__.load({
             dangerouslySetInnerHTML: { __html: globeIcon },
           }),
           props && props.wide
-            ? h('span', { className: 'abaco-browser-launcher-label' }, copy.label)
+            ? h('span', { className: 'abaco-browser-launcher-label' }, open ? copy.close : copy.open)
             : null,
         ),
       )
@@ -297,16 +330,25 @@ window.__ModuleLoader__.load({
         if (!live || typeof live.onScreenRecordingStopped !== 'function') return undefined
         return live.onScreenRecordingStopped((result) => {
           if (!result || typeof result !== 'object') return
-          const seconds =
-            typeof result.durationMs === 'number' ? Math.round(result.durationMs / 1000) : 0
-          const lines = [
-            'A screen recording of the ABACO window just finished.',
-            result.notice ? String(result.notice) : '',
-            result.path ? `Saved to: ${result.path}` : '',
-            seconds > 0 ? `Duration: ${seconds}s.` : '',
-            'Please review the recording and create a skill that reproduces what was demonstrated.',
-          ].filter((line) => line.length > 0)
-          const text = lines.join('\n')
+          let text = ''
+          if (typeof result.skillMarkdown === 'string' && result.skillMarkdown.trim().length > 0) {
+            text = result.skillMarkdown
+          } else {
+            const seconds =
+              typeof result.durationMs === 'number' ? Math.round(result.durationMs / 1000) : 0
+            const lines = [
+              result.kind === 'f2-actions'
+                ? 'A browser action recording just finished.'
+                : 'A screen recording of the ABACO window just finished.',
+              result.notice ? String(result.notice) : '',
+              result.path ? `Saved to: ${result.path}` : '',
+              seconds > 0 ? `Duration: ${seconds}s.` : '',
+              'Please learn and save this skill into your active catalog (do not only look at the file on disk).',
+            ].filter((line) => line.length > 0)
+            text = lines.join('\n')
+          }
+          if (!text) return
+          // D4 — disk-only is FAIL; always inject into the active agent turn.
           if (inputActions && typeof inputActions.setDraft === 'function') {
             inputActions.setDraft(text)
           }

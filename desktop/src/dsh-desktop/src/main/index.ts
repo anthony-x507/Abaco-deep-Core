@@ -1074,6 +1074,7 @@ function createWindow(): BrowserWindow {
     // reads the same directory back through `abacoBrowserRecordingsDir()`.
     recordingsDir: abacoBrowserRecordingsDir(),
     screenRecordingsDir: abacoBrowserScreenRecordingsDir(),
+    skillsDir: abacoBrowserSkillsDir(abacoBrowserDshHome()),
     onPreloadError: appendPreloadFailureLog
   })
   if (isWindows) attachWindowsMenuView(window)

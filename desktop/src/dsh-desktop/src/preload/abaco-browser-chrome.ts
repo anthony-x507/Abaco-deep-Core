@@ -205,15 +205,13 @@ function mountAbacoBrowserChrome(): void {
     recording = active
     recordButton.classList.toggle('is-recording', active)
     recordButton.setAttribute('aria-pressed', active ? 'true' : 'false')
-    recordButton.setAttribute(
-      'aria-label',
-      active ? 'Stop recording browser actions' : 'Record browser actions'
-    )
+    // P1 — Spanish Grabar / Parar (Anthony); EN kept in title fallback via tooltip.
+    recordButton.setAttribute('aria-label', active ? 'Parar grabación' : 'Grabar')
     recordButton.title =
       tooltip ??
       (active
-        ? `Recording your actions in this page (${count} captured). Click to stop and save.`
-        : 'Record my actions in this page — the result becomes a reusable skill (F2 → F3)')
+        ? `Grabando acciones en esta página (${count}). Clic para Parar y guardar.`
+        : 'Grabar mis acciones en esta página — el resultado se convierte en un skill (F2 → F3)')
     recordCount.hidden = !active
     recordCount.textContent = active ? `${count}` : ''
   }

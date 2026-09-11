@@ -24,6 +24,7 @@ import {
   ABACO_BROWSER_CLOSED_CHANNEL,
   ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL,
   ABACO_BROWSER_WAIT_FOR_TIMEOUT_MS,
+  buildSkillHandoffMarkdown,
   computeAbacoBrowserSyncBounds,
   abacoBrowserShortcutFor,
   isAbacoBrowserPlacement,
@@ -57,6 +58,7 @@ import {
 } from './abaco-browser-page-scripts'
 import { AbacoBrowserRecorder, type AbacoBrowserRecorderPort } from './abaco-browser-recorder'
 import { AbacoBrowserScreenRecorder } from './abaco-browser-screen-recorder'
+import { writeBrowserSkillFromRecording } from './abaco-browser-skill-writer'
 
 /**
  * Clamp a caller-supplied budget to a sane range.
@@ -87,6 +89,11 @@ export interface AbacoBrowserViewPaths {
    */
   screenRecordingsDir: string
   /**
+   * Where F3 / P1 auto-save writes `SKILL.md`:
+   * `<DSH_HOME>/skills`.
+   */
+  skillsDir: string
+  /**
    * Called when a preload in this overlay fails to load. Main owns the harness
    * log, so the controller reports the failure instead of deciding what to do
    * with it. Optional: the overlay still runs without a listener.
@@ -114,7 +121,7 @@ export interface AbacoBrowserViewPaths {
  *
  * P1 geometry: default {@link ABACO_BROWSER_DEFAULT_PLACEMENT} (`panel`) docks
  * the page + chrome as a right-hand strip (host bounds when the renderer
- * reports them, otherwise a clamped 300–520 DIP strip). `overlay` restores the
+ * reports them, otherwise a clamped 360–520 DIP strip capped at 720px tall). `overlay` restores the
  * F0 full-window cover. The chrome strip still covers the panel's first
  * {@link ABACO_BROWSER_CHROME_HEIGHT} rows.
  *
@@ -543,7 +550,25 @@ export class AbacoBrowserController {
     const result = await this.screenRecorder.stop()
     this.publishChromeState()
     if (result.ok) {
-      this.notifyHarness(ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL, result)
+      const seconds =
+        typeof result.durationMs === 'number' ? Math.round(result.durationMs / 1000) : 0
+      const skillMarkdown = buildSkillHandoffMarkdown({
+        title: 'Screen recording',
+        actionDescriptions: [
+          seconds > 0
+            ? `Grabación de pantalla de ${seconds}s demostrando el flujo en la ventana ABACO.`
+            : 'Grabación de pantalla demostrando el flujo en la ventana ABACO.'
+        ],
+        skillPath: result.path,
+        recordingPath: result.path
+      })
+      const payload: AbacoBrowserScreenRecordingResult = {
+        ...result,
+        skillMarkdown,
+        kind: 'screen'
+      }
+      this.notifyHarness(ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL, payload)
+      return payload
     }
     return result
   }
@@ -578,7 +603,77 @@ export class AbacoBrowserController {
   async stopRecording(): Promise<AbacoBrowserRecordingResult> {
     const result = await this.recorder.stop()
     this.publishChromeState()
+    if (result.ok) {
+      await this.handoffF2SkillToAgent(result)
+    }
     return result
+  }
+
+  /**
+   * P1 D4 — after F2 recordStop, auto-save the skill and push markdown to the
+   * Harness page on the existing `screen-recording-stopped` channel so the
+   * client can `setDraft` + `submit` (disk-only is not enough).
+   */
+  private async handoffF2SkillToAgent(result: AbacoBrowserRecordingResult): Promise<void> {
+    try {
+      const saved = await writeBrowserSkillFromRecording({
+        recordingsDir: this.paths.recordingsDir,
+        skillsDir: this.paths.skillsDir,
+        ...(result.sessionId.length > 0 ? { recordingId: result.sessionId } : {})
+      })
+      const actionDescriptions =
+        saved.ok && Array.isArray(saved.actionDescriptions) && saved.actionDescriptions.length > 0
+          ? saved.actionDescriptions
+          : saved.ok && saved.description
+            ? [saved.description]
+            : ['Grabación de acciones del navegador (F2).']
+      const title = saved.ok && saved.name.length > 0 ? saved.name : 'browser-skill'
+      const skillPath = saved.ok ? saved.path : result.path
+      const skillMarkdown = buildSkillHandoffMarkdown({
+        title,
+        actionDescriptions,
+        skillPath,
+        recordingPath: result.path
+      })
+      const payload: AbacoBrowserScreenRecordingResult = {
+        ok: true,
+        path: result.path,
+        sessionId: result.sessionId,
+        durationMs: result.durationMs,
+        mimeType: 'application/json',
+        byteLength: 0,
+        notice: saved.ok
+          ? `Recording saved and skill "${saved.name}" written for the agent.`
+          : `Recording saved at ${result.path}; skill auto-save failed: ${saved.error}`,
+        skillMarkdown,
+        kind: 'f2-actions',
+        ...(saved.ok
+          ? { skillPath: saved.path, skillName: saved.name }
+          : {})
+      }
+      this.notifyHarness(ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL, payload)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const skillMarkdown = buildSkillHandoffMarkdown({
+        title: 'browser-skill',
+        actionDescriptions: [
+          `Grabación F2 con ${result.actionCount} acción(es). Auto-save del skill falló: ${message}`
+        ],
+        skillPath: result.path,
+        recordingPath: result.path
+      })
+      this.notifyHarness(ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL, {
+        ok: true,
+        path: result.path,
+        sessionId: result.sessionId,
+        durationMs: result.durationMs,
+        mimeType: 'application/json',
+        byteLength: 0,
+        notice: `Recording saved; skill handoff error: ${message}`,
+        skillMarkdown,
+        kind: 'f2-actions'
+      } satisfies AbacoBrowserScreenRecordingResult)
+    }
   }
 
   /** Live recording state; also reads back the last session once it has stopped. */

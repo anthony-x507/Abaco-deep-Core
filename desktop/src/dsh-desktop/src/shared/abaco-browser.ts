@@ -63,9 +63,19 @@ export const ABACO_BROWSER_DEFAULT_PLACEMENT: AbacoBrowserPlacement = 'panel'
 /** Preferred right-panel width in DIP when placement is `panel` and no host rect. */
 export const ABACO_BROWSER_PANEL_WIDTH_PX = 420
 
-/** Clamp for panel width (matches dsh-client-ui-layout details column range). */
-export const ABACO_BROWSER_PANEL_MIN_WIDTH_PX = 300
+/**
+ * Clamp for panel width (P1 DoD: readable viewport, not a 300px hairline).
+ * Raised MIN 300→360 so the page + chrome controls remain usable.
+ */
+export const ABACO_BROWSER_PANEL_MIN_WIDTH_PX = 360
 export const ABACO_BROWSER_PANEL_MAX_WIDTH_PX = 520
+
+/** Cap panel page height so the strip is not an infinite 1:N tower. */
+export const ABACO_BROWSER_PANEL_MAX_HEIGHT_PX = 720
+
+/** Acceptable width/height for the panel page rect (~window, not a strip). */
+export const ABACO_BROWSER_PANEL_MIN_ASPECT = 0.45
+export const ABACO_BROWSER_PANEL_MAX_ASPECT = 0.85
 
 export function isAbacoBrowserPlacement(value: unknown): value is AbacoBrowserPlacement {
   return value === 'panel' || value === 'overlay'
@@ -125,12 +135,71 @@ export interface AbacoBrowserSyncBoundsResult {
   readonly chrome: AbacoBrowserViewBounds
 }
 
+export interface ClampPanelViewportInput {
+  readonly width: number
+  /** Preferred / available height before aspect + max clamps. */
+  readonly height: number
+  readonly contentHeight: number
+  /** Top inset already consumed (host.y); reduces available height. */
+  readonly y?: number
+  readonly chromeHeight?: number
+}
+
+export interface ClampPanelViewportResult {
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * P1 — clamp a panel viewport to a readable window-like rect.
+ *
+ * - width ∈ [360, 520] (default preference applied by callers)
+ * - height ≤ min(contentHeight − y − chrome, 720) then tuned so
+ *   width/height ∈ ≈[0.45, 0.85]
+ */
+export function clampPanelViewport(input: ClampPanelViewportInput): ClampPanelViewportResult {
+  const chromeHeight = Math.max(
+    0,
+    Math.floor(input.chromeHeight ?? ABACO_BROWSER_CHROME_HEIGHT)
+  )
+  const y = Math.max(0, Math.floor(input.y ?? 0))
+  const contentHeight = Math.max(0, Math.floor(input.contentHeight))
+  const width = clampAbacoBrowserPanelWidth(input.width)
+  // DoD: panelHeight ≤ min(contentHeight − chrome, 720). Chrome overlays the
+  // page, so the returned height is the full stack; room below `y` still caps it.
+  const roomBelowY = Math.max(0, contentHeight - y)
+  const roomMinusChrome = Math.max(0, contentHeight - chromeHeight)
+  const maxHeight = Math.min(
+    roomBelowY,
+    roomMinusChrome,
+    ABACO_BROWSER_PANEL_MAX_HEIGHT_PX
+  )
+  let height = Math.max(0, Math.min(Math.floor(input.height), maxHeight))
+  if (height > 0 && height < chromeHeight && maxHeight >= chromeHeight) {
+    height = chromeHeight
+  }
+  if (height > 0 && width > 0) {
+    const aspect = width / height
+    if (aspect < ABACO_BROWSER_PANEL_MIN_ASPECT) {
+      height = Math.floor(width / ABACO_BROWSER_PANEL_MIN_ASPECT)
+    } else if (aspect > ABACO_BROWSER_PANEL_MAX_ASPECT) {
+      height = Math.floor(width / ABACO_BROWSER_PANEL_MAX_ASPECT)
+    }
+    height = Math.max(chromeHeight, Math.min(height, maxHeight))
+  }
+  return { width, height }
+}
+
 /**
  * Pure geometry for `AbacoBrowserController.syncBounds` (unit-testable).
  *
  * - `overlay` — full content rect (F0 behaviour).
- * - `panel` + host bounds — use the reported rect (width still clamped).
- * - `panel` without host — right strip of clamped width (default 420, 300–520).
+ * - `panel` + host bounds — use the reported rect (width/height clamped).
+ * - `panel` without host — right strip of clamped width (default 420, 360–520)
+ *   and height capped at 720 with a window-like aspect.
+ *
+ * The page WebContentsView uses the clamped rect; the chrome bar is a thin
+ * strip painted on top of the page (same x/y/width, height = chrome).
  */
 export function computeAbacoBrowserSyncBounds(
   input: AbacoBrowserSyncBoundsInput
@@ -151,25 +220,39 @@ export function computeAbacoBrowserSyncBounds(
 
   const host = input.hostBounds
   if (host && host.width > 0 && host.height > 0) {
-    const width = clampAbacoBrowserPanelWidth(host.width)
+    const y = Math.max(0, Math.floor(host.y))
+    const clamped = clampPanelViewport({
+      width: host.width,
+      height: host.height,
+      contentHeight,
+      y,
+      chromeHeight
+    })
+    const width = clamped.width
+    const height = clamped.height
     // Prefer the host's x when it already describes a right strip; otherwise
     // pin the clamped width to the right edge of the content rect.
     const x = Math.max(0, Math.min(Math.floor(host.x), Math.max(0, contentWidth - width)))
-    const y = Math.max(0, Math.floor(host.y))
-    const height = Math.max(0, Math.min(Math.floor(host.height), Math.max(0, contentHeight - y)))
     return {
       page: { x, y, width, height },
       chrome: { x, y, width, height: Math.min(chromeHeight, height) }
     }
   }
 
-  const width = clampAbacoBrowserPanelWidth(
-    Math.min(ABACO_BROWSER_PANEL_WIDTH_PX, contentWidth)
-  )
+  const widthHint = Math.min(ABACO_BROWSER_PANEL_WIDTH_PX, contentWidth)
+  const clamped = clampPanelViewport({
+    width: widthHint,
+    height: contentHeight,
+    contentHeight,
+    y: 0,
+    chromeHeight
+  })
+  const width = clamped.width
+  const height = clamped.height
   const x = Math.max(0, contentWidth - width)
   return {
-    page: { x, y: 0, width, height: contentHeight },
-    chrome: { x, y: 0, width, height: chromeHeight }
+    page: { x, y: 0, width, height },
+    chrome: { x, y: 0, width, height: Math.min(chromeHeight, height) }
   }
 }
 
@@ -550,6 +633,9 @@ export interface AbacoBrowserScreenRecordingStatus {
   lastError: string
 }
 
+/** Kind of recording that triggered an agent skill handoff. */
+export type AbacoBrowserSkillHandoffKind = 'f2-actions' | 'screen'
+
 /** Result of stopping a screen recording (the agent notification payload). */
 export interface AbacoBrowserScreenRecordingResult {
   ok: boolean
@@ -561,6 +647,47 @@ export interface AbacoBrowserScreenRecordingResult {
   /** One-line notice the agent should surface ("recording saved at …"). */
   notice: string
   frameCount?: number
+  /**
+   * P1 — markdown the Harness client injects into the active turn
+   * (`setDraft` + `submit`). Prefer this over the generic `notice` lines.
+   */
+  skillMarkdown?: string
+  /** Distinguishes F2 DOM-action stop from desktopCapturer screen stop. */
+  kind?: AbacoBrowserSkillHandoffKind
+  /** Absolute path of the written `SKILL.md` when auto-save succeeded. */
+  skillPath?: string
+  skillName?: string
+}
+
+/**
+ * Pure builder for the agent handoff body after a recording stops (P1 D4).
+ * Disk-only is not enough — the client must `setDraft` + `submit` this text.
+ */
+export function buildSkillHandoffMarkdown(input: {
+  title: string
+  actionDescriptions: readonly string[]
+  skillPath: string
+  recordingPath?: string
+}): string {
+  const lines: string[] = [`# ${input.title.trim() || 'Browser skill'}`, '']
+  if (input.actionDescriptions.length > 0) {
+    lines.push('## Acciones grabadas')
+    input.actionDescriptions.forEach((description, index) => {
+      lines.push(`${index + 1}. ${description}`)
+    })
+    lines.push('')
+  }
+  if (input.skillPath.trim().length > 0) {
+    lines.push(`Skill guardado en: ${input.skillPath}`)
+  }
+  if (input.recordingPath && input.recordingPath.trim().length > 0) {
+    lines.push(`Grabación: ${input.recordingPath}`)
+  }
+  lines.push('')
+  lines.push(
+    'Por favor aprende y guarda este skill en tu catálogo activo (no te limites a mirar el archivo en disco).'
+  )
+  return lines.join('\n')
 }
 
 /** True for the only two schemes the overlay is allowed to load. */
@@ -1085,4 +1212,8 @@ export interface AbacoBrowserSaveSkillResult {
   stepCount: number
   /** Why nothing was written; empty on success. */
   error: string
+  /** Full `SKILL.md` body when ok (optional; P1 handoff). */
+  markdown?: string
+  /** Human one-liners per compiled step (optional; P1 handoff). */
+  actionDescriptions?: string[]
 }
