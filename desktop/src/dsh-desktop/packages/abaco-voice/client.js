@@ -48,7 +48,9 @@ window.__ModuleLoader__.load({
 
     const defaultConfig = {
       ttsProvider: 'web-speech-tts',
-      sttProvider: 'web-speech-stt',
+      // Electron has no SpeechRecognition — default to blob STT (MediaRecorder → Whisper).
+      // Users can still pick Deepgram or Web Speech (browser-only) in Ajustes → Voz.
+      sttProvider: 'openai-stt',
       providers: {},
       privacy: {
         disclosureAccepted: false,
@@ -632,13 +634,13 @@ window.__ModuleLoader__.load({
 
     let abacoCtx = null
 
-    // NOTE: do not read ctx.abaco.* — Cordis rejects accessing undeclared ctx
-    // properties ("cannot get property ... without inject"). The store falls
-    // back to window.__abaco_ctx and then to a localStorage shim below.
+    // NOTE: never read properties off the Cordis `ctx` proxy (including
+    // window.__abaco_ctx if it still points at one). Accessing undeclared
+    // keys throws "cannot get property … without inject" and kills the
+    // composer. Voice config persists only through this plain shim / bag.
     function resolveStore() {
-      const legacy = typeof window !== 'undefined' && window.__abaco_ctx && window.__abaco_ctx.store
-      if (legacy && typeof legacy.get === 'function') return legacy
-      // localStorage-backed shim (same key contract).
+      const bag = typeof window !== 'undefined' ? window.__abaco_voice_store : null
+      if (bag && typeof bag.get === 'function' && typeof bag.set === 'function') return bag
       const KEY = 'abaco-voice:fallback-store'
       let cache = null
       const read = () => {
@@ -649,11 +651,13 @@ window.__ModuleLoader__.load({
       const persist = () => {
         try { window.localStorage.setItem(KEY, JSON.stringify(cache || {})) } catch {}
       }
-      return {
+      const shim = {
         async get(k) { return read()[k] != null ? read()[k] : null },
         async set(k, v) { read()[k] = v; persist() },
         async delete(k) { delete read()[k]; persist() },
       }
+      if (typeof window !== 'undefined') window.__abaco_voice_store = shim
+      return shim
     }
 
     async function ensureDisclosureAccepted(provider) {
@@ -690,10 +694,31 @@ window.__ModuleLoader__.load({
 
     // ── Mic button (composer left accessory) ─────────────────────────────
 
+    function speechRecognitionAvailable() {
+      return typeof window !== 'undefined' &&
+        !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+    }
+
     function isLiveSttProvider(provider) {
       if (!provider) return false
+      // Electron has no SpeechRecognition — never take the live path there.
+      if (!speechRecognitionAvailable()) return false
       if (provider.id === 'web-speech-stt') return true
       return !!(provider.capabilities && provider.capabilities.live)
+    }
+
+    function pickBlobSttProvider(cfg) {
+      const preferred = ['openai-stt', 'deepgram-stt', 'deepgram']
+      const ordered = []
+      if (cfg && cfg.sttProvider) ordered.push(cfg.sttProvider)
+      for (const id of preferred) if (!ordered.includes(id)) ordered.push(id)
+      for (const id of ordered) {
+        const p = getProvider(id)
+        if (!p || typeof p.transcribe !== 'function') continue
+        if (p.id === 'web-speech-stt') continue
+        return p
+      }
+      return null
     }
 
     function MicButton({ onInsert }) {
@@ -762,18 +787,27 @@ window.__ModuleLoader__.load({
           }
           const store = resolveStore()
           const cfg = await loadConfig(store)
-          const provider = getProvider(cfg.sttProvider)
+          let provider = getProvider(cfg.sttProvider)
           if (!provider) throw new Error('STT provider not configured')
+
+          // Electron: skip live SpeechRecognition; force MediaRecorder + cloud STT.
+          if (!isLiveSttProvider(provider)) {
+            const blobProvider = provider.id === 'web-speech-stt'
+              ? pickBlobSttProvider(cfg)
+              : (typeof provider.transcribe === 'function' ? provider : pickBlobSttProvider(cfg))
+            if (!blobProvider) {
+              throw new Error(
+                'SpeechRecognition no existe en Electron. Configura OpenAI Whisper o Deepgram ' +
+                'en Ajustes → Voz (API key) para transcribir con MediaRecorder.',
+              )
+            }
+            provider = blobProvider
+          }
+
           await ensureDisclosureAccepted(provider)
           const provCfg = cfg.providers[provider.id] || {}
 
-          if (isLiveSttProvider(provider)) {
-            if (typeof provider.createRecognizer !== 'function') {
-              throw new Error(
-                'SpeechRecognition no está disponible en este entorno (Electron). ' +
-                'Cambia el proveedor STT a OpenAI Whisper o Deepgram en Ajustes → Voz.',
-              )
-            }
+          if (isLiveSttProvider(provider) && typeof provider.createRecognizer === 'function') {
             liveTextRef.current = ''
             liveModeRef.current = true
             const rec = provider.createRecognizer(provCfg)
@@ -797,8 +831,10 @@ window.__ModuleLoader__.load({
             return
           }
 
-          // openai-stt / deepgram: MediaRecorder → provider.transcribe(blob)
+          // MediaRecorder → provider.transcribe(blob) → setDraft (+ submit)
           liveModeRef.current = false
+          // Remember which blob provider to use on stop (may differ from saved cfg).
+          liveRecRef.current = { __blobProviderId: provider.id }
           await recorderStart()
           setState('recording')
           setDuration(0)
@@ -814,12 +850,21 @@ window.__ModuleLoader__.load({
       async function transcribeBlob(blob) {
         const store = resolveStore()
         const cfg = await loadConfig(store)
-        const provider = getProvider(cfg.sttProvider)
+        const forcedId = liveRecRef.current && liveRecRef.current.__blobProviderId
+        liveRecRef.current = null
+        let provider = forcedId ? getProvider(forcedId) : getProvider(cfg.sttProvider)
+        if (!provider || typeof provider.transcribe !== 'function') {
+          provider = pickBlobSttProvider(cfg)
+        }
         if (!provider) throw new Error('STT provider not configured')
         const provCfg = cfg.providers[provider.id] || {}
         try {
           const result = await provider.transcribe(blob, provCfg)
           if (result && result.text) onInsert(result.text)
+          else {
+            setError('Transcripción vacía — revisa API key / audio.')
+            setState('error')
+          }
         } catch (e) {
           setError(e && e.message ? e.message : String(e))
           setState('error')
@@ -899,7 +944,8 @@ window.__ModuleLoader__.load({
         return { setDraft: props.input.setDraft.bind(props.input), actions: inputActions || null, source: 'input.setDraft' }
       }
       const win = typeof window !== 'undefined' ? window : null
-      const bridge = win && (win.__abaco_inputActions || (win.__abaco_ctx && win.__abaco_ctx.inputActions))
+      // Plain bag only — never win.__abaco_ctx.* (Cordis proxy → without inject).
+      const bridge = win && win.__abaco_inputActions
       if (bridge && typeof bridge.setDraft === 'function') {
         return { setDraft: bridge.setDraft.bind(bridge), actions: bridge, source: 'window.__abaco_inputActions' }
       }
@@ -911,6 +957,13 @@ window.__ModuleLoader__.load({
       const draftRef = React.useRef(draft)
       draftRef.current = draft
       const [writeError, setWriteError] = React.useState(null)
+
+      React.useEffect(() => {
+        const actions = props && props.inputActions
+        if (actions && typeof actions.setDraft === 'function' && typeof window !== 'undefined') {
+          window.__abaco_inputActions = actions
+        }
+      }, [props && props.inputActions])
 
       const onInsert = (text) => {
         setWriteError(null)
@@ -1226,8 +1279,13 @@ window.__ModuleLoader__.load({
     const inject = ['slots']
 
     function apply(ctx) {
+      // Keep a handle for tests only — never expose the Cordis proxy on window
+      // (reading .store / .inputActions throws "without inject" in the composer).
       abacoCtx = ctx
-      window.__abaco_ctx = ctx
+      if (typeof window !== 'undefined') {
+        delete window.__abaco_ctx
+        resolveStore()
+      }
 
       // Mic button → conversation.input.left (list / session)
       ctx.slots.inject('conversation.input.left', () =>
