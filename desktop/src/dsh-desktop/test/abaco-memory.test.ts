@@ -700,6 +700,8 @@ describe('abaco-memory mounting', () => {
       const listed = await listTool.execute({}, exec)
       expect(listed.total).toBe(3)
       expect(listed.root).toBe(join(home, 'abaco-memory'))
+      expect(listed.phases).toEqual(['profile', 'log', 'note'])
+      expect((listed.facets as { phase: string }[]).every((row) => ['profile', 'log', 'note'].includes(row.phase))).toBe(true)
 
       const removed = await forgetTool.execute({ key: 'proyecto.estado' }, exec)
       expect(removed).toMatchObject({ ok: true, removed: 1, scope: 'project' })
@@ -1121,5 +1123,23 @@ describe('abaco-memory write protocol', () => {
     expect(listed.rows.every((row) => row.facet !== 'meta')).toBe(true)
     const got = await store.get({ path: 'meta', ambient: AMBIENT })
     expect(got.facets[0]?.record).toMatchObject({ text: 'working-state-must-not-eat-budget' })
+  })
+
+  it('routes abaco_memory_note by phase and still refuses a subagent profile note', async () => {
+    const root = await memoryRoot()
+    const { ctx, tools } = recordingContext()
+    await apply(ctx, { root })
+    const noteTool = toolNamed(tools, 'abaco_memory_note')
+    const exec: ToolExec = { agent: { session: { header: HEADER } } }
+    const noted = await noteTool.execute({ text: 'draft the spill report', phase: 'note' }, exec)
+    expect(noted).toMatchObject({ ok: true, phase: 'note', facet: 'tasks', scope: 'session' })
+    const logged = await noteTool.execute({ text: 'verified the 12KB cap', phase: 'log' }, exec)
+    expect(logged).toMatchObject({ ok: true, phase: 'log', facet: 'facts', scope: 'project' })
+    await expect(
+      noteTool.execute(
+        { text: 'must not land in profile', phase: 'profile' },
+        { agent: { session: { header: { ...HEADER, origin: 'subagent', delegationDepth: 1 } } } }
+      )
+    ).rejects.toMatchObject({ code: 'MEMORY_SUBAGENT_PROFILE' })
   })
 })
