@@ -576,7 +576,7 @@ describe('abaco-memory prompt injection', () => {
  * ────────────────────────────────────────────────────────────────────────────── */
 
 describe('abaco-memory mounting', () => {
-  it('registers the four tools against the real defineTool schema compiler', async () => {
+  it('registers the five tools against the real defineTool schema compiler', async () => {
     const root = await memoryRoot()
     const { ctx, tools, sections, listeners } = recordingContext()
     await apply(ctx, { root })
@@ -610,7 +610,11 @@ describe('abaco-memory mounting', () => {
       },
       abaco_memory_get: { properties: ['key', 'scope'], required: [] },
       abaco_memory_forget: { properties: ['key', 'scope'], required: ['key'] },
-      abaco_memory_list: { properties: [], required: [] }
+      abaco_memory_list: { properties: [], required: [] },
+      abaco_memory_note: {
+        properties: ['phase', 'source', 'text'],
+        required: ['text']
+      }
     })
     // The value is `json` in the harness DSL, i.e. an annotation-only schema:
     // a string and an object are both legal, which is what makes the tool
@@ -841,6 +845,7 @@ describe('abaco-memory mounting', () => {
     expect(registered).toHaveLength(5)
     expect(sections).toEqual([MEMORY_SECTION_NAME])
     expect(registered).toContain('abaco_memory_set')
+    expect(registered).toContain('abaco_memory_note')
   })
 
   it('never rejects, so an unwritable memory root cannot break the plugin tree', async () => {
@@ -863,7 +868,7 @@ describe('abaco-memory mounting', () => {
 
     // The surface stays mounted: the model can still call the tools, and a
     // failed write is reported to it instead of vanishing.
-    expect(tools).toHaveLength(4)
+    expect(tools).toHaveLength(5)
     expect(listeners.has('agent/turn-stopping')).toBe(true)
     const setTool = toolNamed(tools, 'abaco_memory_set')
     const exec: ToolExec = { agent: { session: { header: HEADER } } }
@@ -901,7 +906,7 @@ describe('abaco-memory mounting', () => {
 
       // The unusable root fell back to <DSH_HOME>/abaco-memory, so the plugin
       // is fully live rather than half-mounted.
-      expect(tools).toHaveLength(4)
+      expect(tools).toHaveLength(5)
       expect(sections).toHaveLength(1)
       const setTool = toolNamed(tools, 'abaco_memory_set')
       const exec: ToolExec = { agent: { session: { header: HEADER } } }
