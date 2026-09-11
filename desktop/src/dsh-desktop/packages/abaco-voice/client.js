@@ -48,9 +48,9 @@ window.__ModuleLoader__.load({
 
     const defaultConfig = {
       ttsProvider: 'web-speech-tts',
-      // Electron has no SpeechRecognition — default to blob STT (MediaRecorder → Whisper).
-      // Users can still pick Deepgram or Web Speech (browser-only) in Ajustes → Voz.
-      sttProvider: 'openai-stt',
+      // Electron: on-device mlx_whisper / whisper via host route (no OpenAI key).
+      // Cloud OpenAI/Deepgram remain optional in Ajustes → Voz.
+      sttProvider: 'local-whisper-stt',
       providers: {},
       privacy: {
         disclosureAccepted: false,
@@ -67,7 +67,13 @@ window.__ModuleLoader__.load({
       const raw = store ? await store.get(STORE_KEY) : null
       if (!raw) return defaultVoiceConfig()
       try {
-        return { ...defaultVoiceConfig(), ...JSON.parse(raw) }
+        const cfg = { ...defaultVoiceConfig(), ...JSON.parse(raw) }
+        // Migrate empty OpenAI default → local Whisper (Anthony 2026-09-10).
+        if (cfg.sttProvider === 'openai-stt') {
+          const key = ((cfg.providers || {})['openai-stt'] || {}).apiKey
+          if (!key || !String(key).trim()) cfg.sttProvider = 'local-whisper-stt'
+        }
+        return cfg
       } catch {
         return defaultVoiceConfig()
       }
@@ -252,7 +258,7 @@ window.__ModuleLoader__.load({
         kind: 'stt',
         label: 'Web Speech (browser)',
         // live: true → MicButton drives SpeechRecognition while pressed.
-        // MediaRecorder + blob.transcribe stays for openai-stt / deepgram only.
+        // MediaRecorder + blob.transcribe: local-whisper / openai / deepgram.
         capabilities: {
           languages: 'system-dependent',
           requiresKey: false,
@@ -277,7 +283,7 @@ window.__ModuleLoader__.load({
           if (!Ctor) {
             throw new Error(
               'SpeechRecognition no está disponible en este entorno (Electron). ' +
-              'Cambia el proveedor STT a OpenAI Whisper o Deepgram en Ajustes → Voz.',
+              'Cambia el proveedor STT a Whisper local (macOS) en Ajustes → Voz.',
             )
           }
           const rec = new Ctor()
@@ -559,6 +565,69 @@ window.__ModuleLoader__.load({
 
     // Deepgram STT (Nova-3).
     {
+
+    // Local Whisper (mlx_whisper / whisper CLI) — host Cordis route, on-device.
+    {
+      const LOCAL_TRANSCRIBE_PATH = '/api/abaco-voice.local-transcribe'
+      const LOCAL_STATUS_PATH = '/api/abaco-voice.local-status'
+      const localModels = [
+        { value: 'mlx-community/whisper-tiny', label: 'Tiny — rápido (default)' },
+        { value: 'mlx-community/whisper-base', label: 'Base — equilibrio' },
+        { value: 'mlx-community/whisper-small', label: 'Small — mejor calidad' },
+      ]
+      const localWhisper = {
+        id: 'local-whisper-stt',
+        kind: 'stt',
+        label: 'Whisper local (macOS)',
+        capabilities: {
+          languages: '99+ (modelo local)',
+          requiresKey: false,
+          offline: true,
+          costPerMinute: 0,
+          privacyNote: 'Audio stays on this Mac (mlx_whisper / whisper + ffmpeg).',
+        },
+        configSchema: [
+          { key: 'model', label: 'Model', type: 'select', options: localModels, default: 'mlx-community/whisper-tiny' },
+          { key: 'language', label: 'Language', type: 'text', placeholder: 'es, en, …' },
+        ],
+        defaultConfig: { model: 'mlx-community/whisper-tiny', language: 'es' },
+        async transcribe(audioBlob, opts) {
+          const model = (opts && opts.model) || 'mlx-community/whisper-tiny'
+          const language = (opts && opts.language) || 'es'
+          const q = new URLSearchParams({
+            filename: 'audio.webm',
+            model: String(model),
+            language: String(language),
+          })
+          const res = await fetch(
+            `${window.location.origin}${LOCAL_TRANSCRIBE_PATH}?${q}`,
+            {
+              method: 'POST',
+              headers: { 'content-type': audioBlob.type || 'audio/webm' },
+              body: audioBlob,
+            },
+          )
+          let payload = null
+          try { payload = await res.json() } catch {}
+          if (!res.ok || !payload || payload.ok !== true) {
+            throw new Error(
+              (payload && payload.error) ||
+              `Whisper local falló (HTTP ${res.status}). Instala mlx-whisper + ffmpeg y reinicia la app.`,
+            )
+          }
+          return {
+            text: payload.text || '',
+            language,
+            segments: [],
+            duration: undefined,
+            meta: payload.meta || { offline: true },
+          }
+        },
+      }
+      localWhisper.__statusPath = LOCAL_STATUS_PATH
+      registerProvider(localWhisper)
+    }
+
       const deepgram = {
         id: 'deepgram-stt',
         kind: 'stt',
@@ -731,7 +800,7 @@ window.__ModuleLoader__.load({
     }
 
     function pickBlobSttProvider(cfg) {
-      const preferred = ['openai-stt', 'deepgram-stt', 'deepgram']
+      const preferred = ['local-whisper-stt', 'openai-stt', 'deepgram-stt', 'deepgram']
       const ordered = []
       if (cfg && cfg.sttProvider) ordered.push(cfg.sttProvider)
       for (const id of preferred) if (!ordered.includes(id)) ordered.push(id)
@@ -749,8 +818,8 @@ window.__ModuleLoader__.load({
     function assertBlobSttReady(cfg, provider) {
       if (!provider || typeof provider.transcribe !== 'function') {
         throw new Error(
-          'SpeechRecognition no existe en Electron. Configura OpenAI Whisper o Deepgram ' +
-          'en Ajustes → Voz (API key) para transcribir con MediaRecorder.',
+          'SpeechRecognition no existe en Electron. Usa «Whisper local (macOS)» ' +
+          '(mlx_whisper + ffmpeg) o configura OpenAI/Deepgram en Ajustes → Voz.',
         )
       }
       if (!providerHasApiKey(cfg, provider)) {

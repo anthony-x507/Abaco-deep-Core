@@ -19,13 +19,13 @@ describe('abaco-voice live fix (store inject + Electron STT)', () => {
     expect(source).not.toMatch(/__abaco_ctx\s*&&\s*win\.__abaco_ctx\.inputActions/)
   })
 
-  it('defaults to openai-stt and forces MediaRecorder when SpeechRecognition is missing', async () => {
+  it('defaults to local-whisper-stt and forces MediaRecorder when SpeechRecognition is missing', async () => {
     const source = await readFile('packages/abaco-voice/client.js', 'utf8')
-    expect(source).toMatch(/sttProvider:\s*'openai-stt'/)
+    expect(source).toMatch(/sttProvider:\s*'local-whisper-stt'/)
     expect(source).toContain('function speechRecognitionAvailable()')
     expect(source).toContain('function pickBlobSttProvider(cfg)')
     expect(source).toContain('MediaRecorder → provider.transcribe(blob)')
-    expect(source).toContain("Configura OpenAI Whisper o Deepgram")
+    expect(source).toContain("Whisper local (macOS)")
   })
 
   it('gates blob STT on provider API key before MediaRecorder (DEEPSEEK ≠ Whisper)', async () => {
