@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
@@ -340,6 +341,42 @@ describe('abaco-vault / vault root', () => {
 /* ──────────────────────────────────────────────────────────────────────────────
  * Arm A — the settlement-notice hole
  * ────────────────────────────────────────────────────────────────────────────── */
+
+describe('abaco-vault / spill-fix: no early notifySettlement truncate', () => {
+  it('destructive dsh-subagent capSettlementOutput patch is absent', () => {
+    // Arquitecto FAIL: that patch truncated terminal.output BEFORE message creation,
+    // so Arm A saw ≤12KB and planSettledRewrite=keep → no vault, no locator.
+    const patchPath = join(process.cwd(), 'patches', '@deepseek-ai+dsh-subagent+0.1.2-rc.1.patch')
+    expect(existsSync(patchPath)).toBe(false)
+  })
+
+  it('Arm A vaults FULL verbatim first, then caps window WITH locator (byte-identical)', async () => {
+    const directory = await temporaryDirectory()
+    const { preStep } = await mountPreStep({ root: directory, maxSettledBytes: 12000, headLines: 20 })
+    // Distinctive payload >> 12KB so any pre-truncate would destroy the tail marker.
+    const body = `HEAD-MARKER\n${'Y'.repeat(18000)}\nTAIL-MARKER-VAULT-MUST-KEEP`
+    const message = settledMessage(body, 'child-session-1')
+    const full = settledMessageText(message)
+    expect(full).toBeTruthy()
+    expect(utf8Bytes(full as string)).toBeGreaterThan(12000)
+    const decision = await runPreStep(preStep, [message])
+    const windowText = decision.messages[0].content[0].text as string
+    expect(utf8Bytes(windowText)).toBeLessThan(utf8Bytes(full as string))
+    expect(windowText).toContain('se omitieron')
+    expect(windowText).toMatch(/Resultado completo en: .+\.txt/)
+    expect(windowText).not.toContain('TAIL-MARKER-VAULT-MUST-KEEP')
+
+    const outputDirectory = join(directory, VAULT_DIR_NAME, 'parent-session-1')
+    const files = await readdir(outputDirectory)
+    expect(files).toHaveLength(1)
+    const locator = join(outputDirectory, files[0] as string)
+    const artifact = await readFile(locator, 'utf8')
+    expect(artifact).toBe(full)
+    expect(artifact).toContain('TAIL-MARKER-VAULT-MUST-KEEP')
+    expect(utf8Bytes(artifact)).toBe(utf8Bytes(full as string))
+    expect(windowText).toContain(locator)
+  })
+})
 
 describe('abaco-vault / capSettlementOutput gate (vault-first)', () => {
   it('keeps blocks under the 12KB budget', () => {

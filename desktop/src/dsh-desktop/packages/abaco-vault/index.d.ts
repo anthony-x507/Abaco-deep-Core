@@ -71,6 +71,12 @@ export type SettledRewritePlan =
   | { kind: 'keep'; reason: 'not-text' | 'under-threshold' | 'no-reduction'; bytes: number }
   | { kind: 'rewrite'; bytes: number; kept: number; omitted: number; head: string; headLines: number }
 
+/** Outcome of `capSettlementOutput`: keep, need vault first, or capped with locator. */
+export type SettledCapResult =
+  | { kind: 'keep'; blocks: Array<{ type: 'text'; text: string }> | unknown; bytes: number }
+  | { kind: 'needs-vault'; blocks: Array<{ type: 'text'; text: string }> | unknown; bytes: number; text: string }
+  | { kind: 'capped'; blocks: Array<{ type: 'text'; text: string }>; bytes: number; kept: number; omitted: number; locator: string }
+
 /** Index fields every vaulted artifact carries. */
 export interface VaultArtifact {
   locator: string
@@ -151,6 +157,12 @@ export declare function renderOmittedNotice(omittedBytes: number, locator: strin
 
 /** Decide whether and where a settlement notice is cut. */
 export declare function planSettledRewrite(text: string, config?: { maxSettledBytes?: number; headLines?: number }): SettledRewritePlan
+
+/** Vault-first gate: never truncate settlement output without a locator. */
+export declare function capSettlementOutput(
+  blocks: string | Array<{ type?: string; text?: string } | unknown>,
+  options?: { maxBytes?: number; headLines?: number; locator?: string }
+): SettledCapResult
 
 /** Inline head + blank line + recovery notice. */
 export declare function composeVaultedText(head: string, omittedBytes: number, locator: string): string

@@ -501,6 +501,7 @@ async function apply(ctx, config) {
 export {
   apply,
   artifactFileName,
+  capSettlementOutput,
   composeVaultedText,
   flattenPlainText,
   planSettledRewrite,
