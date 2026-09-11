@@ -28,6 +28,15 @@ describe('abaco-voice live fix (store inject + Electron STT)', () => {
     expect(source).toContain("Configura OpenAI Whisper o Deepgram")
   })
 
+  it('gates blob STT on provider API key before MediaRecorder (DEEPSEEK ≠ Whisper)', async () => {
+    const source = await readFile('packages/abaco-voice/client.js', 'utf8')
+    expect(source).toContain('function providerHasApiKey(cfg, provider)')
+    expect(source).toContain('function assertBlobSttReady(cfg, provider)')
+    expect(source).toContain('assertBlobSttReady(cfg, provider)')
+    expect(source).toContain('La clave DEEPSEEK de Modelos no sirve para STT')
+    expect(source).toContain('Falta API key de OpenAI Whisper')
+  })
+
   it('device-identity / experimental / onboarding do not touch undeclared ctx.abaco', async () => {
     const identity = await readFile('packages/abaco-device-identity/client.js', 'utf8')
     const experimental = await readFile('packages/abaco-experimental/client.js', 'utf8')

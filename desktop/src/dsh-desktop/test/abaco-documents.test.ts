@@ -24,7 +24,9 @@ describe('abaco-documents classifyDocument', () => {
     expect(classifyDocument('application/pdf', 'a.pdf')).toBe('pdf')
     expect(classifyDocument('text/plain', 'a.txt')).toBe('text')
     expect(classifyDocument('application/octet-stream', 'a.bin')).toBeNull()
-    expect(classifyDocument('image/heic', 'a.heic')).toBeNull()
+    expect(classifyDocument('image/heic', 'a.heic')).toBe('heic')
+    expect(classifyDocument('application/octet-stream', 'a.heic')).toBe('heic')
+    expect(classifyDocument('', '98.Tollpass.xlsx')).toBe('office-reject')
   })
 })
 
@@ -104,3 +106,18 @@ describe('abaco-documents extract route (images)', () => {
     expect(payload.error).toMatch(/PNG, JPEG, GIF, WEBP/i)
   })
 })
+
+describe('abaco-documents HEIC / office UX contracts', () => {
+  it('host converts HEIC on darwin and surfaces office-reject copy', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const source = await readFile('packages/abaco-documents/index.js', 'utf8')
+    expect(source).toContain('convertHeicToJpeg')
+    expect(source).toContain("spawn('sips'")
+    expect(source).toContain('office-reject')
+    expect(source).toContain('Exporta CSV o PDF')
+    const client = await readFile('packages/abaco-documents/client.js', 'utf8')
+    expect(client).toContain('function shortError')
+    expect(client).toContain('.heic')
+  })
+})
+

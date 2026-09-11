@@ -196,7 +196,7 @@ window.__ModuleLoader__.load({
         h('button', {
           type: 'button',
           'aria-label': 'Subir documento o foto',
-          title: 'Subir documento o foto (PDF, DOCX, TXT, MD, CSV, JSON, YAML, PNG, JPEG, GIF, WEBP)',
+          title: 'Subir documento o foto (PDF, DOCX, TXT, MD, CSV, JSON, YAML, PNG, JPEG, GIF, WEBP, HEIC)',
           className: `abaco-doc-upload-btn${busy ? ' abaco-doc-busy' : ''}`,
           onClick: () => inputRef.current && inputRef.current.click(),
         }, busy ? '…' : '📎'),
@@ -204,7 +204,7 @@ window.__ModuleLoader__.load({
           ref: inputRef,
           type: 'file',
           multiple: true,
-          accept: '.pdf,.docx,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.xml,.png,.jpg,.jpeg,.gif,.webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv,image/png,image/jpeg,image/gif,image/webp,image/*',
+          accept: '.pdf,.docx,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.xml,.png,.jpg,.jpeg,.gif,.webp,.heic,.heif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv,image/png,image/jpeg,image/gif,image/webp,image/heic,image/heif,image/*',
           onChange: onPick,
           style: { display: 'none' },
         }),
@@ -212,6 +212,12 @@ window.__ModuleLoader__.load({
     }
 
     // ── Preview card ─────────────────────────────────────────────────────
+
+    function shortError(msg) {
+      const s = String(msg || 'error').replace(/\s+/g, ' ').trim()
+      if (s.length <= 42) return s
+      return s.slice(0, 39) + '…'
+    }
 
     function DocCard({ doc, onRemove }) {
       const isError = doc.status === 'error'
@@ -227,7 +233,7 @@ window.__ModuleLoader__.load({
           isError ? '⚠' : isLoading ? '⏳' : iconForType(doc.name)),
         h('span', { className: 'abaco-doc-name' }, doc.name),
         h('span', { className: 'abaco-doc-meta' },
-          isLoading ? 'extrayendo…' : isError ? 'error' : sizeStr),
+          isLoading ? 'extrayendo…' : isError ? shortError(doc.error) : sizeStr),
         h('button', {
           type: 'button',
           className: 'abaco-doc-remove',
@@ -244,7 +250,7 @@ window.__ModuleLoader__.load({
       if (lower.endsWith('.csv')) return '📊'
       if (lower.endsWith('.json') || lower.endsWith('.yaml') || lower.endsWith('.yml')) return '⚙'
       if (lower.endsWith('.md') || lower.endsWith('.markdown')) return '📑'
-      if (/\.(png|jpe?g|gif|webp)$/.test(lower)) return '🖼'
+      if (/\.(png|jpe?g|gif|webp|heic|heif)$/.test(lower)) return '🖼'
       return '📃'
     }
 

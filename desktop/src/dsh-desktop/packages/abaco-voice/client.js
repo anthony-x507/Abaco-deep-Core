@@ -335,7 +335,7 @@ window.__ModuleLoader__.load({
         ],
         defaultConfig: { model: 'gpt-4o-mini-tts', voice: 'alloy', speed: 1, instructions: '' },
         async synthesize(text, opts) {
-          if (!opts.apiKey) throw new Error('OpenAI API key required')
+          if (!opts.apiKey) throw new Error('Falta API key de OpenAI TTS. Pégala en Ajustes → Voz.')
           const res = await fetch('https://api.openai.com/v1/audio/speech', {
             method: 'POST',
             headers: {
@@ -382,7 +382,7 @@ window.__ModuleLoader__.load({
         ],
         defaultConfig: { model: 'whisper-1', language: '', prompt: '' },
         async transcribe(audioBlob, opts) {
-          if (!opts.apiKey) throw new Error('OpenAI API key required')
+          if (!opts.apiKey) throw new Error('Falta API key de OpenAI Whisper. Pégala en Ajustes → Voz. La clave DEEPSEEK de Modelos no sirve para STT.')
           const form = new FormData()
           form.append('file', audioBlob, 'audio.webm')
           form.append('model', opts.model || 'whisper-1')
@@ -707,18 +707,55 @@ window.__ModuleLoader__.load({
       return !!(provider.capabilities && provider.capabilities.live)
     }
 
+    function providerConfigOf(cfg, providerId) {
+      if (!cfg || !cfg.providers || !providerId) return {}
+      return cfg.providers[providerId] || {}
+    }
+
+    function providerHasApiKey(cfg, provider) {
+      if (!provider) return false
+      const needs = !!(provider.capabilities && provider.capabilities.requiresKey)
+      if (!needs) return true
+      const key = providerConfigOf(cfg, provider.id).apiKey
+      return typeof key === 'string' && key.trim().length > 0
+    }
+
+    /** Spanish gate: Electron blob STT needs OpenAI/Deepgram key (DEEPSEEK model key ≠ Whisper). */
+    function missingSttKeyError(provider) {
+      const label = provider && provider.label ? provider.label : 'OpenAI Whisper / Deepgram'
+      return (
+        `Falta API key de ${label}. ` +
+        'Pégala en Ajustes → Voz (providers). ' +
+        'La clave DEEPSEEK de Modelos no sirve para STT.'
+      )
+    }
+
     function pickBlobSttProvider(cfg) {
       const preferred = ['openai-stt', 'deepgram-stt', 'deepgram']
       const ordered = []
       if (cfg && cfg.sttProvider) ordered.push(cfg.sttProvider)
       for (const id of preferred) if (!ordered.includes(id)) ordered.push(id)
+      let firstCapable = null
       for (const id of ordered) {
         const p = getProvider(id)
         if (!p || typeof p.transcribe !== 'function') continue
         if (p.id === 'web-speech-stt') continue
-        return p
+        if (!firstCapable) firstCapable = p
+        if (providerHasApiKey(cfg, p)) return p
       }
-      return null
+      return firstCapable
+    }
+
+    function assertBlobSttReady(cfg, provider) {
+      if (!provider || typeof provider.transcribe !== 'function') {
+        throw new Error(
+          'SpeechRecognition no existe en Electron. Configura OpenAI Whisper o Deepgram ' +
+          'en Ajustes → Voz (API key) para transcribir con MediaRecorder.',
+        )
+      }
+      if (!providerHasApiKey(cfg, provider)) {
+        throw new Error(missingSttKeyError(provider))
+      }
     }
 
     function MicButton({ onInsert }) {
@@ -833,6 +870,7 @@ window.__ModuleLoader__.load({
 
           // MediaRecorder → provider.transcribe(blob) → setDraft (+ submit)
           liveModeRef.current = false
+          assertBlobSttReady(cfg, provider)
           // Remember which blob provider to use on stop (may differ from saved cfg).
           liveRecRef.current = { __blobProviderId: provider.id }
           await recorderStart()
