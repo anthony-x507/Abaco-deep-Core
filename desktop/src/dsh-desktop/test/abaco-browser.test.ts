@@ -188,7 +188,7 @@ function stubTarget(options: { open?: boolean; mode?: 'agent' | 'manual' } = {})
 } {
   const calls: string[] = []
   const open = options.open !== false
-  const mode = options.mode ?? 'agent'
+  let mode: 'agent' | 'manual' = options.mode ?? 'agent'
   const target: AbacoBrowserControlTarget = {
     isOpen: () => open,
     browserMode: () => mode,
@@ -228,6 +228,16 @@ function stubTarget(options: { open?: boolean; mode?: 'agent' | 'manual' } = {})
     agentScreenshot: async () => {
       calls.push('screenshot')
       return { mimeType: 'image/png', width: 10, height: 20, byteLength: 3, dataBase64: 'AAA=' }
+    },
+    agentGrabControl: () => {
+      mode = 'agent'
+      calls.push('grab-control')
+      return stubState({ open, mode })
+    },
+    agentReleaseControl: () => {
+      mode = 'manual'
+      calls.push('release-control')
+      return stubState({ open, mode })
     }
   }
   return { target, calls }
@@ -335,7 +345,9 @@ describe('ABACO browser agent control plane (F1)', () => {
       'type:#q:hello:submit',
       'read-dom:default',
       'wait-for:#go',
-      'screenshot'
+      'screenshot',
+      'grab-control',
+      'release-control'
     ])
 
     const unknown = await rpc(server, 'reboot', {})
@@ -368,7 +380,10 @@ describe('ABACO browser agent control plane (F1)', () => {
     const server = new AbacoBrowserRpcServer({ controller: () => target, log: () => {} })
     await server.start()
 
-    for (const route of abacoBrowserRpcRoutes.filter((name) => name !== 'state')) {
+    const gated = abacoBrowserRpcRoutes.filter(
+      (name) => name !== 'state' && name !== 'grab-control' && name !== 'release-control'
+    )
+    for (const route of gated) {
       const { status, payload } = await rpc(server, route, { url: 'https://example.com/', selector: '#go', text: 'x' })
       expect(status).toBe(409)
       expect(payload.error).toBe(ABACO_BROWSER_TAKEOVER_MESSAGE)
@@ -377,7 +392,11 @@ describe('ABACO browser agent control plane (F1)', () => {
     const state = await rpc(server, 'state')
     expect(state.status).toBe(200)
     expect((state.payload.result as AbacoBrowserState).mode).toBe('manual')
-    expect(calls).toEqual([])
+    // Grab is how the agent leaves manual mode — same setBrowserMode as the chrome bar.
+    const grabbed = await rpc(server, 'grab-control', {})
+    expect(grabbed.status).toBe(200)
+    expect((grabbed.payload.result as AbacoBrowserState).mode).toBe('agent')
+    expect(calls).toEqual(['grab-control'])
     await server.stop()
   })
 
@@ -500,32 +519,37 @@ describe('ABACO browser agent tools (F1)', () => {
     expect(isAbacoBrowserMode('auto')).toBe(false)
   })
 
-  it('exposes the mode switch to the user and never to the agent', async () => {
+  it('exposes the mode switch to the chrome bar and to agent grab/release tools', async () => {
     const main = await readFile('src/main/index.ts', 'utf8')
     const preload = await readFile('src/preload/index.ts', 'utf8')
     const chromePreload = await readFile('src/preload/abaco-browser-chrome.ts', 'utf8')
     const chromeHtml = await readFile('build/abaco-browser-chrome.html', 'utf8')
+    const shared = await readFile('src/shared/abaco-browser.ts', 'utf8')
+    const controller = await readFile('src/main/abaco-browser-controller.ts', 'utf8')
 
     expect(abacoBrowserChannels.mode).toBe('abaco:browser:mode')
-    // F2 renamed this one literal from the F1 `abaco:browser:setMode` to the
-    // kebab-case the rest of the family uses. Only the chrome bar invokes it and
-    // both halves ship in one bundle, so nothing else had to change; the
-    // invariant this test guards (the agent has no route to it) is untouched.
     expect(abacoBrowserChannels.setMode).toBe('abaco:browser:set-mode')
     expect(main).toContain('ipcMain.handle(abacoBrowserChannels.mode,')
     expect(main).toContain('ipcMain.handle(abacoBrowserChannels.setMode,')
     expect(main).toContain('if (!isAbacoBrowserMode(mode))')
     expect(preload).toContain('mode: (): Promise<AbacoBrowserMode> => ipcRenderer.invoke(abacoBrowserChannels.mode)')
-    // The Harness page can read ownership but not change it: the agent's tools
-    // must have no route that lifts the gate that just refused them.
+    // Harness page script still cannot flip mode over IPC; the agent uses the
+    // loopback grab-control / release-control routes (same setBrowserMode).
     expect(preload).not.toContain('abacoBrowserChannels.setMode')
     expect(chromePreload).toContain('invoke(abacoBrowserChannels.setMode, mode)')
     expect(chromePreload).toContain('modeButton.dataset.mode = next')
     expect(chromeHtml).toContain('id="abaco-browser-mode"')
     expect(chromeHtml).toContain('abaco-browser-mode')
+    expect(abacoBrowserRpcRoutes).toContain('grab-control')
+    expect(abacoBrowserRpcRoutes).toContain('release-control')
+    expect(shared).toContain("'grab-control'")
+    expect(controller).toContain('agentGrabControl(): AbacoBrowserState')
+    expect(controller).toContain('agentReleaseControl(): AbacoBrowserState')
+    expect(controller).toContain("this.setBrowserMode('agent')")
+    expect(controller).toContain("this.setBrowserMode('manual')")
   })
 
-  it('registers the seven agent tools against the real defineTool schema compiler', async () => {
+  it('registers the agent tools (incl. grab/release) against the real defineTool schema compiler', async () => {
     const plugin = await import('../packages/abaco-browser/index.js')
     interface CompiledSchema {
       properties: Record<string, unknown>
@@ -564,7 +588,9 @@ describe('ABACO browser agent tools (F1)', () => {
       'abaco_browser_read_dom',
       'abaco_browser_wait_for',
       'abaco_browser_state',
-      'abaco_browser_screenshot'
+      'abaco_browser_screenshot',
+      'abaco_browser_grab_control',
+      'abaco_browser_release_control'
     ])
     // The compiled JSON Schema the model actually receives: a silently renamed
     // or dropped parameter would make a tool uncallable.
@@ -587,7 +613,9 @@ describe('ABACO browser agent tools (F1)', () => {
       abaco_browser_read_dom: { properties: ['maxChars'], required: [] },
       abaco_browser_wait_for: { properties: ['selector', 'timeoutMs'], required: ['selector'] },
       abaco_browser_state: { properties: [], required: [] },
-      abaco_browser_screenshot: { properties: [], required: [] }
+      abaco_browser_screenshot: { properties: [], required: [] },
+      abaco_browser_grab_control: { properties: [], required: [] },
+      abaco_browser_release_control: { properties: [], required: [] }
     })
     // Every action tool reports ownership, so a refusal and a success describe
     // the same page the same way.

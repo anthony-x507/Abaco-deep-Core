@@ -25,9 +25,8 @@ export function canGrantWindowPermission(
   requestingUrl: string | undefined,
   isMainFrame: boolean
 ): boolean {
-  // Tight allowlist: clipboard write stays harness-only (existing contract);
-  // `media` (mic + camera) is granted only for trusted app / harness main-frame
-  // so getUserMedia can power STT and photo capture without opening other perms.
+  // Tight allowlist: clipboard write stays harness-only; `media` (mic + camera)
+  // only for trusted app / harness main-frame (STT, photos, browser record).
   if (!isMainFrame || requestingUrl === undefined) return false
   if (permission === 'clipboard-sanitized-write') {
     return isHarnessUrl(requestingUrl)
