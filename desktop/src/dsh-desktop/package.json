@@ -1,7 +1,7 @@
 {
   "name": "abaco-deep-harnes",
   "version": "0.4.0",
-  "description": "ABACO DEEP HARNES — the ABACO desktop shell and agent harness client (cross-platform).",
+  "description": "ABACO DEEP HARNES \u2014 the ABACO desktop shell and agent harness client (cross-platform).",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -279,6 +279,8 @@
     "abaco-brand": "file:packages/abaco-brand",
     "abaco-device-identity": "file:packages/abaco-device-identity",
     "abaco-voice": "file:packages/abaco-voice",
+    "abaco-effect-broker": "file:packages/abaco-effect-broker",
+    "abaco-mediacion-pilot": "file:packages/abaco-mediacion-pilot",
     "abaco-documents": "file:packages/abaco-documents",
     "abaco-agent-status": "file:packages/abaco-agent-status",
     "abaco-browser": "file:packages/abaco-browser",
@@ -409,11 +411,11 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "ABACO DEEP HARNES usa el micrófono para transcribir tu voz a texto (abaco-voice). El audio se envía a tu proveedor STT elegido solo cuando lo solicitas; puedes usar Web Speech (browser) para mantener el audio local.",
+        "NSMicrophoneUsageDescription": "ABACO DEEP HARNES usa el micr\u00f3fono para transcribir tu voz a texto (abaco-voice). El audio se env\u00eda a tu proveedor STT elegido solo cuando lo solicitas; puedes usar Web Speech (browser) para mantener el audio local.",
         "NSSpeechRecognitionUsageDescription": "ABACO DEEP HARNES usa reconocimiento de voz del sistema para transcribir audio localmente sin enviarlo a servidores externos.",
-        "NSCameraUsageDescription": "ABACO DEEP HARNES puede usar la cámara para adjuntar fotos a conversaciones.",
+        "NSCameraUsageDescription": "ABACO DEEP HARNES puede usar la c\u00e1mara para adjuntar fotos a conversaciones.",
         "LSApplicationCategoryType": "public.app-category.developer-tools",
-        "NSHumanReadableCopyright": "ABACO DEEP HARNES — Copyright © 2026 Anthony Sanchez. Fork of DataElement/dsh-desktop (MIT)."
+        "NSHumanReadableCopyright": "ABACO DEEP HARNES \u2014 Copyright \u00a9 2026 Anthony Sanchez. Fork of DataElement/dsh-desktop (MIT)."
       },
       "target": [
         "dmg",

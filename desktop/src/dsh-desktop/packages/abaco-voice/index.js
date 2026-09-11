@@ -14,9 +14,9 @@ import {
   authorize,
   hashArgs,
   markLegacyUnmediated,
-} from '../abaco-effect-broker/index.js'
-import { executeAuthorized } from '../abaco-mediacion-pilot/index.js'
-import { resolveLocalWhisperTools } from '../abaco-mediacion-pilot/ops.js'
+} from 'abaco-effect-broker'
+import { executeAuthorized } from 'abaco-mediacion-pilot'
+import { resolveLocalWhisperTools } from 'abaco-mediacion-pilot/ops'
 
 export const name = 'abaco-voice'
 

@@ -7,9 +7,10 @@
   "exports": {
     ".": "./index.js",
     "./worker": "./worker.js",
+    "./ops": "./ops.js",
     "./package.json": "./package.json"
   },
-  "description": "F1 mediation pilot — authorized executor cell (not a grantor).",
+  "description": "F1 mediation pilot \u2014 authorized executor cell (not a grantor).",
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"

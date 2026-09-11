@@ -23,5 +23,9 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dependencies": {
+    "abaco-effect-broker": "file:../abaco-effect-broker",
+    "abaco-mediacion-pilot": "file:../abaco-mediacion-pilot"
   }
 }
