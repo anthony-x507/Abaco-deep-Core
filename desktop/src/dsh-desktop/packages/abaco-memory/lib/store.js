@@ -6,13 +6,17 @@
  * One JSON document per scope under `<DSH_HOME>/abaco-memory/`:
  *
  * ```text
- * <root>/profile.json                facets of the user, across all projects
- * <root>/projects/<projectKey>.json  facets of one project (the session's cwd)
- * <root>/sessions/<sessionId>.json   live state of one session/agent
- * <root>/roles/<agentPreset>.json    knowledge of one role/preset
- * <root>/audit/memory.jsonl          append-only journal of every change
+ * <root>/profile.json                PHASE profile — preferences / constraints / format
+ * <root>/roles/<agentPreset>.json    PHASE profile — identity of one role/preset
+ * <root>/projects/<projectKey>.json  PHASE log — decisions / facts / artifacts / project state
+ * <root>/sessions/<sessionId>.json   PHASE note — tasks / open questions / turn meta
+ * <root>/audit/memory.jsonl          PHASE log journal — append-only of every change
  * <root>/audit/archive/<YYYY-MM>.jsonl  entries archived by TTL or by cap
+ * <root>/vault/                      Layer 3 durable spill (owned by abaco-vault)
  * ```
+ *
+ * Write/aging phases (CONTRACT §2): **profile** (∞), **log** (durable dated),
+ * **note** (TTL/session). Orthogonal to the three context layers.
  *
  * The layout is design §2.1 verbatim, and it is the *only* place memory is
  * persisted. Nothing here appends a session event: the durable log's event
@@ -298,7 +302,23 @@ export class MemoryStore {
    *
    * @returns the number of documents loaded.
    */
+  /**
+   * Create the on-disk skeleton for the three phases so a fresh install is not
+   * "projects/ + audit/ only". sessions/ and roles/ are mkdir'd here; profile.json
+   * appears on first profile write; audit/ comes from the journal path. Idempotent.
+   */
+  async ensurePhaseLayout() {
+    for (const dir of ['projects', 'sessions', 'roles', 'audit', join('audit', 'archive'), 'vault']) {
+      try {
+        await mkdir(join(this.#root, dir), { recursive: true, mode: DIR_MODE })
+      } catch (error) {
+        this.#logger.warn(`abaco-memory: could not create ${dir}/: ${describe(error)}`)
+      }
+    }
+  }
+
   async load() {
+    await this.ensurePhaseLayout()
     let loaded = 0
     try {
       const profile = await this.#readDocumentFile(this.pathFor('profile', ''), 'profile', '')

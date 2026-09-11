@@ -27,7 +27,7 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { MEMORY_FACETS, MEMORY_SCOPES, MemorySchemaError } from './schema.js'
+import { MEMORY_FACETS, MEMORY_PHASES, MEMORY_SCOPES, MemorySchemaError, phaseOf } from './schema.js'
 
 /** Local file work; generous for a slow disk, far below any network timeout. */
 const TOOL_TIMEOUT_MS = 15000
@@ -442,20 +442,27 @@ export function registerMemoryTools(ctx, options) {
                 properties: {
                   facet: { type: 'string', required: true },
                   scope: { type: 'string', required: true },
+                  phase: { type: 'string', required: true, description: 'Write/aging phase: profile | log | note.' },
                   count: { type: 'integer', required: true }
                 }
               }
             },
             total: { type: 'integer', required: true },
-            root: { type: 'string', required: true, description: 'Directory holding the memory documents.' }
+            root: { type: 'string', required: true, description: 'Directory holding the memory documents.' },
+            phases: {
+              type: 'array',
+              required: true,
+              items: { type: 'string' },
+              description: 'The three write/aging phases: profile, log, note.'
+            }
           }
         },
         render: (_args, value) =>
           textBlock(
             value.total === 0
-              ? `Durable memory is empty. It is stored under ${value.root}.`
+              ? `Durable memory is empty. It is stored under ${value.root}. Phases: profile / log / note.`
               : `${value.total} durable memory value${value.total === 1 ? '' : 's'} in ${value.facets.length} facet${value.facets.length === 1 ? '' : 's'}:\n${value.facets
-                  .map((row) => `- ${row.facet} (${row.scope}): ${row.count}`)
+                  .map((row) => `- [${row.phase}] ${row.facet} (${row.scope}): ${row.count}`)
                   .join('\n')}`
           )
       },
@@ -464,13 +471,95 @@ export function registerMemoryTools(ctx, options) {
       async execute(_args, exec) {
         const result = await store.list({ ambient: ambientOf(exec) })
         return {
-          facets: result.rows.map((row) => ({ facet: row.facet, scope: row.scope.kind, count: row.count })),
+          facets: result.rows.map((row) => ({
+            facet: row.facet,
+            scope: row.scope.kind,
+            phase: phaseOf(row.facet) ?? 'log',
+            count: row.count
+          })),
           total: result.total,
-          root: result.root
+          root: result.root,
+          phases: MEMORY_PHASES
         }
       }
     })
   )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'abaco_memory_note',
+      description:
+        'Quick note into ABACO durable memory without picking a full path. phase "note" (default) writes a session task; "log" writes a project fact; "profile" writes a user preference. Prefer abaco_memory_set when you know the exact facet path. Keep text short and factual.',
+      parameters: {
+        text: {
+          type: 'string',
+          required: true,
+          description: 'The note text, quoted verbatim when it came from the user.'
+        },
+        phase: {
+          type: 'string',
+          enum: ['profile', 'log', 'note'],
+          description: 'Write/aging phase. Default "note" (session working state).'
+        },
+        source: {
+          type: 'string',
+          description: 'Pass "user" when the text came from the user or corrects you.'
+        }
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            ok: { type: 'boolean', required: true },
+            key: { type: 'string', required: true },
+            facet: { type: 'string', required: true },
+            phase: { type: 'string', required: true },
+            scope: { type: 'string', required: true },
+            id: { type: 'string' },
+            action: { type: 'string', required: true, enum: ['created', 'updated'] }
+          }
+        },
+        render: (_args, value) =>
+          textBlock(
+            `Memory note ${value.action}: [${value.phase}] ${value.key} in ${value.scope}. Visible in the system prompt from the next turn.`
+          )
+      },
+      timeoutMs: TOOL_TIMEOUT_MS,
+      async execute(args, exec) {
+        const phase = MEMORY_PHASES.includes(args.phase) ? args.phase : 'note'
+        const pathByPhase = {
+          profile: 'preferences_user[+]',
+          log: 'facts[+]',
+          note: 'tasks[+]'
+        }
+        const path = pathByPhase[phase]
+        try {
+          const outcome = await store.set({
+            path,
+            value: args.text,
+            scope: 'auto',
+            source: sourceOf(exec, args.source),
+            priority: args.source === 'user' ? 3 : 1,
+            ambient: ambientOf(exec),
+            reason: 'memory_note'
+          })
+          return {
+            ok: true,
+            key: outcome.path,
+            facet: outcome.facet,
+            phase,
+            scope: outcome.scope.kind,
+            action: outcome.action,
+            ...(outcome.id === undefined ? {} : { id: outcome.id })
+          }
+        } catch (error) {
+          throw explain(error, 'abaco_memory_note')
+        }
+      }
+    })
+  )
+
 }
 
 /**

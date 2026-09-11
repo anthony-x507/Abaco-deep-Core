@@ -79,17 +79,28 @@ export const MEMORY_SCOPES = Object.freeze(['profile', 'project', 'session', 'ro
  * time-to-live of a *new* entry, applied only where a value genuinely goes
  * stale.
  */
+/**
+ * The three write/aging phases of Layer 2 (CONTRACT-MEMORY-3PHASE-SPILL-CD §2).
+ * Orthogonal to context layers (window / durable / spill): this is how a durable
+ * entry is classified, injected and expired.
+ *
+ * - profile — ∞ / pinned; identity + preferences; never paraphrase
+ * - log — durable dated facts/decisions/artifacts (+ audit journal)
+ * - note — TTL / session working state; may archive; must not starve profile/log
+ */
+export const MEMORY_PHASES = Object.freeze(['profile', 'log', 'note'])
+
 export const MEMORY_FACETS = Object.freeze({
-  identity: Object.freeze({ scope: 'role', kind: 'record', cap: 0, injected: true }),
-  preferences_user: Object.freeze({ scope: 'profile', kind: 'collection', cap: 40, injected: true }),
-  constraints_do_not: Object.freeze({ scope: 'profile', kind: 'collection', cap: 40, injected: true }),
-  output_format: Object.freeze({ scope: 'profile', kind: 'record', cap: 0, injected: true }),
-  projects_state: Object.freeze({ scope: 'project', kind: 'collection', cap: 40, injected: true }),
-  decisions: Object.freeze({ scope: 'project', kind: 'collection', cap: 25, injected: true }),
-  facts: Object.freeze({ scope: 'project', kind: 'collection', cap: 60, ttlDays: 90, injected: true }),
-  artifacts: Object.freeze({ scope: 'project', kind: 'collection', cap: 60, injected: true }),
-  tasks: Object.freeze({ scope: 'session', kind: 'collection', cap: 20, ttlDays: 30, injected: true }),
-  open_questions: Object.freeze({ scope: 'project', kind: 'collection', cap: 20, injected: true })
+  identity: Object.freeze({ scope: 'role', kind: 'record', cap: 0, injected: true, phase: 'profile' }),
+  preferences_user: Object.freeze({ scope: 'profile', kind: 'collection', cap: 40, injected: true, phase: 'profile' }),
+  constraints_do_not: Object.freeze({ scope: 'profile', kind: 'collection', cap: 40, injected: true, phase: 'profile' }),
+  output_format: Object.freeze({ scope: 'profile', kind: 'record', cap: 0, injected: true, phase: 'profile' }),
+  projects_state: Object.freeze({ scope: 'project', kind: 'collection', cap: 40, injected: true, phase: 'log' }),
+  decisions: Object.freeze({ scope: 'project', kind: 'collection', cap: 25, injected: true, phase: 'log' }),
+  facts: Object.freeze({ scope: 'project', kind: 'collection', cap: 60, ttlDays: 90, injected: true, phase: 'log' }),
+  artifacts: Object.freeze({ scope: 'project', kind: 'collection', cap: 60, injected: true, phase: 'log' }),
+  tasks: Object.freeze({ scope: 'session', kind: 'collection', cap: 20, ttlDays: 30, injected: true, phase: 'note' }),
+  open_questions: Object.freeze({ scope: 'project', kind: 'collection', cap: 20, injected: true, phase: 'note' })
 })
 
 /**
@@ -612,6 +623,25 @@ export function splitByCap(entries, cap) {
   // an id (possible only through a hand-edited file) cannot both survive.
   const evict = ordered.filter((entry) => !keepIds.has(entry.id))
   return { keep, evict }
+}
+
+
+/**
+ * Resolve the write/aging phase of a facet (profile | log | note).
+ * @param facet - canonical facet name.
+ * @returns the phase, or undefined when the facet is unknown.
+ */
+export function phaseOf(facet) {
+  return MEMORY_FACETS[facet]?.phase
+}
+
+/**
+ * Facets that belong to one phase, in {@link MEMORY_RENDER_ORDER}.
+ * @param phase - one of {@link MEMORY_PHASES}.
+ * @returns facet names.
+ */
+export function facetsForPhase(phase) {
+  return MEMORY_RENDER_ORDER.filter((facet) => MEMORY_FACETS[facet]?.phase === phase)
 }
 
 /**

@@ -69,10 +69,11 @@
       - Ask a subagent for a bounded report — at most ~60 lines or JSON — and ask it explicitly for sources and URLs.
       - When a tool result arrives truncated together with a locator, the full text is still on disk: recover only the part you need with `read` (offset/limit) or `grep` on that path instead of re-running the command to see all of it.
 
-      ## Durable memory — the facts that must outlive the window
+      ## Durable memory — three phases (profile / log / note)
 
       - The `abaco_memory_*` tools are your long-term memory. That memory is re-injected into every request and survives context compaction, so it is the only place where a fact is safe from summarization: chat history is not.
-      - Call `abaco_memory_set` the moment something must still be true tomorrow: how the user wants to be answered or addressed, stable identities and identifiers, recurring figures and schedules, active projects and paths, and decisions together with their rationale.
+      - Phases: **profile** (preferences, constraints, identity — never paraphrase; `source: user` → priority 3), **log** (decisions, facts, artifacts locators — dated, survive restart), **note** (session tasks / open questions — may expire). Use `abaco_memory_note` for a quick write when the path is obvious.
+      - Call `abaco_memory_set` the moment something must still be true tomorrow: how the user wants to be answered, stable identifiers, decisions with rationale, verified facts. Before the first compaction of a session, sweep profile/log facts that must not die with the window.
       - Before asking the user something you might already know, read `abaco_memory_get` / `abaco_memory_list` first, and never re-ask what memory already answers.
       - Keep entries short, factual and one fact per entry. Never store secrets, tokens or passwords.
 
