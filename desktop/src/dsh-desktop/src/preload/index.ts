@@ -4,10 +4,14 @@ import {
   abacoBrowserChannels,
   type AbacoBrowserCommandResult,
   type AbacoBrowserMode,
+  type AbacoBrowserPanelHostBounds,
+  type AbacoBrowserPlacement,
   type AbacoBrowserRecordingResult,
   type AbacoBrowserRecordingStatus,
   type AbacoBrowserSaveSkillRequest,
   type AbacoBrowserSaveSkillResult,
+  type AbacoBrowserScreenRecordingResult,
+  type AbacoBrowserScreenRecordingStatus,
   type AbacoBrowserTheme
 } from '../shared/abaco-browser'
 import { setupDesktopStoragePersistence } from './desktop-storage'
@@ -211,7 +215,22 @@ contextBridge.exposeInMainWorld('dshAbacoBrowser', {
    * result is a value either way, so a caller never has to catch a rejected
    * `invoke` to find out that the flow could not be compiled. */
   saveSkill: (request?: AbacoBrowserSaveSkillRequest): Promise<AbacoBrowserSaveSkillResult> =>
-    ipcRenderer.invoke(abacoBrowserChannels.saveSkill, request)
+    ipcRenderer.invoke(abacoBrowserChannels.saveSkill, request),
+  /* ── P1 — placement + desktopCapturer screen record ───────────────────── */
+  setPlacement: (placement: AbacoBrowserPlacement): Promise<AbacoBrowserPlacement> =>
+    ipcRenderer.invoke(abacoBrowserChannels.setPlacement, placement),
+  placement: (): Promise<AbacoBrowserPlacement> =>
+    ipcRenderer.invoke(abacoBrowserChannels.placement),
+  reportPanelHostBounds: (
+    bounds: AbacoBrowserPanelHostBounds | null
+  ): Promise<AbacoBrowserCommandResult> =>
+    ipcRenderer.invoke(abacoBrowserChannels.reportPanelHostBounds, bounds),
+  startScreenRecording: (): Promise<AbacoBrowserScreenRecordingStatus> =>
+    ipcRenderer.invoke(abacoBrowserChannels.screenRecordStart),
+  stopScreenRecording: (): Promise<AbacoBrowserScreenRecordingResult> =>
+    ipcRenderer.invoke(abacoBrowserChannels.screenRecordStop),
+  screenRecordingStatus: (): Promise<AbacoBrowserScreenRecordingStatus> =>
+    ipcRenderer.invoke(abacoBrowserChannels.screenRecordStatus)
 })
 
 /**

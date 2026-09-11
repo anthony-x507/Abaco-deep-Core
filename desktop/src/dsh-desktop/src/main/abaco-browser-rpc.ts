@@ -52,6 +52,8 @@ import {
   type AbacoBrowserMode,
   type AbacoBrowserRpcRoute,
   type AbacoBrowserScreenshot,
+  type AbacoBrowserScreenRecordingResult,
+  type AbacoBrowserScreenRecordingStatus,
   type AbacoBrowserState,
   type AbacoBrowserTypingResult,
   type AbacoBrowserWaitResult
@@ -83,6 +85,8 @@ export interface AbacoBrowserControlTarget {
   agentGrabControl(): AbacoBrowserState
   /** Same control plane as chrome `setMode('manual')`. */
   agentReleaseControl(): AbacoBrowserState
+  agentScreenRecordStart(): Promise<AbacoBrowserScreenRecordingStatus>
+  agentScreenRecordStop(): Promise<AbacoBrowserScreenRecordingResult>
 }
 
 export interface AbacoBrowserRpcOptions {
@@ -121,6 +125,15 @@ const READ_ONLY_ROUTES: readonly AbacoBrowserRpcRoute[] = ['state']
  * also refuse the ask for the wheel. Same `setBrowserMode` the chrome bar uses.
  */
 const MODE_CONTROL_ROUTES: readonly AbacoBrowserRpcRoute[] = ['grab-control', 'release-control']
+
+/**
+ * Screen recording. Allowed in manual mode too: the agent may record while the
+ * user demonstrates. Still requires an open browser (see dispatch).
+ */
+const SCREEN_RECORD_ROUTES: readonly AbacoBrowserRpcRoute[] = [
+  'screen-record-start',
+  'screen-record-stop'
+]
 
 /** Routes that may mount the overlay themselves instead of requiring one. */
 const SELF_MOUNTING_ROUTES: readonly AbacoBrowserRpcRoute[] = ['navigate']
@@ -344,6 +357,7 @@ export class AbacoBrowserRpcServer {
     if (
       !READ_ONLY_ROUTES.includes(route) &&
       !MODE_CONTROL_ROUTES.includes(route) &&
+      !SCREEN_RECORD_ROUTES.includes(route) &&
       target.browserMode() !== 'agent'
     ) {
       throw new AbacoBrowserRpcError(409, ABACO_BROWSER_TAKEOVER_MESSAGE)
@@ -379,6 +393,10 @@ export class AbacoBrowserRpcServer {
         return target.agentGrabControl()
       case 'release-control':
         return target.agentReleaseControl()
+      case 'screen-record-start':
+        return target.agentScreenRecordStart()
+      case 'screen-record-stop':
+        return target.agentScreenRecordStop()
       default:
         return assertNeverRoute(route)
     }

@@ -75,7 +75,9 @@ const TIMEOUTS = {
   waitFor: 90_000,
   state: 15_000,
   grabControl: 15_000,
-  releaseControl: 15_000
+  releaseControl: 15_000,
+  screenRecordStart: 30_000,
+  screenRecordStop: 60_000
 }
 
 /** Default selector wait used when the model does not pass `timeoutMs`. */
@@ -189,7 +191,17 @@ function stateProperties() {
     title: { type: 'string', required: true, description: 'Current page title.' },
     loading: { type: 'boolean', required: true, description: 'Whether the page is still loading.' },
     canGoBack: { type: 'boolean', required: true },
-    canGoForward: { type: 'boolean', required: true }
+    canGoForward: { type: 'boolean', required: true },
+    screenRecording: {
+      type: 'boolean',
+      required: true,
+      description: 'True while a desktopCapturer screen recording is running.'
+    },
+    lastScreenRecordingPath: {
+      type: 'string',
+      required: true,
+      description: 'Absolute path of the last finished screen recording; empty when none.'
+    }
   }
 }
 
@@ -351,7 +363,7 @@ const MODE_NOTE =
   'Fails with a clear message while the browser is in manual mode (the user has taken over) — do not retry in a loop; ask the user to hand control back.'
 
 /**
- * Register the nine browser tools (seven page actions + grab/release control).
+ * Register the browser tools (page actions + grab/release + screen record).
  *
  * Registration goes through `ctx.tools.register`, whose disposers are
  * effect-scoped: a plugin reload unregisters the previous set, so there is
@@ -391,7 +403,9 @@ function apply(ctx) {
           title: result.title,
           loading: result.loading === true,
           canGoBack: result.canGoBack === true,
-          canGoForward: result.canGoForward === true
+          canGoForward: result.canGoForward === true,
+          screenRecording: result.screenRecording === true,
+          lastScreenRecordingPath: result.lastScreenRecordingPath ?? ''
         }
       }
     })
@@ -616,7 +630,9 @@ function apply(ctx) {
           title: state.title,
           loading: state.loading === true,
           canGoBack: state.canGoBack === true,
-          canGoForward: state.canGoForward === true
+          canGoForward: state.canGoForward === true,
+          screenRecording: state.screenRecording === true,
+          lastScreenRecordingPath: state.lastScreenRecordingPath ?? ''
         }
       }
     })
@@ -688,7 +704,9 @@ function apply(ctx) {
           title: state.title,
           loading: state.loading === true,
           canGoBack: state.canGoBack === true,
-          canGoForward: state.canGoForward === true
+          canGoForward: state.canGoForward === true,
+          screenRecording: state.screenRecording === true,
+          lastScreenRecordingPath: state.lastScreenRecordingPath ?? ''
         }
       }
     })
@@ -718,11 +736,85 @@ function apply(ctx) {
           title: state.title,
           loading: state.loading === true,
           canGoBack: state.canGoBack === true,
-          canGoForward: state.canGoForward === true
+          canGoForward: state.canGoForward === true,
+          screenRecording: state.screenRecording === true,
+          lastScreenRecordingPath: state.lastScreenRecordingPath ?? ''
         }
       }
     })
   )
+  ctx.tools.register(
+    defineTool({
+      name: 'abaco_browser_screen_record_start',
+      description:
+        'Start a desktopCapturer screen recording of the ABACO DEEP HARNES window (pixel capture, distinct from the DOM action recorder). Returns the live recording status. Safe in manual mode so you can record while the user demonstrates.',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            recording: { type: 'boolean', required: true },
+            sessionId: { type: 'string', required: true },
+            startedAt: { type: 'string', required: true },
+            lastRecordingPath: { type: 'string', required: true },
+            lastError: { type: 'string', required: true }
+          }
+        }
+      },
+      timeoutMs: TIMEOUTS.screenRecordStart,
+      async execute(_args, exec) {
+        const status = await callRoute('screen-record-start', {}, exec.signal)
+        return {
+          recording: status.recording === true,
+          sessionId: status.sessionId ?? '',
+          startedAt: status.startedAt ?? '',
+          lastRecordingPath: status.lastRecordingPath ?? '',
+          lastError: status.lastError ?? ''
+        }
+      }
+    })
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'abaco_browser_screen_record_stop',
+      description:
+        'Stop the desktopCapturer screen recording, persist a WebM under userData/abaco-browser/screen-recordings/, and return a notice + durable path for the agent (this IS the notification).',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            ok: { type: 'boolean', required: true },
+            path: { type: 'string', required: true },
+            sessionId: { type: 'string', required: true },
+            durationMs: { type: 'integer', required: true },
+            mimeType: { type: 'string', required: true },
+            byteLength: { type: 'integer', required: true },
+            notice: { type: 'string', required: true, description: 'Human-readable notification for the agent.' },
+            frameCount: { type: 'integer' }
+          }
+        }
+      },
+      timeoutMs: TIMEOUTS.screenRecordStop,
+      async execute(_args, exec) {
+        const result = await callRoute('screen-record-stop', {}, exec.signal)
+        return {
+          ok: result.ok === true,
+          path: result.path ?? '',
+          sessionId: result.sessionId ?? '',
+          durationMs: result.durationMs ?? 0,
+          mimeType: result.mimeType ?? 'video/webm',
+          byteLength: result.byteLength ?? 0,
+          notice: result.notice ?? '',
+          ...(typeof result.frameCount === 'number' ? { frameCount: result.frameCount } : {})
+        }
+      }
+    })
+  )
+
 }
 
 export { apply, inject, name }
