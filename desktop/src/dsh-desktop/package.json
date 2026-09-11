@@ -420,7 +420,8 @@
       "target": [
         "dmg",
         "zip"
-      ]
+      ],
+      "notarize": false
     },
     "dmg": {
       "format": "UDBZ"
