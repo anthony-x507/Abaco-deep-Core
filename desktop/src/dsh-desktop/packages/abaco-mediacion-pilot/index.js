@@ -1,5 +1,5 @@
 /**
- * abaco-mediacion-pilot — Janice host fiber (executor cell).
+ * abaco-mediacion-pilot — Janice (runtime) host fiber (executor cell).
  * Does NOT own voice routes. Does NOT issue grants.
  * Forks worker for authorized local-transcribe only.
  *

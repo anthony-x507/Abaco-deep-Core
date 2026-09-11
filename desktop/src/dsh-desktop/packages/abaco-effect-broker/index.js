@@ -2,7 +2,7 @@
  * F1 Effect Broker (Harness host).
  * authorize() is the ONLY path to protected sinks in the pilot scope.
  * Identity comes from ChannelIdentity — body plugin_id is ignored.
- * No advisor-SLM in authorize. Janice = runtime elsewhere.
+ * Cero Atena (asesor) en authorize. Janice = runtime (plugins) elsewhere.
  * @module abaco-effect-broker
  */
 
@@ -197,7 +197,7 @@ function pushAudit(ev) {
 }
 
 /**
- * Unique authorizer. Advisor-SLM never lives here.
+ * Unique authorizer. Atena (asesor) never lives here — cero Atena en authorize.
  * @returns {{ decision: 'allow', grant: any } | { decision: 'deny', reason: string }}
  */
 export function authorize(req) {

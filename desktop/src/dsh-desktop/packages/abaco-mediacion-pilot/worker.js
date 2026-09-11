@@ -1,6 +1,6 @@
 /**
  * Mediation worker cell — runs only {op,args,grantId} already authorized.
- * NEVER calls broker.grant. No advisor-SLM.
+ * NEVER calls broker.grant. Cero Atena (asesor).
  */
 import { resolveLocalWhisperTools, transcribeLocal } from './ops.js'
 
