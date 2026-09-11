@@ -5,6 +5,7 @@
  * `/api/abaco-voice.local-transcribe`. This fiber OWNS the routes (identity).
  * Before any proc.spawn, authorize() must allow; execution goes to
  * abaco-mediacion-pilot worker cell. Direct spawn here = LEGACY_UNMEDIATED.
+ * Janice = runtime; cero Atena (asesor) en authorize.
  *
  * @module abaco-voice
  */
