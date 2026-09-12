@@ -33,9 +33,9 @@ window.__ModuleLoader__.load({
     const NOTIFY_SLOT = 'conversation.input.left'
     const NOTIFY_ID = 'abaco-browser-record-notify'
     const DOCK_ATTR = 'data-abaco-browser-dock'
-    const DEFAULT_DOCK_W = 400
-    const MIN_DOCK_W = 360
-    const MAX_DOCK_W = 520
+    const DEFAULT_DOCK_W = 480
+    const MIN_DOCK_W = 420
+    const MAX_DOCK_W = 560
 
     // ── Bridge ─────────────────────────────────────────────────────────────
     // The preload of the main window is the only place that can reach
@@ -66,7 +66,7 @@ window.__ModuleLoader__.load({
     // ── Details-column measurement (P1 hard-dock) ──────────────────────────
     // AppFrame only gives the details track width when `detailsSession` is
     // non-blank (`detailsSession === void 0 ? 0 : panels.details`). openDetails()
-    // can set panels.details=360 while the column stays 0px on blank sessions —
+    // can set panels.details=420 while the column stays 0px on blank sessions —
     // measure then fails and main used to fall back to a floating right strip
     // OVER full-width chat. We force a CSS dock reserve so chat 1fr shrinks,
     // measure the detailsCol DOM rect, and only reportHostBounds when the
@@ -136,7 +136,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    // Docked column fills host height — no max-720 / aspect card clamps here.
+    // Reserved dock column may stay full-height (letterbox); CARD clamp lives in shared geometry.
     const PANEL_MIN_W = MIN_DOCK_W
     const PANEL_MAX_W = MAX_DOCK_W
 

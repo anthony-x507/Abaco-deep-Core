@@ -8,6 +8,7 @@ import {
   ABACO_BROWSER_PANEL_MAX_ASPECT,
   ABACO_BROWSER_PANEL_MAX_WIDTH_PX,
   ABACO_BROWSER_PANEL_MIN_ASPECT,
+  ABACO_BROWSER_PANEL_MIN_HEIGHT_PX,
   ABACO_BROWSER_PANEL_MIN_WIDTH_PX,
   ABACO_BROWSER_PANEL_WIDTH_PX,
   abacoBrowserRectsOverlap,
@@ -753,11 +754,17 @@ describe('ABACO browser agent tools (F1)', () => {
 
 
 describe('ABACO browser P1 screen recording + panel', () => {
-  it('computes panel/overlay syncBounds geometry with clamped widths', () => {
+  it('computes panel/overlay syncBounds geometry with CARD clamps', () => {
     expect(clampAbacoBrowserPanelWidth(10)).toBe(ABACO_BROWSER_PANEL_MIN_WIDTH_PX)
     expect(clampAbacoBrowserPanelWidth(9999)).toBe(ABACO_BROWSER_PANEL_MAX_WIDTH_PX)
     expect(clampAbacoBrowserPanelWidth(ABACO_BROWSER_PANEL_WIDTH_PX)).toBe(ABACO_BROWSER_PANEL_WIDTH_PX)
-    expect(ABACO_BROWSER_PANEL_MIN_WIDTH_PX).toBe(360)
+    expect(ABACO_BROWSER_PANEL_MIN_WIDTH_PX).toBe(420)
+    expect(ABACO_BROWSER_PANEL_MAX_WIDTH_PX).toBe(560)
+    expect(ABACO_BROWSER_PANEL_WIDTH_PX).toBe(480)
+    expect(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX).toBe(360)
+    expect(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX).toBe(520)
+    expect(ABACO_BROWSER_PANEL_MIN_ASPECT).toBe(0.7)
+    expect(ABACO_BROWSER_PANEL_MAX_ASPECT).toBe(1.3)
 
     // Panel without reserved host → empty / no-mount (pin-derecha REVOKED).
     const panel = computeAbacoBrowserSyncBounds({
@@ -777,18 +784,22 @@ describe('ABACO browser P1 screen recording + panel', () => {
     expect(overlay.page).toEqual({ x: 0, y: 0, width: 1400, height: 900 })
     expect(overlay.chrome.width).toBe(1400)
 
-    // Hosted: full column height (max-720 + aspect REVOKED).
+    // Hosted: CARD (not full host height); width clamped up from 380→420.
     const hosted = computeAbacoBrowserSyncBounds({
       contentWidth: 1400,
       contentHeight: 900,
       placement: 'panel',
       hostBounds: { x: 1000, y: 10, width: 380, height: 800 }
     })
-    expect(hosted.page.width).toBe(380)
-    expect(hosted.page.x).toBe(1000)
+    expect(hosted.page.width).toBe(420)
     expect(hosted.page.y).toBe(10)
-    expect(hosted.page.height).toBe(800)
-    expect(hosted.page.height).toBeGreaterThan(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
+    expect(hosted.page.height).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
+    expect(hosted.page.height).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX)
+    expect(hosted.page.height).not.toBe(900)
+    expect(hosted.page.height).not.toBe(800)
+    const aspect = hosted.page.width / hosted.page.height
+    expect(aspect).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_ASPECT)
+    expect(aspect).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_ASPECT)
   })
 
   it('ships a desktopCapturer MediaRecorder screen recorder and wires RPC + IPC', async () => {
@@ -843,38 +854,45 @@ describe('ABACO browser P1 screen recording + panel', () => {
 
 
 describe('ABACO browser P1 DoD (panel UX)', () => {
-  it('U1: chrome HTML keeps F2 record visible under placement=panel', async () => {
+  it('U1: chrome HTML keeps F2 record visible with ES labels under placement=panel', async () => {
     const chromeHtml = await readFile('build/abaco-browser-chrome.html', 'utf8')
     expect(chromeHtml).toContain("data-placement='panel'")
     expect(chromeHtml).toContain('id="abaco-browser-record"')
-    expect(chromeHtml).toContain('aria-label="Grabar acciones del navegador"')
+    expect(chromeHtml).toContain('id="abaco-browser-record-label"')
+    expect(chromeHtml).toContain('aria-label="Grabar skill"')
+    expect(chromeHtml).toContain('Grabar skill')
+    expect(chromeHtml).toMatch(/min-height:\s*24px/u)
     // Must not hide .recordButton in panel; screen-record may be hidden first.
     expect(chromeHtml).toMatch(
       /body\[data-placement=['"]panel['"]\][^}]*\.screenRecordButton\s*\{[^}]*display:\s*none/u
     )
     expect(chromeHtml).toMatch(
-      /body\[data-placement=['"]panel['"]\][^}]*\.recordButton\s*\{[^}]*display:\s*grid/u
+      /body\[data-placement=['"]panel['"]\][^}]*\.recordButton\s*\{[^}]*display:\s*inline-flex/u
     )
     expect(chromeHtml).not.toMatch(
       /body\[data-placement=['"]panel['"]\]\s*\.recordButton\s*\{[^}]*display:\s*none/u
     )
     const chromePreload = await readFile('src/preload/abaco-browser-chrome.ts', 'utf8')
-    expect(chromePreload).toContain("'Grabar'")
-    expect(chromePreload).toContain("'Parar grabación'")
+    expect(chromePreload).toContain("'Grabar skill'")
+    expect(chromePreload).toContain("'Parar · mandar skill'")
     expect(chromePreload).toContain("dataset.pending === 'true'")
   })
 
-  it('U2: clampPanelViewport / computeAbacoBrowserSyncBounds full-column (no card)', () => {
+  it('U2: clampPanelViewport / computeAbacoBrowserSyncBounds CARD (not full-height)', () => {
     const clamped = clampPanelViewport({
-      width: 420,
+      width: 480,
       height: 2000,
       contentHeight: 900,
       chromeHeight: ABACO_BROWSER_CHROME_HEIGHT
     })
     expect(clamped.width).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_WIDTH_PX)
     expect(clamped.width).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_WIDTH_PX)
-    // Full available height — 720/aspect card clamps REVOKED.
-    expect(clamped.height).toBe(900)
+    expect(clamped.height).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
+    expect(clamped.height).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX)
+    expect(clamped.height).not.toBe(900)
+    const clampedAspect = clamped.width / clamped.height
+    expect(clampedAspect).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_ASPECT)
+    expect(clampedAspect).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_ASPECT)
 
     const panelNoHost = computeAbacoBrowserSyncBounds({
       contentWidth: 1280,
@@ -887,12 +905,16 @@ describe('ABACO browser P1 DoD (panel UX)', () => {
       contentWidth: 1280,
       contentHeight: 1000,
       placement: 'panel',
-      hostBounds: { x: 860, y: 0, width: 420, height: 1000 }
+      hostBounds: { x: 860, y: 0, width: 480, height: 1000 }
     })
-    expect(hosted.page.width).toBeGreaterThanOrEqual(360)
-    expect(hosted.page.width).toBeLessThanOrEqual(520)
-    expect(hosted.page.height).toBe(1000)
-    expect(hosted.page.height).toBeGreaterThan(720)
+    expect(hosted.page.width).toBeGreaterThanOrEqual(420)
+    expect(hosted.page.width).toBeLessThanOrEqual(560)
+    expect(hosted.page.height).not.toBe(1000)
+    expect(hosted.page.height).toBeLessThanOrEqual(520)
+    expect(hosted.page.height).toBeGreaterThanOrEqual(360)
+    const hostedAspect = hosted.page.width / hosted.page.height
+    expect(hostedAspect).toBeGreaterThanOrEqual(0.7)
+    expect(hostedAspect).toBeLessThanOrEqual(1.3)
     expect(hosted.chrome.height).toBeLessThanOrEqual(ABACO_BROWSER_CHROME_HEIGHT)
     expect(hosted.chrome.y).toBe(hosted.page.y)
   })
@@ -1040,7 +1062,7 @@ describe('ABACO browser P1 hard-dock contract (H1–H7)', () => {
     expect(client).toContain("inject = ['slots', 'layout']")
   })
 
-  it('H7: dock reserve CSS + full-height host; launcher forces panel', async () => {
+  it('H7: dock reserve CSS + CARD (not contentHeight); launcher forces panel', async () => {
     const client = await readFile('packages/abaco-browser/client.js', 'utf8')
     expect(client).toContain('data-abaco-browser-dock')
     expect(client).toContain('applyDockReserve')
@@ -1051,17 +1073,35 @@ describe('ABACO browser P1 hard-dock contract (H1–H7)', () => {
     expect(client).toContain("setPlacement('panel')")
     expect(client).toContain('[class*="detailsCol"]')
     expect(client).toContain('rectsOverlap')
+    expect(client).toContain('MIN_DOCK_W = 420')
+    expect(client).toContain('MAX_DOCK_W = 560')
     const shared = await readFile('src/shared/abaco-browser.ts', 'utf8')
     expect(shared).toMatch(/REVOKED/u)
     expect(shared).toContain('ABACO_BROWSER_EMPTY_VIEW_BOUNDS')
+    expect(shared).toContain('ABACO_BROWSER_PANEL_MIN_HEIGHT_PX')
     const hosted = computeAbacoBrowserSyncBounds({
       contentWidth: 1400,
       contentHeight: 900,
       placement: 'panel',
-      hostBounds: { x: 980, y: 0, width: 420, height: 900 }
+      hostBounds: { x: 980, y: 0, width: 480, height: 900 }
     })
-    expect(hosted.page.height).toBe(900)
+    expect(hosted.page.height).not.toBe(900)
+    expect(hosted.page.height).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
+    expect(hosted.page.height).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX)
+    const aspect = hosted.page.width / hosted.page.height
+    expect(aspect).toBeGreaterThanOrEqual(0.7)
+    expect(aspect).toBeLessThanOrEqual(1.3)
     expect(ABACO_BROWSER_DEFAULT_PLACEMENT).toBe('panel')
+  })
+
+  it('H8: visible ES record labels Grabar skill / Parar · mandar skill', async () => {
+    const chromeHtml = await readFile('build/abaco-browser-chrome.html', 'utf8')
+    const chromePreload = await readFile('src/preload/abaco-browser-chrome.ts', 'utf8')
+    expect(chromeHtml).toContain('>Grabar skill</span>')
+    expect(chromeHtml).toContain('aria-label="Grabar skill"')
+    expect(chromePreload).toContain("RECORD_LABEL_IDLE = 'Grabar skill'")
+    expect(chromePreload).toContain("RECORD_LABEL_ACTIVE = 'Parar · mandar skill'")
+    expect(chromePreload).toContain('recordLabel.textContent = label')
   })
 })
 

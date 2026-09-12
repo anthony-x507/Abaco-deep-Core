@@ -60,30 +60,26 @@ export type AbacoBrowserPlacement = 'panel' | 'overlay'
 
 export const ABACO_BROWSER_DEFAULT_PLACEMENT: AbacoBrowserPlacement = 'panel'
 
-/** Preferred right-panel width in DIP when placement is `panel` and no host rect. */
-export const ABACO_BROWSER_PANEL_WIDTH_PX = 420
+/** Preferred CARD width in DIP when placement is `panel` (top-right of reserved track). */
+export const ABACO_BROWSER_PANEL_WIDTH_PX = 480
 
 /**
- * Clamp for panel width (P1 DoD: readable viewport, not a 300px hairline).
- * Raised MIN 300→360 so the page + chrome controls remain usable.
+ * Clamp for CARD width (P1 DoD: readable viewport, not a hairline strip).
+ * Width ∈ [420, 560]; default 480.
  */
-export const ABACO_BROWSER_PANEL_MIN_WIDTH_PX = 360
-export const ABACO_BROWSER_PANEL_MAX_WIDTH_PX = 520
+export const ABACO_BROWSER_PANEL_MIN_WIDTH_PX = 420
+export const ABACO_BROWSER_PANEL_MAX_WIDTH_PX = 560
+
+/** CARD height band — never stretch to full host / contentHeight. */
+export const ABACO_BROWSER_PANEL_MIN_HEIGHT_PX = 360
+export const ABACO_BROWSER_PANEL_MAX_HEIGHT_PX = 520
 
 /**
- * Legacy card-height cap (REVOKED for docked right-column panel).
- * Kept exported so older tests/docs can reference the former UX number;
- * {@link computeAbacoBrowserSyncBounds} no longer applies it when a host
- * column is reserved — the monitor fills the full host height.
+ * Acceptable width/height for the CARD page+chrome rect.
+ * Letterbox OK: reserved column may stay full-height; the WebContentsView must not.
  */
-export const ABACO_BROWSER_PANEL_MAX_HEIGHT_PX = 720
-
-/**
- * Legacy window-like aspect band (REVOKED for docked right-column panel).
- * Docked monitors are tall columns, not floating cards.
- */
-export const ABACO_BROWSER_PANEL_MIN_ASPECT = 0.45
-export const ABACO_BROWSER_PANEL_MAX_ASPECT = 0.85
+export const ABACO_BROWSER_PANEL_MIN_ASPECT = 0.7
+export const ABACO_BROWSER_PANEL_MAX_ASPECT = 1.3
 
 
 export function isAbacoBrowserPlacement(value: unknown): value is AbacoBrowserPlacement {
@@ -189,7 +185,7 @@ export interface AbacoBrowserSyncBoundsResult {
 
 export interface ClampPanelViewportInput {
   readonly width: number
-  /** Preferred / available height (docked column fills this; no aspect clamp). */
+  /** Preferred / available height before CARD height + aspect clamps. */
   readonly height: number
   readonly contentHeight: number
   /** Top inset already consumed (host.y); reduces available height. */
@@ -203,11 +199,13 @@ export interface ClampPanelViewportResult {
 }
 
 /**
- * Width clamp for the right-column monitor (360–520).
+ * P1 CARD — clamp page+chrome to a readable window-like rect.
  *
- * Height fills the available content room below `y` (full column). The former
- * max-720 + aspect card clamps are REVOKED for docked panel geometry — a
- * floating card over chat is a hard fail.
+ * - width ∈ [420, 560] (default preference 480)
+ * - height ∈ [360, 520], capped by room below `y` — NEVER equals contentHeight
+ *   when the viewport is taller than the card band
+ * - width/height ∈ [0.70, 1.30]
+ * Letterbox OK: reserved host column may stay full-height; this returns CARD size.
  */
 export function clampPanelViewport(input: ClampPanelViewportInput): ClampPanelViewportResult {
   const chromeHeight = Math.max(
@@ -218,9 +216,31 @@ export function clampPanelViewport(input: ClampPanelViewportInput): ClampPanelVi
   const contentHeight = Math.max(0, Math.floor(input.contentHeight))
   const width = clampAbacoBrowserPanelWidth(input.width)
   const roomBelowY = Math.max(0, contentHeight - y)
-  let height = Math.max(0, Math.min(Math.floor(input.height), roomBelowY))
-  if (height > 0 && height < chromeHeight && roomBelowY >= chromeHeight) {
+  const maxHeight = Math.min(roomBelowY, ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
+  let height = Math.max(0, Math.min(Math.floor(input.height), maxHeight))
+  if (height > 0 && height < chromeHeight && maxHeight >= chromeHeight) {
     height = chromeHeight
+  }
+  if (height > 0 && maxHeight >= ABACO_BROWSER_PANEL_MIN_HEIGHT_PX) {
+    height = Math.max(height, Math.min(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX, maxHeight))
+  }
+  if (height > 0 && width > 0) {
+    let aspect = width / height
+    if (aspect < ABACO_BROWSER_PANEL_MIN_ASPECT) {
+      height = Math.floor(width / ABACO_BROWSER_PANEL_MIN_ASPECT)
+    } else if (aspect > ABACO_BROWSER_PANEL_MAX_ASPECT) {
+      height = Math.floor(width / ABACO_BROWSER_PANEL_MAX_ASPECT)
+    }
+    height = Math.max(chromeHeight, Math.min(height, maxHeight))
+    if (maxHeight >= ABACO_BROWSER_PANEL_MIN_HEIGHT_PX) {
+      height = Math.max(height, Math.min(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX, maxHeight))
+      aspect = width / height
+      if (aspect < ABACO_BROWSER_PANEL_MIN_ASPECT) {
+        height = Math.min(maxHeight, Math.floor(width / ABACO_BROWSER_PANEL_MIN_ASPECT))
+      } else if (aspect > ABACO_BROWSER_PANEL_MAX_ASPECT) {
+        height = Math.min(maxHeight, Math.max(chromeHeight, Math.floor(width / ABACO_BROWSER_PANEL_MAX_ASPECT)))
+      }
+    }
   }
   return { width, height }
 }
@@ -229,9 +249,9 @@ export function clampPanelViewport(input: ClampPanelViewportInput): ClampPanelVi
  * Pure geometry for `AbacoBrowserController.syncBounds` (unit-testable).
  *
  * - `overlay` — full content rect (F0 behaviour; launcher must NOT open this).
- * - `panel` + host bounds — full-height docked column; width ∈ [360, 520].
- *   Max-720 + aspect clamps are REVOKED so the monitor fills the reserved
- *   right column (chat `1fr` shrinks; composer ∩ monitor = ∅).
+ * - `panel` + host bounds — CARD top-right of reserved track; width ∈ [420, 560],
+ *   height ∈ [360, 520], aspect ∈ [0.70, 1.30]. Host column may letterbox
+ *   (full-height reserve for chat shrink); page must NOT stretch to contentHeight.
  * - `panel` without reserved host — empty / no-mount rect. Pin-derecha
  *   without a host is FAIL / REVOKED; do not paint `x = contentWidth − W`.
  *
@@ -263,6 +283,8 @@ export function computeAbacoBrowserSyncBounds(
 
   const host = input.hostBounds
   if (host && host.width > 0 && host.height > 0) {
+    const hostX = Math.max(0, Math.floor(host.x))
+    const hostW = Math.max(0, Math.floor(host.width))
     const y = Math.max(0, Math.floor(host.y))
     const clamped = clampPanelViewport({
       width: host.width,
@@ -273,7 +295,11 @@ export function computeAbacoBrowserSyncBounds(
     })
     const width = clamped.width
     const height = clamped.height
-    const x = Math.max(0, Math.min(Math.floor(host.x), Math.max(0, contentWidth - width)))
+    // Top-right of reserved track (letterbox below / to the left is OK).
+    const x = Math.max(
+      0,
+      Math.min(hostX + Math.max(0, hostW - width), Math.max(0, contentWidth - width))
+    )
     return {
       page: { x, y, width, height },
       chrome: { x, y, width, height: Math.min(chromeHeight, height) }

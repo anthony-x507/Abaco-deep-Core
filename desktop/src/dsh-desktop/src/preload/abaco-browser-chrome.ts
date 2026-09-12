@@ -59,6 +59,7 @@ const CONTROL_IDS = {
   title: 'abaco-browser-title',
   spinner: 'abaco-browser-spinner',
   record: 'abaco-browser-record',
+  recordLabel: 'abaco-browser-record-label',
   recordCount: 'abaco-browser-record-count',
   screenRecord: 'abaco-browser-screen-record',
   skillForm: 'abaco-browser-skill-form',
@@ -133,6 +134,7 @@ function mountAbacoBrowserChrome(): void {
   const title = byId<HTMLSpanElement>(CONTROL_IDS.title)
   const spinner = byId<HTMLSpanElement>(CONTROL_IDS.spinner)
   const recordButton = byId<HTMLButtonElement>(CONTROL_IDS.record)
+  const recordLabel = byId<HTMLSpanElement>(CONTROL_IDS.recordLabel)
   const recordCount = byId<HTMLSpanElement>(CONTROL_IDS.recordCount)
   const screenRecordButton = byId<HTMLButtonElement>(CONTROL_IDS.screenRecord)
   const skillForm = byId<HTMLFormElement>(CONTROL_IDS.skillForm)
@@ -201,17 +203,22 @@ function mountAbacoBrowserChrome(): void {
    * the state push — including the recording the controller finishes by itself
    * when the browser is closed. */
   let recording = false
+  const RECORD_LABEL_IDLE = 'Grabar skill'
+  const RECORD_LABEL_ACTIVE = 'Parar · mandar skill'
   const paintRecording = (active: boolean, count: number, tooltip?: string): void => {
     recording = active
     recordButton.classList.toggle('is-recording', active)
     recordButton.setAttribute('aria-pressed', active ? 'true' : 'false')
-    // P1 — Spanish Grabar / Parar (Anthony); EN kept in title fallback via tooltip.
-    recordButton.setAttribute('aria-label', active ? 'Parar grabación' : 'Grabar')
-    recordButton.title =
-      tooltip ??
-      (active
-        ? `Grabando acciones en esta página (${count}). Clic para Parar y guardar.`
-        : 'Grabar mis acciones en esta página — el resultado se convierte en un skill (F2 → F3)')
+    // P1 — visible ES labels on #abaco-browser-record (not tooltip-only).
+    const label = active ? RECORD_LABEL_ACTIVE : RECORD_LABEL_IDLE
+    recordButton.setAttribute('aria-label', label)
+    recordButton.title = tooltip ?? label
+    if (recordLabel) {
+      recordLabel.textContent = label
+    } else {
+      // Fallback if HTML span missing: keep visible text on the button itself.
+      recordButton.textContent = label
+    }
     recordCount.hidden = !active
     recordCount.textContent = active ? `${count}` : ''
   }

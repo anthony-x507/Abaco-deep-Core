@@ -119,11 +119,11 @@ export interface AbacoBrowserViewPaths {
  *   - `chromeBarView` — the local `abaco-browser-chrome.html` strip. It is added
  *                    last, so child-view stacking paints it above the page.
  *
- * P1 geometry: default {@link ABACO_BROWSER_DEFAULT_PLACEMENT} (`panel`) docks
- * the page + chrome as a right-hand strip (host bounds when the renderer
- * reports them, otherwise a clamped 360–520 DIP strip capped at 720px tall). `overlay` restores the
- * F0 full-window cover. The chrome strip still covers the panel's first
- * {@link ABACO_BROWSER_CHROME_HEIGHT} rows.
+ * P1 geometry: default {@link ABACO_BROWSER_DEFAULT_PLACEMENT} (`panel`) mounts
+ * page + chrome as a CARD top-right of the reserved host track (width 420–560,
+ * height 360–520, aspect ∈ [0.70, 1.30]; empty/no-mount without host). `overlay`
+ * restores the F0 full-window cover (launcher must not open it). The chrome
+ * strip still covers the card's first {@link ABACO_BROWSER_CHROME_HEIGHT} rows.
  *
  * `close()` only removes the overlay and destroys its views, so the launcher can
  * open it again; `dispose()` (bound to the window's `closed` event) is the
