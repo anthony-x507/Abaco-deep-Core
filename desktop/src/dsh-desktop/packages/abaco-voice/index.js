@@ -95,7 +95,16 @@ export function apply(ctx) {
     fetch: async (request) => {
       const url = new URL(request.url)
       const filename = url.searchParams.get('filename') || 'audio.webm'
-      const model = url.searchParams.get('model') || DEFAULT_MODEL
+      let model = url.searchParams.get('model') || DEFAULT_MODEL
+      // Exact BAD plain ids only — do not substring-match (would kill whisper-base-mlx).
+      const BAD = {
+        'mlx-community/whisper-base': 'mlx-community/whisper-base-mlx',
+        'whisper-base': 'mlx-community/whisper-base-mlx',
+        'mlx-community/whisper-small': 'mlx-community/whisper-small-mlx',
+        'whisper-small': 'mlx-community/whisper-small-mlx',
+      }
+      if (!model) model = DEFAULT_MODEL
+      else if (Object.prototype.hasOwnProperty.call(BAD, model)) model = BAD[model]
       const language = url.searchParams.get('language') || 'es'
 
       const contentLength = Number(request.headers.get('content-length'))

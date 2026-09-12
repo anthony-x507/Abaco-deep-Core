@@ -1,0 +1,6 @@
+coerce base→ mlx-community/whisper-base-mlx
+preserve base-mlx→ mlx-community/whisper-base-mlx
+openai sticky local-whisper-stt
+{"said":"Buenos dias Anthony","got":"Buenos días, Anthony.","model":"mlx-community/whisper-tiny"}
+{"said":"Necesito el reporte de ventas","got":"Necesito el reporte eventes.","model":"mlx-community/whisper-tiny"}
+EMPTY_THROW Whisper local devolvió transcripción vacía (mlx_whisper, modelo=mlx-community/whisper-tiny, idioma=es). Habla más cerca del micrófono, o usa whisper-tiny / tiny

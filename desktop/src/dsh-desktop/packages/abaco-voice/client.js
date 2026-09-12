@@ -63,17 +63,82 @@ window.__ModuleLoader__.load({
       return JSON.parse(JSON.stringify(defaultConfig))
     }
 
+    const DEFAULT_LOCAL_MODEL = 'mlx-community/whisper-tiny'
+    const DEFAULT_LOCAL_LANGUAGE = 'es'
+    // Exact BAD plain ids only — never substring-match whisper-base (would kill base-mlx).
+    const BAD_LOCAL_MODEL_MAP = {
+      'mlx-community/whisper-base': 'mlx-community/whisper-base-mlx',
+      'whisper-base': 'mlx-community/whisper-base-mlx',
+      'mlx-community/whisper-small': 'mlx-community/whisper-small-mlx',
+      'whisper-small': 'mlx-community/whisper-small-mlx',
+    }
+    const KNOWN_GOOD_LOCAL_MODELS = [
+      'mlx-community/whisper-tiny',
+      'mlx-community/whisper-tiny-mlx',
+      'mlx-community/whisper-base-mlx',
+      'mlx-community/whisper-small-mlx',
+      'mlx-community/whisper-large-v3-turbo',
+    ]
+
+    function resolveLocalWhisperModel(model) {
+      const raw = model != null ? String(model).trim() : ''
+      if (!raw) return DEFAULT_LOCAL_MODEL
+      if (Object.prototype.hasOwnProperty.call(BAD_LOCAL_MODEL_MAP, raw)) return BAD_LOCAL_MODEL_MAP[raw]
+      if (KNOWN_GOOD_LOCAL_MODELS.includes(raw)) return raw
+      return DEFAULT_LOCAL_MODEL
+    }
+
+    /** Lock STT: openai without key → local-whisper; exact BAD → *-mlx; write-through. */
+    function normalizeVoiceConfig(raw) {
+      const base = defaultVoiceConfig()
+      const incoming = raw && typeof raw === 'object' ? raw : {}
+      const cfg = {
+        ...base,
+        ...incoming,
+        providers: { ...(incoming.providers || {}) },
+        privacy: { ...base.privacy, ...(incoming.privacy || {}) },
+      }
+      let changed = false
+      if (cfg.sttProvider === 'openai-stt') {
+        const key = ((cfg.providers || {})['openai-stt'] || {}).apiKey
+        if (!key || !String(key).trim()) {
+          cfg.sttProvider = 'local-whisper-stt'
+          changed = true
+        }
+      }
+      if (!cfg.sttProvider || cfg.sttProvider === 'web-speech-stt') {
+        cfg.sttProvider = 'local-whisper-stt'
+        changed = true
+      }
+      const lwPrev = cfg.providers['local-whisper-stt'] || {}
+      const lw = { ...lwPrev }
+      const resolved = resolveLocalWhisperModel(lw.model)
+      if (lw.model !== resolved) {
+        lw.model = resolved
+        changed = true
+      }
+      const lang = lw.language != null ? String(lw.language).trim() : ''
+      if (!lang) {
+        lw.language = DEFAULT_LOCAL_LANGUAGE
+        changed = true
+      }
+      if (JSON.stringify(lwPrev) !== JSON.stringify(lw)) {
+        cfg.providers['local-whisper-stt'] = lw
+        changed = true
+      }
+      return { config: cfg, changed }
+    }
+
     async function loadConfig(store) {
       const raw = store ? await store.get(STORE_KEY) : null
       if (!raw) return defaultVoiceConfig()
       try {
-        const cfg = { ...defaultVoiceConfig(), ...JSON.parse(raw) }
-        // Migrate empty OpenAI default → local Whisper (Anthony 2026-09-10).
-        if (cfg.sttProvider === 'openai-stt') {
-          const key = ((cfg.providers || {})['openai-stt'] || {}).apiKey
-          if (!key || !String(key).trim()) cfg.sttProvider = 'local-whisper-stt'
+        const { config, changed } = normalizeVoiceConfig(JSON.parse(raw))
+        // Persist coercion so openai-stt cannot stick without a valid key.
+        if (changed && store) {
+          try { await saveConfig(store, config) } catch {}
         }
-        return cfg
+        return config
       } catch {
         return defaultVoiceConfig()
       }
@@ -161,14 +226,29 @@ window.__ModuleLoader__.load({
       if (typeof navigator === 'undefined' || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
         throw new Error('getUserMedia no está disponible en este entorno')
       }
+      // Real microphone only — NOT getDisplayMedia / chromeMediaSource desktop (P1 monitor).
       recorderStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: 16000,
         },
+        video: false,
       })
+      const audioTracks = recorderStream.getAudioTracks()
+      if (!audioTracks.length) {
+        recorderCleanup()
+        throw new Error('No se obtuvo pista de micrófono (getUserMedia audio vacío)')
+      }
+      // Reject accidental desktop/tab capture masquerading as mic.
+      for (const t of audioTracks) {
+        const settings = typeof t.getSettings === 'function' ? (t.getSettings() || {}) : {}
+        if (settings.chromeMediaSource === 'desktop' || settings.displaySurface) {
+          recorderCleanup()
+          throw new Error('Fuente de audio no es micrófono (desktop/tab). Usa el mic del sistema.')
+        }
+        try { t.applyConstraints({ echoCancellation: true, noiseSuppression: true, autoGainControl: true }) } catch {}
+      }
       chunks = []
       recorder = new MediaRecorder(recorderStream, {
         mimeType: pickMimeType(),
@@ -571,9 +651,11 @@ window.__ModuleLoader__.load({
       const LOCAL_TRANSCRIBE_PATH = '/api/abaco-voice.local-transcribe'
       const LOCAL_STATUS_PATH = '/api/abaco-voice.local-status'
       const localModels = [
-        { value: 'mlx-community/whisper-tiny', label: 'Tiny — rápido (default)' },
-        { value: 'mlx-community/whisper-base', label: 'Base — equilibrio' },
-        { value: 'mlx-community/whisper-small', label: 'Small — mejor calidad' },
+        { value: 'mlx-community/whisper-tiny', label: 'Tiny — default (cache)' },
+        { value: 'mlx-community/whisper-tiny-mlx', label: 'Tiny-MLX' },
+        { value: 'mlx-community/whisper-base-mlx', label: 'Base-MLX' },
+        { value: 'mlx-community/whisper-small-mlx', label: 'Small-MLX' },
+        { value: 'mlx-community/whisper-large-v3-turbo', label: 'Large-v3-turbo' },
       ]
       const localWhisper = {
         id: 'local-whisper-stt',
@@ -592,8 +674,8 @@ window.__ModuleLoader__.load({
         ],
         defaultConfig: { model: 'mlx-community/whisper-tiny', language: 'es' },
         async transcribe(audioBlob, opts) {
-          const model = (opts && opts.model) || 'mlx-community/whisper-tiny'
-          const language = (opts && opts.language) || 'es'
+          const model = resolveLocalWhisperModel((opts && opts.model) || DEFAULT_LOCAL_MODEL)
+          const language = (opts && opts.language) || DEFAULT_LOCAL_LANGUAGE || 'es'
           const q = new URLSearchParams({
             filename: 'audio.webm',
             model: String(model),
@@ -969,7 +1051,12 @@ window.__ModuleLoader__.load({
           const result = await provider.transcribe(blob, provCfg)
           if (result && result.text) onInsert(result.text)
           else {
-            setError('Transcripción vacía — revisa API key / audio.')
+            const isLocal = provider && provider.id === 'local-whisper-stt'
+            setError(
+              isLocal
+                ? 'Whisper local: transcripción vacía (sin voz detectada o modelo inválido). Habla cerca del micrófono; usa whisper-tiny / tiny-mlx. No es API key.'
+                : 'Transcripción vacía — revisa API key / audio.',
+            )
             setState('error')
           }
         } catch (e) {

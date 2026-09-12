@@ -59,6 +59,8 @@ describe('abaco-voice local whisper host', () => {
     const source = await readFile('packages/abaco-voice/client.js', 'utf8')
     expect(source).toContain("id: 'local-whisper-stt'")
     expect(source).toMatch(/sttProvider:\s*'local-whisper-stt'/)
+    expect(source).toContain("DEFAULT_LOCAL_MODEL = 'mlx-community/whisper-tiny'")
+    expect(source).toContain('normalizeVoiceConfig')
     expect(source).toContain('/api/abaco-voice.local-transcribe')
     expect(source).toContain("requiresKey: false")
     expect(source).not.toMatch(/window\.__abaco_ctx\s*=\s*ctx/)

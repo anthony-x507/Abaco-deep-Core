@@ -101,7 +101,16 @@ export async function transcribeLocal(tools, bytes, filename, opts) {
       await convertToWav(tools.ffmpeg, inputPath, wavPath)
       audioPath = wavPath
     }
-    const model = (opts && opts.model) || DEFAULT_MODEL
+    // Exact BAD plain ids → *-mlx. NEVER includes('whisper-base') (kills base-mlx).
+    const BAD_MODEL_MAP = {
+      'mlx-community/whisper-base': 'mlx-community/whisper-base-mlx',
+      'whisper-base': 'mlx-community/whisper-base-mlx',
+      'mlx-community/whisper-small': 'mlx-community/whisper-small-mlx',
+      'whisper-small': 'mlx-community/whisper-small-mlx',
+    }
+    let model = (opts && opts.model) || DEFAULT_MODEL
+    if (!model) model = DEFAULT_MODEL
+    else if (Object.prototype.hasOwnProperty.call(BAD_MODEL_MAP, model)) model = BAD_MODEL_MAP[model]
     const language = (opts && opts.language) || 'es'
     const args = tools.engine === 'mlx_whisper'
       ? [
@@ -122,9 +131,13 @@ export async function transcribeLocal(tools, bytes, filename, opts) {
           '--verbose', 'False',
         ]
     const result = await run(tools.bin, args)
-    if (result.code !== 0) {
+    const errBlob = `${result.stderr || ''}\n${result.stdout || ''}`
+    const repoMissing = /Repository Not Found|RepositoryNotFound|404 Client Error|Skipping/i.test(errBlob)
+    if (result.code !== 0 || repoMissing) {
       throw new Error(
-        `Whisper local falló (${tools.engine}): ${(result.stderr || result.stdout || '').trim().slice(0, 500) || 'sin detalle'}`,
+        `Whisper local falló (${tools.engine}, modelo=${model}): ` +
+        `${errBlob.trim().slice(0, 500) || (repoMissing ? 'repositorio/modelo no encontrado' : 'sin detalle')}. ` +
+        'Usa mlx-community/whisper-tiny / whisper-tiny-mlx / whisper-base-mlx / whisper-small-mlx. No es API key.',
       )
     }
     let text = ''
@@ -135,6 +148,14 @@ export async function transcribeLocal(tools, bytes, filename, opts) {
         const files = (await readdir(outDir)).filter((f) => f.endsWith('.txt'))
         if (files[0]) text = (await readFile(join(outDir, files[0]), 'utf8')).trim()
       } catch {}
+    }
+    // Root cause: plain whisper-base can exit 0 with empty transcript.txt
+    if (!text) {
+      throw new Error(
+        `Whisper local devolvió transcripción vacía (${tools.engine}, modelo=${model}, idioma=${language}). ` +
+        'Habla más cerca del micrófono, o usa whisper-tiny / tiny-mlx / base-mlx / small-mlx. ' +
+        'No es un problema de API key (modo local).',
+      )
     }
     return { text, meta: { engine: tools.engine, model, language, offline: true, mediated: true } }
   } finally {

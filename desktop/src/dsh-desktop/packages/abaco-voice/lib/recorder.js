@@ -25,14 +25,23 @@ export async function requestPermission() {
 
 export async function start() {
   if (recorder) return
+  // Real microphone only — not desktop/tab capture (P1 monitor path).
   stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
-      sampleRate: 16000,
     },
+    video: false,
   })
+  for (const track of stream.getAudioTracks()) {
+    const settings = typeof track.getSettings === 'function' ? (track.getSettings() || {}) : {}
+    if (settings.chromeMediaSource === 'desktop' || settings.displaySurface) {
+      stream.getTracks().forEach((x) => x.stop())
+      stream = null
+      throw new Error('Audio source is not a microphone (desktop/tab)')
+    }
+  }
   chunks = []
   recorder = new MediaRecorder(stream, {
     mimeType: pickMimeType(),

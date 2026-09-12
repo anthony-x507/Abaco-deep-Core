@@ -6,28 +6,22 @@
  * selections and non-secret knobs can sync across devices.
  */
 
+import { defaultVoiceConfig, normalizeVoiceConfig } from './normalize-config.js'
+
 const STORE_KEY = 'abaco-voice:config'
 
-const defaultConfig = {
-  ttsProvider: 'web-speech-tts',
-  sttProvider: 'web-speech-stt',
-  providers: {}, // per-provider config, including secrets
-  privacy: {
-    disclosureAccepted: false,
-    disclosureAcceptedAt: null,
-    rememberTranscriptDays: 0, // 0 = keep forever; >0 = auto-purge after N days
-  },
-}
-
-export function defaultVoiceConfig() {
-  return JSON.parse(JSON.stringify(defaultConfig))
-}
+export { defaultVoiceConfig, normalizeVoiceConfig }
 
 export async function loadConfig(store) {
   const raw = await store.get(STORE_KEY)
   if (!raw) return defaultVoiceConfig()
   try {
-    return { ...defaultVoiceConfig(), ...JSON.parse(raw) }
+    const parsed = JSON.parse(raw)
+    const { config, changed } = normalizeVoiceConfig(parsed)
+    if (changed) {
+      try { await saveConfig(store, config) } catch {}
+    }
+    return config
   } catch {
     return defaultVoiceConfig()
   }
