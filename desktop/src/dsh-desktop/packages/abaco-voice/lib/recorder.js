@@ -15,8 +15,10 @@ import {
   buildComposerMicAudioConstraints,
   isBuiltinMicLabel,
   isBluetoothMicLabel,
+  isDeniedMicLabel,
   pickComposerMicDevice,
   shouldRejectBluetoothTrack,
+  shouldRejectDeniedTrack,
 } from './composer-mic.js'
 
 let recorder = null
@@ -71,7 +73,34 @@ export async function start() {
 
   let audioTracks = stream.getAudioTracks()
   const trackLabel = (audioTracks[0] && audioTracks[0].label) || pick.label || ''
-  if (shouldRejectBluetoothTrack(trackLabel, inputs)) {
+  if (shouldRejectDeniedTrack(trackLabel, inputs)) {
+    const retry = pickComposerMicDevice(inputs)
+    if (retry.deviceId) {
+      stream.getTracks().forEach((x) => x.stop())
+      stream = await navigator.mediaDevices.getUserMedia(
+        buildComposerMicAudioConstraints(retry.deviceId),
+      )
+      pick = retry
+      audioTracks = stream.getAudioTracks()
+    } else {
+      const fallback = inputs.find((d) => d.deviceId && !isDeniedMicLabel(d.label))
+      if (fallback) {
+        stream.getTracks().forEach((x) => x.stop())
+        stream = await navigator.mediaDevices.getUserMedia(
+          buildComposerMicAudioConstraints(fallback.deviceId),
+        )
+        pick = {
+          deviceId: String(fallback.deviceId),
+          label: String(fallback.label || ''),
+          reason: 'default',
+          isBuiltin: isBuiltinMicLabel(fallback.label),
+        }
+        audioTracks = stream.getAudioTracks()
+      }
+    }
+  }
+  const afterDeniedLabel = (stream.getAudioTracks()[0] && stream.getAudioTracks()[0].label) || pick.label || ''
+  if (shouldRejectBluetoothTrack(afterDeniedLabel, inputs)) {
     const builtin = pickComposerMicDevice(inputs)
     if (builtin.deviceId && builtin.isBuiltin) {
       stream.getTracks().forEach((x) => x.stop())

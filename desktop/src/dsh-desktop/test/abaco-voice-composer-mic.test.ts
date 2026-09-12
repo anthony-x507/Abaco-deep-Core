@@ -1,8 +1,12 @@
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   BT_MIC_RE,
   BUILTIN_MIC_RE,
+  DENY_MIC_RE,
+  HALLUCINATION_ERROR_ES,
   MIC_DEL_MAC_CHIP,
   SILENCE_ERROR_ES,
   SILENCE_MIN_DURATION_S,
@@ -13,12 +17,19 @@ import {
   buildComposerMicAudioConstraints,
   isBluetoothMicLabel,
   isBuiltinMicLabel,
+  isDeniedMicLabel,
   isSilentPreflight,
+  isWhisperHallucination,
   measureFloat32PeakRms,
   pickComposerMicDevice,
   shouldRejectBluetoothTrack,
+  shouldRejectDeniedTrack,
   silenceErrorMeta,
 } from '../packages/abaco-voice/lib/composer-mic.js'
+import {
+  buildLocalWhisperArgs,
+  writeDebugLastMic,
+} from '../packages/abaco-mediacion-pilot/ops.js'
 
 describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R1 pickComposerMicDevice', () => {
   it('T-R1 prefers built-in MacBook over AirPods', () => {
@@ -153,10 +164,10 @@ describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R4 BT vs built-in + chip', () =>
   })
 })
 
-describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R5 keep 0.4.7 + version 0.4.10', () => {
-  it('T-R5 sticky tiny→small-mlx; OFFLINE; Update; F1; 0 new IPC; version 0.4.10', async () => {
+describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R5 keep 0.4.7 + version 0.4.11', () => {
+  it('T-R5 sticky tiny→small-mlx; OFFLINE; Update; F1; 0 new IPC; version 0.4.11', async () => {
     const pkg = JSON.parse(await readFile('package.json', 'utf8'))
-    expect(pkg.version).toBe('0.4.10')
+    expect(pkg.version).toBe('0.4.11')
 
     const client = await readFile('packages/abaco-voice/client.js', 'utf8')
     const host = await readFile('packages/abaco-voice/index.js', 'utf8')
@@ -328,9 +339,9 @@ describe('CONTRACT-P0-MIC-NO-SILENCE-GATE-0410 T-N1–T-N5', () => {
     expect(transcribeBody).not.toContain('isSilentPreflight(')
   })
 
-  it('T-N5 keep sticky tiny→small-mlx, F1, Settings Update, R1, R2; version 0.4.10; plugin-safe', async () => {
+  it('T-N5 keep sticky tiny→small-mlx, F1, Settings Update, R1, R2; version 0.4.11; plugin-safe', async () => {
     const pkg = JSON.parse(await readFile('package.json', 'utf8'))
-    expect(pkg.version).toBe('0.4.10')
+    expect(pkg.version).toBe('0.4.11')
     const client = await readFile('packages/abaco-voice/client.js', 'utf8')
     const host = await readFile('packages/abaco-voice/index.js', 'utf8')
     const preload = await readFile('src/preload/index.ts', 'utf8')
@@ -348,6 +359,168 @@ describe('CONTRACT-P0-MIC-NO-SILENCE-GATE-0410 T-N1–T-N5', () => {
     expect(f1.length).toBeGreaterThan(100)
     // plugin-safe: only abaco-voice paths touched in this contract (smoke dirs untracked OK)
     expect(client).toContain('0.4.10')
+    expect(client).toContain('0.4.11')
+  })
+})
+
+describe('CONTRACT-P0-MIC-CAPTURE-HALLUCINATION-0411 T-C1 deny-list', () => {
+  it('T-C1 deny FBI/Continuity before non-bt; MacBook wins; FBI never picked', () => {
+    expect(isDeniedMicLabel('FBI Microphone')).toBe(true)
+    expect(isDeniedMicLabel('Continuity Camera')).toBe(true)
+    expect(isDeniedMicLabel('iPhone Microphone')).toBe(true)
+    expect(isDeniedMicLabel('Desk View')).toBe(true)
+    expect(isDeniedMicLabel('Apple Watch')).toBe(true)
+    expect(isDeniedMicLabel('MacBook Pro Microphone')).toBe(false)
+    expect(DENY_MIC_RE.test('FBI Microphone')).toBe(true)
+
+    const withMac = pickComposerMicDevice([
+      { deviceId: 'fbi1', kind: 'audioinput', label: 'FBI Microphone' },
+      { deviceId: 'mac1', kind: 'audioinput', label: 'MacBook Pro Microphone' },
+      { deviceId: 'bt1', kind: 'audioinput', label: 'AirPods Pro' },
+    ])
+    expect(withMac.deviceId).toBe('mac1')
+    expect(withMac.reason).toBe('builtin')
+    expect(withMac.label).not.toMatch(/fbi|continuity/i)
+
+    const fbiAirpods = pickComposerMicDevice([
+      { deviceId: 'fbi1', kind: 'audioinput', label: 'FBI Microphone' },
+      { deviceId: 'bt1', kind: 'audioinput', label: 'AirPods Pro' },
+    ])
+    expect(fbiAirpods.deviceId).not.toBe('fbi1')
+    expect(fbiAirpods.label).not.toMatch(/fbi|continuity/i)
+    expect(['bt1', null]).toContain(fbiAirpods.deviceId)
+
+    expect(shouldRejectDeniedTrack('FBI Microphone', [
+      { deviceId: 'fbi1', label: 'FBI Microphone' },
+      { deviceId: 'mac1', label: 'MacBook Pro Microphone' },
+    ])).toBe(true)
+    expect(shouldRejectDeniedTrack('MacBook Pro Microphone', [
+      { deviceId: 'fbi1', label: 'FBI Microphone' },
+      { deviceId: 'mac1', label: 'MacBook Pro Microphone' },
+    ])).toBe(false)
+  })
+})
+
+describe('CONTRACT-P0-MIC-CAPTURE-HALLUCINATION-0411 T-C2 constraints', () => {
+  it('T-C2 AEC+NS false, AGC true, never sampleRate', async () => {
+    const withId = buildComposerMicAudioConstraints('mac1')
+    const without = buildComposerMicAudioConstraints(null)
+    const apply = buildComposerMicApplyConstraints()
+    expect(withId.audio.echoCancellation).toBe(false)
+    expect(withId.audio.noiseSuppression).toBe(false)
+    expect(withId.audio.autoGainControl).toBe(true)
+    expect(without.audio.echoCancellation).toBe(false)
+    expect(without.audio.noiseSuppression).toBe(false)
+    expect(without.audio.autoGainControl).toBe(true)
+    expect(apply).toEqual({
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: true,
+    })
+    expect(withId.audio).not.toHaveProperty('sampleRate')
+    expect(apply).not.toHaveProperty('sampleRate')
+    expect(JSON.stringify(withId)).not.toMatch(/sampleRate/)
+    expect(JSON.stringify(apply)).not.toMatch(/sampleRate/)
+
+    const client = await readFile('packages/abaco-voice/client.js', 'utf8')
+    expect(client).toContain('echoCancellation: false')
+    expect(client).toContain('noiseSuppression: false')
+    expect(client).toContain('autoGainControl: true')
+    expect(client).not.toMatch(/sampleRate\s*:/)
+  })
+})
+
+describe('CONTRACT-P0-MIC-CAPTURE-HALLUCINATION-0411 T-C3 hallucination', () => {
+  it('T-C3 y-y-y true; Spanish sentence + sí/ya/no false; live path rejects before onInsert', async () => {
+    expect(isWhisperHallucination('y\ny\ny\ny')).toBe(true)
+    expect(isWhisperHallucination('y y y y')).toBe(true)
+    expect(isWhisperHallucination('El cliente necesita una llave nueva para el BMW.')).toBe(false)
+    expect(isWhisperHallucination('sí')).toBe(false)
+    expect(isWhisperHallucination('ya')).toBe(false)
+    expect(isWhisperHallucination('no')).toBe(false)
+    expect(HALLUCINATION_ERROR_ES).toBe(
+      'Audio no usable (alucinación Whisper). Prueba mic MacBook, habla 2–3 s.',
+    )
+
+    const client = await readFile('packages/abaco-voice/client.js', 'utf8')
+    expect(client).toContain('function isWhisperHallucination')
+    expect(client).toContain('HALLUCINATION_ERROR_ES')
+    const transcribeBody = client.slice(
+      client.indexOf('async function transcribeBlob'),
+      client.indexOf('const onCancel'),
+    )
+    expect(transcribeBody).toContain('isWhisperHallucination(result.text)')
+    expect(transcribeBody).toContain('setError(HALLUCINATION_ERROR_ES)')
+    expect(transcribeBody.indexOf('isWhisperHallucination')).toBeLessThan(
+      transcribeBody.indexOf('onInsert(result.text)'),
+    )
+    expect(transcribeBody).not.toMatch(/throw new Error\(SILENCE_ERROR_ES\)/)
+  })
+})
+
+describe('CONTRACT-P0-MIC-CAPTURE-HALLUCINATION-0411 T-C4 mlx flags', () => {
+  it('T-C4 mlx_whisper args include --condition-on-previous-text False', async () => {
+    const args = buildLocalWhisperArgs(
+      'mlx_whisper',
+      '/tmp/audio.wav',
+      'mlx-community/whisper-small-mlx',
+      'es',
+      '/tmp/out',
+    )
+    const condIdx = args.indexOf('--condition-on-previous-text')
+    expect(condIdx).toBeGreaterThan(-1)
+    expect(args[condIdx + 1]).toBe('False')
+    expect(args).toContain('--hallucination-silence-threshold')
+    expect(args[args.indexOf('--hallucination-silence-threshold') + 1]).toBe('0.5')
+    expect(args).toContain('--no-speech-threshold')
+    expect(args[args.indexOf('--no-speech-threshold') + 1]).toBe('0.6')
+
+    const whisper = buildLocalWhisperArgs('whisper', '/tmp/audio.wav', 'tiny', 'es', '/tmp/out')
+    expect(whisper).not.toContain('--condition-on-previous-text')
+
+    const ops = await readFile('packages/abaco-mediacion-pilot/ops.js', 'utf8')
+    expect(ops).toContain('--condition-on-previous-text')
+    expect(ops).toContain("'False'")
+    expect(ops).toContain('buildLocalWhisperArgs(tools.engine')
+    // C4: 0 change to F1 authorize
+    expect(ops).not.toContain('authorize(')
+  })
+})
+
+describe('CONTRACT-P0-MIC-CAPTURE-HALLUCINATION-0411 T-C5 version + debug-last-mic', () => {
+  it('T-C5 package version is 0.4.11', async () => {
+    const pkg = JSON.parse(await readFile('package.json', 'utf8'))
+    expect(pkg.version).toBe('0.4.11')
+  })
+
+  it('C5 writeDebugLastMic overwrites a single pair; skips without DSH_HOME', async () => {
+    expect(await writeDebugLastMic('/nope.webm', '/nope.wav', '')).toBe(false)
+    expect(await writeDebugLastMic('/nope.webm', '/nope.wav', undefined)).toBe(false)
+
+    const root = await mkdtemp(join(tmpdir(), 'abaco-debug-mic-'))
+    try {
+      const src = join(root, 'src')
+      await mkdir(src, { recursive: true })
+      await writeFile(join(src, 'in.webm'), 'webm-one')
+      await writeFile(join(src, 'audio.wav'), 'wav-one')
+      expect(await writeDebugLastMic(join(src, 'in.webm'), join(src, 'audio.wav'), root)).toBe(true)
+      const dest = join(root, 'debug-last-mic')
+      expect(await readFile(join(dest, 'in.webm'), 'utf8')).toBe('webm-one')
+      expect(await readFile(join(dest, 'audio.wav'), 'utf8')).toBe('wav-one')
+
+      await writeFile(join(src, 'in.webm'), 'webm-two')
+      await writeFile(join(src, 'audio.wav'), 'wav-two')
+      expect(await writeDebugLastMic(join(src, 'in.webm'), join(src, 'audio.wav'), root)).toBe(true)
+      expect(await readFile(join(dest, 'in.webm'), 'utf8')).toBe('webm-two')
+      expect(await readFile(join(dest, 'audio.wav'), 'utf8')).toBe('wav-two')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+
+    const ops = await readFile('packages/abaco-mediacion-pilot/ops.js', 'utf8')
+    expect(ops).toContain('writeDebugLastMic(inputPath, audioPath)')
+    expect(ops).toContain('debug-last-mic')
+    expect(ops).toContain('process.env.DSH_HOME')
   })
 })
 

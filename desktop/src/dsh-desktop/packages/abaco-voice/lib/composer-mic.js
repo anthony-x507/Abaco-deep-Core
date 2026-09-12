@@ -1,7 +1,10 @@
 /**
- * CONTRACT-P0-MIC-BUILTIN-SILENCE-048 + DECODE-SILENCE-049 + NO-SILENCE-GATE-0410 — pure helpers.
- * Prefer built-in Mac mic. Helpers (isSilentPreflight / assertNotSilentFromMeasurement) remain for tests.
+ * CONTRACT-P0-MIC-BUILTIN-SILENCE-048 + DECODE-SILENCE-049 + NO-SILENCE-GATE-0410
+ * + CAPTURE-HALLUCINATION-0411 — pure helpers.
+ * Prefer built-in Mac mic. Deny Continuity/FBI/iPhone before non-bt.
+ * Helpers (isSilentPreflight / assertNotSilentFromMeasurement) remain for tests.
  * 0.4.10 live path: assertNotSilentBeforeLocalTranscribe is LOG-ONLY (never throw SILENCE_ERROR_ES).
+ * 0.4.11: deny-list + raw-ish constraints + isWhisperHallucination (no silence-gate throw).
  */
 
 /** Built-in Mac / internal labels (must NOT also match BT). */
@@ -10,6 +13,12 @@ export const BUILTIN_MIC_RE = /macbook|built-?in|internal|macintosh|imac|mac min
 /** Bluetooth / AirPods / HFP / headset — never preferred when built-in exists. */
 export const BT_MIC_RE = /airpods|bluetooth|hands-?free|\bhfp\b|headset/i
 
+/**
+ * Continuity / iPhone / Desk View / Watch — empty-ish capture; Whisper hallucinates.
+ * C1: filtered out BEFORE non-bt. Never pick, not even as non-bt fallback.
+ */
+export const DENY_MIC_RE = /fbi|continuity|iphone|desk view|iphone mic|apple watch/i
+
 export const SILENCE_MIN_DURATION_S = 0.4
 /** Peak abs (and RMS≈0) threshold — below this is treated as silence. */
 export const SILENCE_PEAK_ABS_MAX = 0.01
@@ -17,6 +26,14 @@ export const SILENCE_PEAK_ABS_MAX = 0.01
 export const SILENCE_TINY_BLOB_BYTES = 256
 export const SILENCE_ERROR_ES = 'Mic silencioso. Usa el micrófono del Mac, no AirPods.'
 export const MIC_DEL_MAC_CHIP = 'Mic del Mac'
+export const HALLUCINATION_ERROR_ES =
+  'Audio no usable (alucinación Whisper). Prueba mic MacBook, habla 2–3 s.'
+
+/** Real short ES answers — never treat as Whisper hallucination (C3 living). */
+const REAL_SHORT_ES = new Set(['sí', 'si', 'ya', 'no'])
+
+/** 1–2 char/token fillers Whisper repeats on empty-ish capture. */
+const FILLER_TOKEN_RE = /^(y|a|e|o|uh|um|ah|eh|oh|mm|m|hm|hmm|\.|…|\.{2,}|…+)$/i
 
 export function isBuiltinMicLabel(label) {
   const s = String(label || '')
@@ -27,8 +44,14 @@ export function isBluetoothMicLabel(label) {
   return BT_MIC_RE.test(String(label || ''))
 }
 
+export function isDeniedMicLabel(label) {
+  return DENY_MIC_RE.test(String(label || ''))
+}
+
 /**
- * Pure device pick for composer mic (R1 / R4).
+ * Pure device pick for composer mic (R1 / R4 / C1).
+ * Order: deny-list out → MacBook/built-in → non-bt → default (deviceId null).
+ * AirPods/BT last (never preferred when anything else remains).
  * @param {Array<{ deviceId?: string, kind?: string, label?: string }>} devices
  * @returns {{ deviceId: string|null, label: string, reason: 'builtin'|'non-bt'|'default', isBuiltin: boolean }}
  */
@@ -36,8 +59,10 @@ export function pickComposerMicDevice(devices) {
   const inputs = (Array.isArray(devices) ? devices : []).filter(
     (d) => d && (!d.kind || d.kind === 'audioinput'),
   )
+  // C1: deny-list BEFORE non-bt — never pick FBI/Continuity/iPhone/Desk View/Watch.
+  const allowed = inputs.filter((d) => !isDeniedMicLabel(d.label))
 
-  const builtin = inputs.find((d) => isBuiltinMicLabel(d.label))
+  const builtin = allowed.find((d) => isBuiltinMicLabel(d.label))
   if (builtin && builtin.deviceId) {
     return {
       deviceId: String(builtin.deviceId),
@@ -47,7 +72,7 @@ export function pickComposerMicDevice(devices) {
     }
   }
 
-  const nonBt = inputs.find(
+  const nonBt = allowed.find(
     (d) => d.deviceId && !isBluetoothMicLabel(d.label),
   )
   if (nonBt) {
@@ -72,6 +97,17 @@ export function shouldRejectBluetoothTrack(trackLabel, devices) {
     (d) => d && (!d.kind || d.kind === 'audioinput'),
   )
   return inputs.some((d) => isBuiltinMicLabel(d.label))
+}
+
+/**
+ * C1: if OS handed us FBI/Continuity, reopen with any non-denied device.
+ */
+export function shouldRejectDeniedTrack(trackLabel, devices) {
+  if (!isDeniedMicLabel(trackLabel)) return false
+  const inputs = (Array.isArray(devices) ? devices : []).filter(
+    (d) => d && (!d.kind || d.kind === 'audioinput'),
+  )
+  return inputs.some((d) => d.deviceId && !isDeniedMicLabel(d.label))
 }
 
 /**
@@ -142,13 +178,14 @@ export function assertNotSilentFromMeasurement({
 }
 
 /**
- * Build audio constraints for composer mic — NEVER includes sampleRate (R2).
+ * Build audio constraints for composer mic — NEVER includes sampleRate (R2 / C2).
+ * Raw-ish: AEC+NS off so Continuity/AEC cannot crush the signal; AGC on.
  * @param {string|null|undefined} deviceId
  */
 export function buildComposerMicAudioConstraints(deviceId) {
   const audio = {
-    echoCancellation: true,
-    noiseSuppression: true,
+    echoCancellation: false,
+    noiseSuppression: false,
     autoGainControl: true,
   }
   if (deviceId) {
@@ -158,14 +195,53 @@ export function buildComposerMicAudioConstraints(deviceId) {
 }
 
 /**
- * Constraints for applyConstraints — NEVER sampleRate (R2).
+ * Constraints for applyConstraints — NEVER sampleRate (R2 / C2).
  */
 export function buildComposerMicApplyConstraints() {
   return {
-    echoCancellation: true,
-    noiseSuppression: true,
+    echoCancellation: false,
+    noiseSuppression: false,
     autoGainControl: true,
   }
+}
+
+function isFillerToken(token) {
+  const t = String(token || '')
+  if (!t || REAL_SHORT_ES.has(t)) return false
+  if (FILLER_TOKEN_RE.test(t)) return true
+  // glued fillers: yyyy / aaaa / ....
+  return t.length >= 3 && /^(y+|a+|m{2,}|u+h+|h+m+|\.+|…+)$/i.test(t)
+}
+
+/**
+ * C3 — anti-hallucination post-Whisper (pure).
+ * Trim + lower. True if only 1–2 char fillers repeated ≥3, or unique/words < 0.15 with length≥6.
+ * Living: sí / ya / no are real short ES answers — never hallucination.
+ */
+export function isWhisperHallucination(text) {
+  const s = String(text ?? '').trim().toLowerCase().normalize('NFC')
+  if (!s) return false
+  const compact = s.replace(/[¡!.,?¿…]+$/g, '').trim()
+  if (REAL_SHORT_ES.has(s) || REAL_SHORT_ES.has(compact)) return false
+
+  const rawTokens = s.split(/\s+/).filter(Boolean)
+  const tokens = rawTokens.map((t) => {
+    const stripped = t.replace(/^[¿¡"'([{]+|[.!?,;:"'`)\]}]+$/g, '')
+    return stripped || t
+  }).filter(Boolean)
+  if (!tokens.length) {
+    const onlyPunct = s.replace(/\s+/g, '')
+    return onlyPunct.length >= 3 && /^[.\u2026]+$/.test(onlyPunct)
+  }
+
+  const allFillers = tokens.every(isFillerToken)
+  if (allFillers && tokens.length >= 3) return true
+
+  const unique = new Set(tokens)
+  const ratio = unique.size / tokens.length
+  if (tokens.length >= 6 && ratio < 0.15) return true
+  if (s.replace(/\s+/g, '').length >= 6 && tokens.length >= 3 && ratio < 0.15) return true
+  return false
 }
 
 /**

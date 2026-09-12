@@ -4,7 +4,7 @@
  */
 import { spawn } from 'node:child_process'
 import { access, constants } from 'node:fs'
-import { mkdtemp, writeFile, readFile, rm, mkdir, readdir } from 'node:fs/promises'
+import { mkdtemp, writeFile, readFile, rm, mkdir, readdir, copyFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -76,6 +76,56 @@ function run(cmd, args) {
   })
 }
 
+/**
+ * C4 — mlx_whisper CLI flags (anti-hallucination). OpenAI whisper CLI unchanged.
+ */
+export function buildLocalWhisperArgs(engine, audioPath, model, language, outDir) {
+  if (engine === 'mlx_whisper') {
+    return [
+      audioPath,
+      '--model', model,
+      '--language', language,
+      '--output-dir', outDir,
+      '--output-name', 'transcript',
+      '--output-format', 'txt',
+      '--verbose', 'False',
+      '--condition-on-previous-text', 'False',
+      '--hallucination-silence-threshold', '0.5',
+      '--no-speech-threshold', '0.6',
+    ]
+  }
+  return [
+    audioPath,
+    '--model', String(model).includes('/') ? 'tiny' : model,
+    '--language', language,
+    '--output_dir', outDir,
+    '--output_format', 'txt',
+    '--verbose', 'False',
+  ]
+}
+
+/**
+ * C5 — opt-in overwrite of the last captured pair under DSH_HOME/debug-last-mic/.
+ * Skip silently if no DSH_HOME / write denied. Never fail transcription.
+ */
+export async function writeDebugLastMic(inputPath, wavOrAudioPath, dshHome = process.env.DSH_HOME) {
+  try {
+    if (!dshHome) return false
+    const dest = join(String(dshHome), 'debug-last-mic')
+    await mkdir(dest, { recursive: true })
+    if (inputPath) {
+      const inName = String(inputPath).toLowerCase().endsWith('.wav') ? 'in.wav' : 'in.webm'
+      await copyFile(inputPath, join(dest, inName))
+    }
+    if (wavOrAudioPath) {
+      await copyFile(wavOrAudioPath, join(dest, 'audio.wav'))
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function convertToWav(ffmpegBin, inputPath, wavPath) {
   const result = await run(ffmpegBin, [
     '-y', '-i', inputPath,
@@ -104,6 +154,8 @@ export async function transcribeLocal(tools, bytes, filename, opts) {
       await convertToWav(tools.ffmpeg, inputPath, wavPath)
       audioPath = wavPath
     }
+    // C5: overwrite last pair only; never fail transcription.
+    await writeDebugLastMic(inputPath, audioPath)
     // Exact BAD plain ids → *-mlx. NEVER includes('whisper-base') (kills base-mlx).
     // 0.4.7 belt+suspenders: sticky tiny → small-mlx before spawn.
     const STICKY_TINY = [
@@ -122,24 +174,7 @@ export async function transcribeLocal(tools, bytes, filename, opts) {
     else if (STICKY_TINY.includes(model)) model = DEFAULT_MODEL
     else if (Object.prototype.hasOwnProperty.call(BAD_MODEL_MAP, model)) model = BAD_MODEL_MAP[model]
     const language = (opts && opts.language) || 'es'
-    const args = tools.engine === 'mlx_whisper'
-      ? [
-          audioPath,
-          '--model', model,
-          '--language', language,
-          '--output-dir', outDir,
-          '--output-name', 'transcript',
-          '--output-format', 'txt',
-          '--verbose', 'False',
-        ]
-      : [
-          audioPath,
-          '--model', model.includes('/') ? 'tiny' : model,
-          '--language', language,
-          '--output_dir', outDir,
-          '--output_format', 'txt',
-          '--verbose', 'False',
-        ]
+    const args = buildLocalWhisperArgs(tools.engine, audioPath, model, language, outDir)
     const result = await run(tools.bin, args)
     const errBlob = `${result.stderr || ''}\n${result.stdout || ''}`
     const repoMissing = /Repository Not Found|RepositoryNotFound|404 Client Error|Skipping/i.test(errBlob)

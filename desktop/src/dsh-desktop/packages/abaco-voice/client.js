@@ -210,6 +210,7 @@ window.__ModuleLoader__.load({
     // ── Recorder (CONTRACT-P0-MIC-BUILTIN-SILENCE-048 + DECODE-SILENCE-049) ─
     // Prefer built-in Mac mic; silence preflight before local-transcribe POST.
     // 0.4.10: assertNotSilentBeforeLocalTranscribe is LOG-ONLY (never throw SILENCE_ERROR_ES).
+    // 0.4.11: deny FBI/Continuity before non-bt; raw-ish AEC/NS off; reject Whisper y-y-y.
     // Empty audio: blob.size===0 OR duration<0.15s → «Sin audio grabado». Headphones may record.
     // PROHIBITED: sample rate constraint + getDisplayMedia for composer mic.
 
@@ -222,13 +223,17 @@ window.__ModuleLoader__.load({
 
     const BUILTIN_MIC_RE = /macbook|built-?in|internal|macintosh|imac|mac mini/i
     const BT_MIC_RE = /airpods|bluetooth|hands-?free|\bhfp\b|headset/i
+    const DENY_MIC_RE = /fbi|continuity|iphone|desk view|iphone mic|apple watch/i
     const SILENCE_MIN_DURATION_S = 0.4
     const SILENCE_PEAK_ABS_MAX = 0.01
     const SILENCE_TINY_BLOB_BYTES = 256
     const SILENCE_ERROR_ES = 'Mic silencioso. Usa el micrófono del Mac, no AirPods.'
+    const HALLUCINATION_ERROR_ES = 'Audio no usable (alucinación Whisper). Prueba mic MacBook, habla 2–3 s.'
     const EMPTY_AUDIO_ERROR_ES = 'Sin audio grabado'
     const EMPTY_AUDIO_MIN_DURATION_S = 0.15
     const MIC_DEL_MAC_CHIP = 'Mic del Mac'
+    const REAL_SHORT_ES = { sí: true, si: true, ya: true, no: true }
+    const FILLER_TOKEN_RE = /^(y|a|e|o|uh|um|ah|eh|oh|mm|m|hm|hmm|\.|…|\.{2,}|…+)$/i
 
     function isBuiltinMicLabel(label) {
       const s = String(label || '')
@@ -239,12 +244,17 @@ window.__ModuleLoader__.load({
       return BT_MIC_RE.test(String(label || ''))
     }
 
-    /** Pure — mirrored in lib/composer-mic.js for unit tests. */
+    function isDeniedMicLabel(label) {
+      return DENY_MIC_RE.test(String(label || ''))
+    }
+
+    /** Pure — mirrored in lib/composer-mic.js for unit tests (C1). */
     function pickComposerMicDevice(devices) {
       const inputs = (Array.isArray(devices) ? devices : []).filter(
         (d) => d && (!d.kind || d.kind === 'audioinput'),
       )
-      const builtin = inputs.find((d) => isBuiltinMicLabel(d.label))
+      const allowed = inputs.filter((d) => !isDeniedMicLabel(d.label))
+      const builtin = allowed.find((d) => isBuiltinMicLabel(d.label))
       if (builtin && builtin.deviceId) {
         return {
           deviceId: String(builtin.deviceId),
@@ -253,7 +263,7 @@ window.__ModuleLoader__.load({
           isBuiltin: true,
         }
       }
-      const nonBt = inputs.find((d) => d.deviceId && !isBluetoothMicLabel(d.label))
+      const nonBt = allowed.find((d) => d.deviceId && !isBluetoothMicLabel(d.label))
       if (nonBt) {
         return {
           deviceId: String(nonBt.deviceId),
@@ -271,6 +281,14 @@ window.__ModuleLoader__.load({
         (d) => d && (!d.kind || d.kind === 'audioinput'),
       )
       return inputs.some((d) => isBuiltinMicLabel(d.label))
+    }
+
+    function shouldRejectDeniedTrack(trackLabel, devices) {
+      if (!isDeniedMicLabel(trackLabel)) return false
+      const inputs = (Array.isArray(devices) ? devices : []).filter(
+        (d) => d && (!d.kind || d.kind === 'audioinput'),
+      )
+      return inputs.some((d) => d.deviceId && !isDeniedMicLabel(d.label))
     }
 
     function measureFloat32PeakRms(samples) {
@@ -299,10 +317,10 @@ window.__ModuleLoader__.load({
     }
 
     function buildComposerMicAudioConstraints(deviceId) {
-      // R2: never set sample rate
+      // R2/C2: never set sample rate; AEC+NS off, AGC on
       const audio = {
-        echoCancellation: true,
-        noiseSuppression: true,
+        echoCancellation: false,
+        noiseSuppression: false,
         autoGainControl: true,
       }
       if (deviceId) audio.deviceId = { exact: String(deviceId) }
@@ -310,8 +328,41 @@ window.__ModuleLoader__.load({
     }
 
     function buildComposerMicApplyConstraints() {
-      // R2: never set sample rate
-      return { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      // R2/C2: never set sample rate
+      return { echoCancellation: false, noiseSuppression: false, autoGainControl: true }
+    }
+
+    function isFillerToken(token) {
+      const t = String(token || '')
+      if (!t || REAL_SHORT_ES[t]) return false
+      if (FILLER_TOKEN_RE.test(t)) return true
+      return t.length >= 3 && /^(y+|a+|m{2,}|u+h+|h+m+|\.+|…+)$/i.test(t)
+    }
+
+    /** Pure — mirrored in lib/composer-mic.js (C3). */
+    function isWhisperHallucination(text) {
+      const s = String(text == null ? '' : text).trim().toLowerCase()
+      if (!s) return false
+      const compact = s.replace(/[¡!.,?¿…]+$/g, '').trim()
+      if (REAL_SHORT_ES[s] || REAL_SHORT_ES[compact]) return false
+      const rawTokens = s.split(/\s+/).filter(Boolean)
+      const tokens = rawTokens.map((t) => {
+        const stripped = t.replace(/^[¿¡"'([{]+|[.!?,;:"'`)\]}]+$/g, '')
+        return stripped || t
+      }).filter(Boolean)
+      if (!tokens.length) {
+        const onlyPunct = s.replace(/\s+/g, '')
+        return onlyPunct.length >= 3 && /^[.\u2026]+$/.test(onlyPunct)
+      }
+      const allFillers = tokens.every(isFillerToken)
+      if (allFillers && tokens.length >= 3) return true
+      const unique = {}
+      for (let i = 0; i < tokens.length; i++) unique[tokens[i]] = true
+      const uniqueCount = Object.keys(unique).length
+      const ratio = uniqueCount / tokens.length
+      if (tokens.length >= 6 && ratio < 0.15) return true
+      if (s.replace(/\s+/g, '').length >= 6 && tokens.length >= 3 && ratio < 0.15) return true
+      return false
     }
 
     function silenceErrorMeta(blob, deviceLabel) {
@@ -388,10 +439,34 @@ window.__ModuleLoader__.load({
         throw new Error('No se obtuvo pista de micrófono (getUserMedia audio vacío)')
       }
 
-      // R4: if OS handed us BT/AirPods while built-in exists, reopen with built-in.
+      // C1: if OS handed us FBI/Continuity, reopen with any non-denied pick.
       const track0 = audioTracks[0]
       const trackLabel = track0 && track0.label ? track0.label : (pick.label || '')
-      if (shouldRejectBluetoothTrack(trackLabel, inputs)) {
+      if (shouldRejectDeniedTrack(trackLabel, inputs)) {
+        const retry = pickComposerMicDevice(inputs)
+        if (retry.deviceId) {
+          recorderCleanup()
+          recorderStream = await openComposerMicStream(retry.deviceId)
+          pick = retry
+        } else {
+          const fallback = inputs.find((d) => d.deviceId && !isDeniedMicLabel(d.label))
+          if (fallback) {
+            recorderCleanup()
+            recorderStream = await openComposerMicStream(fallback.deviceId)
+            pick = {
+              deviceId: String(fallback.deviceId),
+              label: String(fallback.label || ''),
+              reason: 'default',
+              isBuiltin: isBuiltinMicLabel(fallback.label),
+            }
+          }
+        }
+      }
+
+      // R4: if OS handed us BT/AirPods while built-in exists, reopen with built-in.
+      const afterDenied = recorderStream.getAudioTracks()
+      const afterDeniedLabel = (afterDenied[0] && afterDenied[0].label) || pick.label || ''
+      if (shouldRejectBluetoothTrack(afterDeniedLabel, inputs)) {
         const builtin = pickComposerMicDevice(inputs)
         if (builtin.deviceId && builtin.isBuiltin) {
           recorderCleanup()
@@ -1294,7 +1369,15 @@ window.__ModuleLoader__.load({
             await assertNotSilentBeforeLocalTranscribe(blob, durationSec)
           }
           const result = await provider.transcribe(blob, provCfg)
-          if (result && result.text) onInsert(result.text)
+          if (result && result.text) {
+            // C3: reject Whisper filler loops before setDraft / onInsert.
+            if (provider.id === 'local-whisper-stt' && isWhisperHallucination(result.text)) {
+              setError(HALLUCINATION_ERROR_ES)
+              setState('error')
+              return
+            }
+            onInsert(result.text)
+          }
           else {
             const isLocal = provider && provider.id === 'local-whisper-stt'
             const meta = silenceErrorMeta(blob, lastMicDeviceLabel)
