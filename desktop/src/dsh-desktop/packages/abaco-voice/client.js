@@ -209,7 +209,8 @@ window.__ModuleLoader__.load({
 
     // ── Recorder (CONTRACT-P0-MIC-BUILTIN-SILENCE-048 + DECODE-SILENCE-049) ─
     // Prefer built-in Mac mic; silence preflight before local-transcribe POST.
-    // 0.4.9: decodeFailed → skip energy; only tiny-blob (<256) blocks.
+    // 0.4.10: assertNotSilentBeforeLocalTranscribe is LOG-ONLY (never throw SILENCE_ERROR_ES).
+    // Empty audio: blob.size===0 OR duration<0.15s → «Sin audio grabado». Headphones may record.
     // PROHIBITED: sample rate constraint + getDisplayMedia for composer mic.
 
     let recorder = null
@@ -225,6 +226,8 @@ window.__ModuleLoader__.load({
     const SILENCE_PEAK_ABS_MAX = 0.01
     const SILENCE_TINY_BLOB_BYTES = 256
     const SILENCE_ERROR_ES = 'Mic silencioso. Usa el micrófono del Mac, no AirPods.'
+    const EMPTY_AUDIO_ERROR_ES = 'Sin audio grabado'
+    const EMPTY_AUDIO_MIN_DURATION_S = 0.15
     const MIC_DEL_MAC_CHIP = 'Mic del Mac'
 
     function isBuiltinMicLabel(label) {
@@ -411,10 +414,11 @@ window.__ModuleLoader__.load({
       const finalLabel = (finalTracks[0] && finalTracks[0].label) || pick.label || ''
       lastMicDeviceLabel = finalLabel
       lastMicIsBuiltin = isBuiltinMicLabel(finalLabel) || !!pick.isBuiltin
-      // If somehow still BT with builtin available — refuse (R4 hard).
+      // N2/N3: prefer built-in reopen above; if still BT/headphones — allow record (never throw AirPods text).
       if (shouldRejectBluetoothTrack(finalLabel, inputs)) {
-        recorderCleanup()
-        throw new Error(SILENCE_ERROR_ES)
+        console.warn('[abaco-voice] BT mic still active after reopen attempt; recording anyway', {
+          deviceLabel: finalLabel,
+        })
       }
 
       chunks = []
@@ -466,45 +470,32 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * R3: silence preflight BEFORE POST local-transcribe.
-     * Throws SILENCE_ERROR_ES (≠ API key). R3b logs blob.size + device.label.
+     * N1: LOG-ONLY before POST local-transcribe.
+     * Never throws SILENCE_ERROR_ES / AirPods text. Helpers (isSilentPreflight) remain for tests only.
      */
     async function assertNotSilentBeforeLocalTranscribe(blob, durationSec) {
       const meta = silenceErrorMeta(blob, lastMicDeviceLabel)
       const size = meta.blobSize
-      // Tiny-blob fast-path only — do NOT pass peakAbs:0 (would false-positive all clips).
-      if (isSilentPreflight({ durationSec, blobSize: size })) {
-        console.error('[abaco-voice] mic silence preflight', meta)
-        const err = new Error(SILENCE_ERROR_ES)
-        err.meta = meta
-        throw err
+      let peakAbs
+      let rms
+      let decodeFailed
+      try {
+        const measured = await analyzeBlobPeakRms(blob)
+        peakAbs = measured.peak
+        rms = measured.rms
+        decodeFailed = measured.decodeFailed
+      } catch {
+        decodeFailed = true
       }
-      const measured = await analyzeBlobPeakRms(blob)
-      if (measured.decodeFailed) {
-        // D1: do NOT pass peakAbs/rms (zeros are untrusted). Skip energy.
-        // Only tiny-blob already blocked above. D1b: log then POST Whisper
-        // (ffmpeg+whisper can decode webm). D3: big blob + decodeFailed → pass.
-        console.warn('[abaco-voice] decodeFailed skip peak preflight', {
-          decodeFailed: true,
-          blobSize: size,
-          deviceLabel: meta.deviceLabel,
-        })
-        return
-      }
-      // D2: decode OK keep energy.
-      const peakAbs = measured.peak
-      const rms = measured.rms
-      if (isSilentPreflight({ durationSec, peakAbs, rms, blobSize: size })) {
-        console.error('[abaco-voice] mic silence preflight', {
-          ...meta,
-          peakAbs,
-          rms,
-          durationSec,
-        })
-        const err = new Error(SILENCE_ERROR_ES)
-        err.meta = { ...meta, peakAbs, rms }
-        throw err
-      }
+      console.warn('[abaco-voice] mic preflight log-only', {
+        blobSize: size,
+        durationSec,
+        deviceLabel: meta.deviceLabel,
+        peakAbs,
+        rms,
+        decodeFailed,
+      })
+      // N1: return — never throw SILENCE_ERROR_ES
     }
 
     function recorderStop() {
@@ -1294,7 +1285,11 @@ window.__ModuleLoader__.load({
         if (!provider) throw new Error('STT provider not configured')
         const provCfg = cfg.providers[provider.id] || {}
         try {
-          // R3: silence preflight BEFORE POST local-transcribe (≠ API key).
+          // N4: empty/short blob → «Sin audio grabado» (≠ AirPods). Else always POST Whisper.
+          if (!blob || blob.size === 0 || !(Number(durationSec) >= EMPTY_AUDIO_MIN_DURATION_S)) {
+            throw new Error(EMPTY_AUDIO_ERROR_ES)
+          }
+          // N1: log-only preflight (never throw SILENCE_ERROR_ES).
           if (provider.id === 'local-whisper-stt') {
             await assertNotSilentBeforeLocalTranscribe(blob, durationSec)
           }
@@ -1315,8 +1310,8 @@ window.__ModuleLoader__.load({
           }
         } catch (e) {
           const msg = e && e.message ? e.message : String(e)
-          if (msg === SILENCE_ERROR_ES || (e && e.meta)) {
-            console.error('[abaco-voice] mic silence/empty meta', e.meta || silenceErrorMeta(blob, lastMicDeviceLabel))
+          if (msg === EMPTY_AUDIO_ERROR_ES || (e && e.meta)) {
+            console.error('[abaco-voice] mic empty/meta', e.meta || silenceErrorMeta(blob, lastMicDeviceLabel))
           }
           setError(msg)
           setState('error')

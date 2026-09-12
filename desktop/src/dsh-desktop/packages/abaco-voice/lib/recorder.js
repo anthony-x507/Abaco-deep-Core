@@ -96,10 +96,11 @@ export async function start() {
   }
 
   lastDeviceLabel = (stream.getAudioTracks()[0] && stream.getAudioTracks()[0].label) || pick.label || ''
+  // N2/N3: prefer built-in reopen above; headphones/BT must still record (never throw AirPods text).
   if (shouldRejectBluetoothTrack(lastDeviceLabel, inputs) && inputs.some((d) => isBuiltinMicLabel(d.label))) {
-    stream.getTracks().forEach((x) => x.stop())
-    stream = null
-    throw new Error('Mic silencioso. Usa el micrófono del Mac, no AirPods.')
+    console.warn('[abaco-voice/recorder] BT mic still active after reopen attempt; recording anyway', {
+      deviceLabel: lastDeviceLabel,
+    })
   }
   // silence unused import guard for tree / lint
   void isBluetoothMicLabel

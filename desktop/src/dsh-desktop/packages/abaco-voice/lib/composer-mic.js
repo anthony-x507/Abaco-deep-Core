@@ -1,7 +1,7 @@
 /**
- * CONTRACT-P0-MIC-BUILTIN-SILENCE-048 + DECODE-SILENCE-049 — pure helpers.
- * Prefer built-in Mac mic; silence preflight before local-transcribe POST.
- * 0.4.9: decodeFailed skips energy; only tiny-blob (<256) blocks.
+ * CONTRACT-P0-MIC-BUILTIN-SILENCE-048 + DECODE-SILENCE-049 + NO-SILENCE-GATE-0410 — pure helpers.
+ * Prefer built-in Mac mic. Helpers (isSilentPreflight / assertNotSilentFromMeasurement) remain for tests.
+ * 0.4.10 live path: assertNotSilentBeforeLocalTranscribe is LOG-ONLY (never throw SILENCE_ERROR_ES).
  */
 
 /** Built-in Mac / internal labels (must NOT also match BT). */

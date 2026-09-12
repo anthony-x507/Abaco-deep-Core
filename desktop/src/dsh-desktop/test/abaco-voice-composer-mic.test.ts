@@ -126,9 +126,10 @@ describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R3 silence preflight', () => {
     expect(client).toContain('silenceErrorMeta')
     expect(client).toContain('blobSize')
     expect(client).toContain('deviceLabel')
-    expect(client).toContain("console.error('[abaco-voice] mic silence preflight'")
     expect(client).toContain('assertNotSilentBeforeLocalTranscribe')
-    expect(client).toContain(SILENCE_ERROR_ES)
+    // 0.4.10: live path logs only — constant may remain; must not throw SILENCE_ERROR_ES
+    expect(client).toContain("console.warn('[abaco-voice] mic preflight log-only'")
+    expect(client).not.toMatch(/throw new Error\(SILENCE_ERROR_ES\)/)
   })
 })
 
@@ -152,10 +153,10 @@ describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R4 BT vs built-in + chip', () =>
   })
 })
 
-describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R5 keep 0.4.7 + version 0.4.9', () => {
-  it('T-R5 sticky tiny→small-mlx; OFFLINE; Update; F1; 0 new IPC; version 0.4.9', async () => {
+describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R5 keep 0.4.7 + version 0.4.10', () => {
+  it('T-R5 sticky tiny→small-mlx; OFFLINE; Update; F1; 0 new IPC; version 0.4.10', async () => {
     const pkg = JSON.parse(await readFile('package.json', 'utf8'))
-    expect(pkg.version).toBe('0.4.9')
+    expect(pkg.version).toBe('0.4.10')
 
     const client = await readFile('packages/abaco-voice/client.js', 'utf8')
     const host = await readFile('packages/abaco-voice/index.js', 'utf8')
@@ -242,27 +243,111 @@ describe('CONTRACT-P0-MIC-DECODE-SILENCE-049 D1/D1b/D2/D3/T-D5', () => {
     ).toBe(false)
   })
 
-  it('D1b client skips energy on decodeFailed and logs blobSize+deviceLabel', async () => {
+  it('D1b helpers still encode decodeFailed energy skip (tests-only)', () => {
+    // Live client path is N1 log-only; helpers remain for unit tests.
+    expect(
+      isSilentPreflight({
+        durationSec: 2,
+        peakAbs: 0,
+        rms: 0,
+        blobSize: 50 * 1024,
+        decodeFailed: true,
+      }),
+    ).toBe(false)
+    expect(SILENCE_ERROR_ES).toMatch(/AirPods/)
+  })
+})
+
+describe('CONTRACT-P0-MIC-NO-SILENCE-GATE-0410 T-N1–T-N5', () => {
+  it('T-N1 assertNotSilentBeforeLocalTranscribe is log-only (console.warn + return; never throw SILENCE_ERROR_ES)', async () => {
     const client = await readFile('packages/abaco-voice/client.js', 'utf8')
-    expect(client).toContain('if (measured.decodeFailed)')
-    expect(client).toContain('decodeFailed skip peak preflight')
-    expect(client).toContain('decodeFailed: true')
-    expect(client).toContain('blobSize: size')
-    expect(client).toContain('deviceLabel: meta.deviceLabel')
-    // D1: decodeFailed branch returns without calling isSilentPreflight
-    const decodeBlock = client.slice(
-      client.indexOf('if (measured.decodeFailed)'),
-      client.indexOf('// D2: decode OK keep energy.'),
+    const fnStart = client.indexOf('async function assertNotSilentBeforeLocalTranscribe')
+    expect(fnStart).toBeGreaterThan(-1)
+    const fnBody = client.slice(fnStart, client.indexOf('function recorderStop'))
+    expect(fnBody).toContain("console.warn('[abaco-voice] mic preflight log-only'")
+    expect(fnBody).toContain('blobSize')
+    expect(fnBody).toContain('durationSec')
+    expect(fnBody).toContain('deviceLabel')
+    expect(fnBody).toContain('peakAbs')
+    expect(fnBody).toContain('rms')
+    expect(fnBody).toContain('decodeFailed')
+    expect(fnBody).not.toMatch(/throw\s+new\s+Error\s*\(\s*SILENCE_ERROR_ES\s*\)/)
+    expect(fnBody).not.toContain('isSilentPreflight')
+    expect(fnBody).toMatch(/never throw SILENCE_ERROR_ES/)
+  })
+
+  it('T-N2 zero throw SILENCE_ERROR_ES / AirPods text in client.js AND lib/recorder.js grabar→transcribe path', async () => {
+    const client = await readFile('packages/abaco-voice/client.js', 'utf8')
+    const recorder = await readFile('packages/abaco-voice/lib/recorder.js', 'utf8')
+    expect(client).not.toMatch(/throw new Error\(SILENCE_ERROR_ES\)/)
+    expect(client).not.toMatch(/throw new Error\(['"]Mic silencioso/)
+    expect(recorder).not.toMatch(/throw new Error\(['"]Mic silencioso/)
+    expect(recorder).not.toContain('Mic silencioso. Usa el micrófono del Mac, no AirPods.')
+    // Empty-audio error must not reuse AirPods text
+    expect(client).toContain("EMPTY_AUDIO_ERROR_ES = 'Sin audio grabado'")
+    expect(client).not.toMatch(/EMPTY_AUDIO_ERROR_ES\s*=\s*SILENCE_ERROR_ES/)
+  })
+
+  it('T-N3 prefer built-in reopen OK; headphones/BT must record (no AirPods throw after reopen)', async () => {
+    const client = await readFile('packages/abaco-voice/client.js', 'utf8')
+    const recorder = await readFile('packages/abaco-voice/lib/recorder.js', 'utf8')
+    expect(client).toContain('shouldRejectBluetoothTrack')
+    expect(client).toContain('openComposerMicStream(builtin.deviceId)')
+    expect(client).toContain('recording anyway')
+    expect(recorder).toContain('recording anyway')
+    // reopen path kept; hard throw removed
+    expect(client).toContain('prefer built-in reopen')
+    expect(shouldRejectBluetoothTrack('AirPods Pro', [
+      { deviceId: 'bt1', label: 'AirPods Pro' },
+      { deviceId: 'mac1', label: 'MacBook Pro Microphone' },
+    ])).toBe(true)
+  })
+
+  it('T-N4 blob.size===0 OR duration<0.15s → Sin audio grabado; else always POST local-transcribe', async () => {
+    const client = await readFile('packages/abaco-voice/client.js', 'utf8')
+    expect(client).toContain('EMPTY_AUDIO_MIN_DURATION_S = 0.15')
+    expect(client).toContain('Sin audio grabado')
+    expect(client).toContain('blob.size === 0')
+    expect(client).toContain('EMPTY_AUDIO_MIN_DURATION_S')
+    expect(client).toContain('throw new Error(EMPTY_AUDIO_ERROR_ES)')
+    // Empty error ≠ AirPods silence text
+    expect('Sin audio grabado').not.toMatch(/AirPods/)
+    // After empty gate + log-only, still POSTs via provider.transcribe
+    expect(client).toContain('provider.transcribe(blob, provCfg)')
+    expect(client).toContain('assertNotSilentBeforeLocalTranscribe')
+    // N5: 0 isSilentPreflight in record→POST path (assertNotSilent body)
+    const fnBody = client.slice(
+      client.indexOf('async function assertNotSilentBeforeLocalTranscribe'),
+      client.indexOf('function recorderStop'),
     )
-    expect(decodeBlock).toContain('return')
-    expect(decodeBlock).not.toContain('isSilentPreflight')
-    expect(decodeBlock).not.toContain('measured.peak')
-    expect(decodeBlock).not.toContain('measured.rms')
-    expect(client).toContain('do NOT pass peakAbs/rms')
-    // D2 path still uses energy after decode OK
-    expect(client).toContain('const peakAbs = measured.peak')
-    expect(client).toContain('const rms = measured.rms')
-    expect(client).toContain('isSilentPreflight({ durationSec, peakAbs, rms, blobSize: size })')
+    expect(fnBody).not.toContain('isSilentPreflight')
+    const transcribeBody = client.slice(
+      client.indexOf('async function transcribeBlob'),
+      client.indexOf('const onCancel'),
+    )
+    expect(transcribeBody).not.toContain('isSilentPreflight(')
+  })
+
+  it('T-N5 keep sticky tiny→small-mlx, F1, Settings Update, R1, R2; version 0.4.10; plugin-safe', async () => {
+    const pkg = JSON.parse(await readFile('package.json', 'utf8'))
+    expect(pkg.version).toBe('0.4.10')
+    const client = await readFile('packages/abaco-voice/client.js', 'utf8')
+    const host = await readFile('packages/abaco-voice/index.js', 'utf8')
+    const preload = await readFile('src/preload/index.ts', 'utf8')
+    const f1 = await readFile('test/abaco-f1-mediacion-broker.test.ts', 'utf8')
+    expect(client).toContain("DEFAULT_LOCAL_MODEL = 'mlx-community/whisper-small-mlx'")
+    expect(client).toContain('STICKY_TINY_LOCAL_MODELS')
+    expect(host).toContain('0.4.7 FORCE')
+    expect(preload).toContain("textContent = 'Update'")
+    expect(preload).toContain("ipcRenderer.invoke('updates:check')")
+    expect(client).not.toMatch(/sampleRate\s*:/)
+    expect(pickComposerMicDevice([
+      { deviceId: 'bt1', kind: 'audioinput', label: 'AirPods Pro' },
+      { deviceId: 'mac1', kind: 'audioinput', label: 'MacBook Pro Microphone' },
+    ]).reason).toBe('builtin')
+    expect(f1.length).toBeGreaterThan(100)
+    // plugin-safe: only abaco-voice paths touched in this contract (smoke dirs untracked OK)
+    expect(client).toContain('0.4.10')
   })
 })
 
