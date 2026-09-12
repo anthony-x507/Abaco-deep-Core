@@ -103,10 +103,13 @@ export function apply(ctx) {
     fetch: async (request) => {
       const url = new URL(request.url)
       const filename = url.searchParams.get('filename') || 'audio.webm'
+      // 0.4.7 FORCE: sticky tiny -> small-mlx before authorize (args_hash = small-mlx).
       let model = resolveLocalWhisperModel(url.searchParams.get('model') || DEFAULT_MODEL)
       const cached = await listCachedLocalWhisperModels()
       const picked = pickCachedModel(cached)
       if (picked && !cached.includes(model)) model = picked
+      // Re-resolve: sticky tiny never reaches authorize hashArgs (FORCE).
+      model = resolveLocalWhisperModel(model)
       if (!picked) {
         return failure(
           'Whisper local: no hay modelos en cache HF (small-mlx/base-mlx/tiny-mlx/tiny). No es API key.',

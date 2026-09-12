@@ -105,6 +105,12 @@ export async function transcribeLocal(tools, bytes, filename, opts) {
       audioPath = wavPath
     }
     // Exact BAD plain ids → *-mlx. NEVER includes('whisper-base') (kills base-mlx).
+    // 0.4.7 belt+suspenders: sticky tiny → small-mlx before spawn.
+    const STICKY_TINY = [
+      'mlx-community/whisper-tiny',
+      'mlx-community/whisper-tiny-mlx',
+      'whisper-tiny',
+    ]
     const BAD_MODEL_MAP = {
       'mlx-community/whisper-base': 'mlx-community/whisper-base-mlx',
       'whisper-base': 'mlx-community/whisper-base-mlx',
@@ -113,6 +119,7 @@ export async function transcribeLocal(tools, bytes, filename, opts) {
     }
     let model = (opts && opts.model) || DEFAULT_MODEL
     if (!model) model = DEFAULT_MODEL
+    else if (STICKY_TINY.includes(model)) model = DEFAULT_MODEL
     else if (Object.prototype.hasOwnProperty.call(BAD_MODEL_MAP, model)) model = BAD_MODEL_MAP[model]
     const language = (opts && opts.language) || 'es'
     const args = tools.engine === 'mlx_whisper'

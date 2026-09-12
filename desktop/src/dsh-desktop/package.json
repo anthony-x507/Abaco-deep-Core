@@ -1,6 +1,6 @@
 {
   "name": "abaco-deep-harnes",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "ABACO DEEP HARNES \u2014 the ABACO desktop shell and agent harness client (cross-platform).",
   "private": true,
   "type": "module",

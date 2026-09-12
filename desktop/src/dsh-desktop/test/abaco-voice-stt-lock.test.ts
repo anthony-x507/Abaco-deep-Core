@@ -49,8 +49,8 @@ function memoryStore(initial: Record<string, string> = {}) {
   }
 }
 
-describe('abaco-voice STT lock (0.4.6 mic quality)', () => {
-  it('T3 schema default is whisper-small-mlx + es; tiny is option only', () => {
+describe('abaco-voice STT lock (0.4.7 sticky tiny migrate)', () => {
+  it('T3 schema default is whisper-small-mlx + es; sticky tiny resolves to small-mlx', () => {
     expect(DEFAULT_LOCAL_MODEL).toBe('mlx-community/whisper-small-mlx')
     expect(DEFAULT_LOCAL_LANGUAGE).toBe('es')
     expect(LOCAL_WHISPER_ID).toBe('local-whisper-stt')
@@ -62,6 +62,13 @@ describe('abaco-voice STT lock (0.4.6 mic quality)', () => {
     ])
     expect(KNOWN_GOOD_LOCAL_MODELS).not.toContain('mlx-community/whisper-large-v3-turbo')
     expect(resolveLocalWhisperModel('')).toBe('mlx-community/whisper-small-mlx')
+    expect(resolveLocalWhisperModel('mlx-community/whisper-tiny')).toBe(
+      'mlx-community/whisper-small-mlx',
+    )
+    expect(resolveLocalWhisperModel('mlx-community/whisper-tiny-mlx')).toBe(
+      'mlx-community/whisper-small-mlx',
+    )
+    expect(resolveLocalWhisperModel('whisper-tiny')).toBe('mlx-community/whisper-small-mlx')
     expect(resolveLocalWhisperModel('mlx-community/whisper-base')).toBe(
       'mlx-community/whisper-base-mlx',
     )
@@ -145,7 +152,7 @@ describe('abaco-voice STT lock (0.4.6 mic quality)', () => {
     expect(config.providers['local-whisper-stt'].model).toBe('mlx-community/whisper-tiny')
   })
 
-  it('T3c no plain whisper-base/small in defaults/dropdown', async () => {
+  it('T3c no plain whisper-base/small; tiny removed from dropdown', async () => {
     const client = await readFile('packages/abaco-voice/client.js', 'utf8')
     expect(client).toContain("DEFAULT_LOCAL_MODEL = 'mlx-community/whisper-small-mlx'")
     expect(client).toContain("default: 'mlx-community/whisper-small-mlx'")
@@ -153,6 +160,8 @@ describe('abaco-voice STT lock (0.4.6 mic quality)', () => {
     expect(client).not.toMatch(/value:\s*'mlx-community\/whisper-small'/)
     expect(client).not.toMatch(/value:\s*'whisper-base'/)
     expect(client).not.toMatch(/value:\s*'whisper-small'/)
+    expect(client).not.toMatch(/value:\s*'mlx-community\/whisper-tiny'/)
+    expect(client).not.toMatch(/value:\s*'mlx-community\/whisper-tiny-mlx'/)
     expect(client).not.toContain('whisper-large-v3-turbo')
     expect(client).not.toMatch(/\.includes\(['\"]whisper-base['\"]\)/)
   })
@@ -183,9 +192,69 @@ describe('abaco-voice STT lock (0.4.6 mic quality)', () => {
       'mlx-community/whisper-base-mlx',
     )
   })
+
+  it('0.4.7 sticky tiny in store → load/save persist small-mlx (write-through)', async () => {
+    for (const sticky of [
+      'mlx-community/whisper-tiny',
+      'mlx-community/whisper-tiny-mlx',
+      'whisper-tiny',
+    ]) {
+      const store = memoryStore({
+        'abaco-voice:config': JSON.stringify({
+          sttProvider: 'local-whisper-stt',
+          providers: {
+            'local-whisper-stt': { model: sticky, language: 'es' },
+          },
+        }),
+      })
+      const cfg = await loadConfig(store)
+      expect(cfg.providers['local-whisper-stt'].model).toBe(
+        'mlx-community/whisper-small-mlx',
+      )
+      const persisted = JSON.parse(store.bag['abaco-voice:config'])
+      expect(persisted.providers['local-whisper-stt'].model).toBe(
+        'mlx-community/whisper-small-mlx',
+      )
+    }
+  })
+
+  it('0.4.7 save sticky tiny → persisted small-mlx', async () => {
+    const store = memoryStore()
+    await saveConfig(store, {
+      sttProvider: 'local-whisper-stt',
+      providers: {
+        'local-whisper-stt': { model: 'mlx-community/whisper-tiny', language: 'es' },
+      },
+    })
+    const persisted = JSON.parse(store.bag['abaco-voice:config'])
+    expect(persisted.providers['local-whisper-stt'].model).toBe(
+      'mlx-community/whisper-small-mlx',
+    )
+  })
+
+  it('0.4.7 cached.includes(tiny) does NOT pardon sticky tiny on normalize', () => {
+    const { config, changed } = normalizeVoiceConfig(
+      {
+        sttProvider: 'local-whisper-stt',
+        providers: {
+          'local-whisper-stt': { model: 'mlx-community/whisper-tiny', language: 'es' },
+        },
+      },
+      {
+        cachedModels: [
+          'mlx-community/whisper-tiny',
+          'mlx-community/whisper-small-mlx',
+        ],
+      },
+    )
+    expect(changed).toBe(true)
+    expect(config.providers['local-whisper-stt'].model).toBe(
+      'mlx-community/whisper-small-mlx',
+    )
+  })
 })
 
-describe('0.4.6 host / offline / settings Update wiring', () => {
+describe('0.4.7 host / offline / settings Update wiring', () => {
   it('T4 getUserMedia never display/chromeMediaSource', async () => {
     const client = await readFile('packages/abaco-voice/client.js', 'utf8')
     expect(client).toContain('getUserMedia')
@@ -262,5 +331,21 @@ describe('0.4.6 host / offline / settings Update wiring', () => {
     expect(client).toContain("DEFAULT_LOCAL_MODEL = 'mlx-community/whisper-small-mlx'")
     expect(ops).toContain("const DEFAULT_MODEL = 'mlx-community/whisper-small-mlx'")
     expect(client).not.toContain("DEFAULT_LOCAL_MODEL = 'mlx-community/whisper-tiny'")
+  })
+
+  it('0.4.7 host upgrades sticky tiny before authorize; ops upgrades before spawn', async () => {
+    const host = await readFile('packages/abaco-voice/index.js', 'utf8')
+    const ops = await readFile('packages/abaco-mediacion-pilot/ops.js', 'utf8')
+    expect(host).toContain('0.4.7 FORCE')
+    expect(host).toMatch(/let model = resolveLocalWhisperModel/)
+    expect(host).toMatch(/model = resolveLocalWhisperModel\(model\)/)
+    const routeStart = host.indexOf('LOCAL_TRANSCRIBE_PATH')
+    const routeSlice = host.slice(host.indexOf('path: LOCAL_TRANSCRIBE_PATH'))
+    const resolveIdx = routeSlice.indexOf('model = resolveLocalWhisperModel(model)')
+    const authIdx = routeSlice.indexOf('authorize({')
+    expect(resolveIdx).toBeGreaterThan(-1)
+    expect(authIdx).toBeGreaterThan(resolveIdx)
+    expect(ops).toContain('STICKY_TINY')
+    expect(ops).toContain('STICKY_TINY.includes(model)) model = DEFAULT_MODEL')
   })
 })

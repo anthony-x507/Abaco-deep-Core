@@ -1,9 +1,11 @@
 /**
- * Normalize abaco-voice STT config (0.4.6).
+ * Normalize abaco-voice STT config (0.4.7).
  * - Schema / DEFAULT / migrate empty → mlx-community/whisper-small-mlx + es
+ * - STICKY tiny / tiny-mlx → ALWAYS small-mlx (load/save write-through)
  * - openai-stt / deepgram* without key → local-whisper-stt (write-through)
  * - Exact BAD plain ids → *-mlx; NEVER includes('whisper-base')
  * - Cache probe is runtime-only (pickCachedModel); not the schema default
+ * - Tiny remains last-resort cache fallback only when small-mlx AND base-mlx absent
  */
 
 import { readdir } from 'node:fs/promises'
@@ -14,11 +16,18 @@ export const LOCAL_WHISPER_ID = 'local-whisper-stt'
 export const OPENAI_STT_ID = 'openai-stt'
 export const DEEPGRAM_STT_IDS = ['deepgram-stt', 'deepgram']
 
-/** Schema default — always small-mlx + es (Arq). Tiny is dropdown-only. */
+/** Schema default — always small-mlx + es (Arq). */
 export const DEFAULT_LOCAL_MODEL = 'mlx-community/whisper-small-mlx'
 export const DEFAULT_LOCAL_LANGUAGE = 'es'
 
-/** Runtime quality preference (cache pick order). */
+/** Sticky legacy ids — ALWAYS force-migrate to small-mlx (0.4.7). */
+export const STICKY_TINY_LOCAL_MODELS = [
+  'mlx-community/whisper-tiny',
+  'mlx-community/whisper-tiny-mlx',
+  'whisper-tiny',
+]
+
+/** Runtime quality preference (cache pick order). Tiny = last resort only. */
 export const QUALITY_PREF = [
   'mlx-community/whisper-small-mlx',
   'mlx-community/whisper-base-mlx',
@@ -26,7 +35,7 @@ export const QUALITY_PREF = [
   'mlx-community/whisper-tiny',
 ]
 
-/** Exact allowlist (dropdown + coerce). No plain base/small. No large-v3-turbo. */
+/** Exact allowlist (cache probe + coerce). No plain base/small. No large-v3-turbo. */
 export const KNOWN_GOOD_LOCAL_MODELS = [...QUALITY_PREF]
 
 /**
@@ -121,9 +130,20 @@ export function pickCachedModel(cached) {
 /**
  * @param {string | undefined | null} model
  */
+export function isStickyTinyLocalModel(model) {
+  const raw = model != null ? String(model).trim() : ''
+  return STICKY_TINY_LOCAL_MODELS.includes(raw)
+}
+
+/**
+ * Coerce / migrate local whisper model ids.
+ * Sticky tiny ALWAYS → small-mlx (cached.includes(tiny) does NOT pardon).
+ */
 export function resolveLocalWhisperModel(model) {
   const raw = model != null ? String(model).trim() : ''
   if (!raw) return DEFAULT_LOCAL_MODEL
+  // 0.4.7: force-migrate sticky tiny before allowlist / BAD map
+  if (isStickyTinyLocalModel(raw)) return DEFAULT_LOCAL_MODEL
   if (Object.prototype.hasOwnProperty.call(BAD_LOCAL_MODEL_MAP, raw)) {
     return BAD_LOCAL_MODEL_MAP[raw]
   }
@@ -171,8 +191,9 @@ export function normalizeVoiceConfig(raw, opts = {}) {
   let resolved = resolveLocalWhisperModel(lw.model)
 
   // Runtime cache awareness (optional): if provided, never leave a model that
-  // is not cached when a preferred cached pick exists. Schema default remains
-  // small-mlx when no cache list is supplied (client path).
+  // is not cached when a preferred cached pick exists. Sticky tiny already
+  // forced to small-mlx above — cached.includes(tiny) does NOT pardon sticky.
+  // Tiny pick only when small-mlx AND base-mlx are both absent from cache.
   if (Array.isArray(opts.cachedModels)) {
     const picked = pickCachedModel(opts.cachedModels)
     if (picked && !opts.cachedModels.includes(resolved)) {

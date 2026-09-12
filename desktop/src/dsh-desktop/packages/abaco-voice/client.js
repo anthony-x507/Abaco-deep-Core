@@ -63,9 +63,14 @@ window.__ModuleLoader__.load({
       return JSON.parse(JSON.stringify(defaultConfig))
     }
 
-    // Schema default ALWAYS small-mlx + es (Arq). Tiny = dropdown option only.
+    // Schema default ALWAYS small-mlx + es (Arq). 0.4.7: sticky tiny → small-mlx.
     const DEFAULT_LOCAL_MODEL = 'mlx-community/whisper-small-mlx'
     const DEFAULT_LOCAL_LANGUAGE = 'es'
+    const STICKY_TINY_LOCAL_MODELS = [
+      'mlx-community/whisper-tiny',
+      'mlx-community/whisper-tiny-mlx',
+      'whisper-tiny',
+    ]
     // Exact BAD plain ids only — never substring-match whisper-base (would kill base-mlx).
     const BAD_LOCAL_MODEL_MAP = {
       'mlx-community/whisper-base': 'mlx-community/whisper-base-mlx',
@@ -83,6 +88,8 @@ window.__ModuleLoader__.load({
     function resolveLocalWhisperModel(model) {
       const raw = model != null ? String(model).trim() : ''
       if (!raw) return DEFAULT_LOCAL_MODEL
+      // Force-migrate sticky tiny (cached tiny does NOT pardon)
+      if (STICKY_TINY_LOCAL_MODELS.includes(raw)) return DEFAULT_LOCAL_MODEL
       if (Object.prototype.hasOwnProperty.call(BAD_LOCAL_MODEL_MAP, raw)) return BAD_LOCAL_MODEL_MAP[raw]
       if (KNOWN_GOOD_LOCAL_MODELS.includes(raw)) return raw
       return DEFAULT_LOCAL_MODEL
@@ -653,11 +660,10 @@ window.__ModuleLoader__.load({
     {
       const LOCAL_TRANSCRIBE_PATH = '/api/abaco-voice.local-transcribe'
       const LOCAL_STATUS_PATH = '/api/abaco-voice.local-status'
+      // 0.4.7: tiny removed from dropdown — sticky tiny always migrates to small-mlx
       const localModels = [
         { value: 'mlx-community/whisper-small-mlx', label: 'Small-MLX — default' },
         { value: 'mlx-community/whisper-base-mlx', label: 'Base-MLX' },
-        { value: 'mlx-community/whisper-tiny-mlx', label: 'Tiny-MLX' },
-        { value: 'mlx-community/whisper-tiny', label: 'Tiny' },
       ]
       const localWhisper = {
         id: 'local-whisper-stt',
