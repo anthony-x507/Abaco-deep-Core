@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 const accessAsync = promisify(access)
-const DEFAULT_MODEL = 'mlx-community/whisper-tiny'
+const DEFAULT_MODEL = 'mlx-community/whisper-small-mlx'
 
 function candidateBinDirs() {
   const home = process.env.HOME || ''
@@ -62,6 +62,9 @@ function run(cmd, args) {
         ...process.env,
         PATH: ['/opt/homebrew/bin', '/usr/local/bin', process.env.PATH || ''].join(':'),
         HOME: process.env.HOME,
+        // Q2/T7: never download models at transcribe time.
+        HF_HUB_OFFLINE: '1',
+        TRANSFORMERS_OFFLINE: '1',
       },
     })
     let stdout = ''
@@ -137,7 +140,7 @@ export async function transcribeLocal(tools, bytes, filename, opts) {
       throw new Error(
         `Whisper local falló (${tools.engine}, modelo=${model}): ` +
         `${errBlob.trim().slice(0, 500) || (repoMissing ? 'repositorio/modelo no encontrado' : 'sin detalle')}. ` +
-        'Usa mlx-community/whisper-tiny / whisper-tiny-mlx / whisper-base-mlx / whisper-small-mlx. No es API key.',
+        'Usa whisper-small-mlx / base-mlx / tiny-mlx / tiny (cache local). No es API key.',
       )
     }
     let text = ''
@@ -153,7 +156,7 @@ export async function transcribeLocal(tools, bytes, filename, opts) {
     if (!text) {
       throw new Error(
         `Whisper local devolvió transcripción vacía (${tools.engine}, modelo=${model}, idioma=${language}). ` +
-        'Habla más cerca del micrófono, o usa whisper-tiny / tiny-mlx / base-mlx / small-mlx. ' +
+        'Habla más cerca del micrófono, o usa un modelo *-mlx en cache local. ' +
         'No es un problema de API key (modo local).',
       )
     }

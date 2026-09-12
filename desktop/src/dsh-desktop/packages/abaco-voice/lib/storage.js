@@ -28,7 +28,9 @@ export async function loadConfig(store) {
 }
 
 export async function saveConfig(store, config) {
-  await store.set(STORE_KEY, JSON.stringify(config))
+  // Q5/T2: ALWAYS normalize before persist (openai/deepgram without key → local).
+  const { config: normalized } = normalizeVoiceConfig(config)
+  await store.set(STORE_KEY, JSON.stringify(normalized))
 }
 
 export async function getProviderConfig(store, providerId) {

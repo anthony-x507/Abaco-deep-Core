@@ -63,7 +63,8 @@ window.__ModuleLoader__.load({
       return JSON.parse(JSON.stringify(defaultConfig))
     }
 
-    const DEFAULT_LOCAL_MODEL = 'mlx-community/whisper-tiny'
+    // Schema default ALWAYS small-mlx + es (Arq). Tiny = dropdown option only.
+    const DEFAULT_LOCAL_MODEL = 'mlx-community/whisper-small-mlx'
     const DEFAULT_LOCAL_LANGUAGE = 'es'
     // Exact BAD plain ids only — never substring-match whisper-base (would kill base-mlx).
     const BAD_LOCAL_MODEL_MAP = {
@@ -73,11 +74,10 @@ window.__ModuleLoader__.load({
       'whisper-small': 'mlx-community/whisper-small-mlx',
     }
     const KNOWN_GOOD_LOCAL_MODELS = [
-      'mlx-community/whisper-tiny',
-      'mlx-community/whisper-tiny-mlx',
-      'mlx-community/whisper-base-mlx',
       'mlx-community/whisper-small-mlx',
-      'mlx-community/whisper-large-v3-turbo',
+      'mlx-community/whisper-base-mlx',
+      'mlx-community/whisper-tiny-mlx',
+      'mlx-community/whisper-tiny',
     ]
 
     function resolveLocalWhisperModel(model) {
@@ -99,8 +99,9 @@ window.__ModuleLoader__.load({
         privacy: { ...base.privacy, ...(incoming.privacy || {}) },
       }
       let changed = false
-      if (cfg.sttProvider === 'openai-stt') {
-        const key = ((cfg.providers || {})['openai-stt'] || {}).apiKey
+      const requiresKeyIds = ['openai-stt', 'deepgram-stt', 'deepgram']
+      if (requiresKeyIds.includes(cfg.sttProvider)) {
+        const key = ((cfg.providers || {})[cfg.sttProvider] || {}).apiKey
         if (!key || !String(key).trim()) {
           cfg.sttProvider = 'local-whisper-stt'
           changed = true
@@ -146,7 +147,9 @@ window.__ModuleLoader__.load({
 
     async function saveConfig(store, config) {
       if (!store) return
-      await store.set(STORE_KEY, JSON.stringify(config))
+      // Q5/T2: ALWAYS normalize before persist.
+      const { config: normalized } = normalizeVoiceConfig(config)
+      await store.set(STORE_KEY, JSON.stringify(normalized))
     }
 
     async function setProviderConfig(store, providerId, partial) {
@@ -651,11 +654,10 @@ window.__ModuleLoader__.load({
       const LOCAL_TRANSCRIBE_PATH = '/api/abaco-voice.local-transcribe'
       const LOCAL_STATUS_PATH = '/api/abaco-voice.local-status'
       const localModels = [
-        { value: 'mlx-community/whisper-tiny', label: 'Tiny — default (cache)' },
-        { value: 'mlx-community/whisper-tiny-mlx', label: 'Tiny-MLX' },
+        { value: 'mlx-community/whisper-small-mlx', label: 'Small-MLX — default' },
         { value: 'mlx-community/whisper-base-mlx', label: 'Base-MLX' },
-        { value: 'mlx-community/whisper-small-mlx', label: 'Small-MLX' },
-        { value: 'mlx-community/whisper-large-v3-turbo', label: 'Large-v3-turbo' },
+        { value: 'mlx-community/whisper-tiny-mlx', label: 'Tiny-MLX' },
+        { value: 'mlx-community/whisper-tiny', label: 'Tiny' },
       ]
       const localWhisper = {
         id: 'local-whisper-stt',
@@ -669,10 +671,10 @@ window.__ModuleLoader__.load({
           privacyNote: 'Audio stays on this Mac (mlx_whisper / whisper + ffmpeg).',
         },
         configSchema: [
-          { key: 'model', label: 'Model', type: 'select', options: localModels, default: 'mlx-community/whisper-tiny' },
+          { key: 'model', label: 'Model', type: 'select', options: localModels, default: 'mlx-community/whisper-small-mlx' },
           { key: 'language', label: 'Language', type: 'text', placeholder: 'es, en, …' },
         ],
-        defaultConfig: { model: 'mlx-community/whisper-tiny', language: 'es' },
+        defaultConfig: { model: 'mlx-community/whisper-small-mlx', language: 'es' },
         async transcribe(audioBlob, opts) {
           const model = resolveLocalWhisperModel((opts && opts.model) || DEFAULT_LOCAL_MODEL)
           const language = (opts && opts.language) || DEFAULT_LOCAL_LANGUAGE || 'es'
@@ -1054,7 +1056,7 @@ window.__ModuleLoader__.load({
             const isLocal = provider && provider.id === 'local-whisper-stt'
             setError(
               isLocal
-                ? 'Whisper local: transcripción vacía (sin voz detectada o modelo inválido). Habla cerca del micrófono; usa whisper-tiny / tiny-mlx. No es API key.'
+                ? 'Whisper local: transcripción vacía (sin voz detectada o modelo inválido). Habla cerca del micrófono; usa small-mlx / base-mlx en cache. No es API key.'
                 : 'Transcripción vacía — revisa API key / audio.',
             )
             setState('error')

@@ -56,6 +56,10 @@ let versionPickerList: AvailableRelease[] | null = null
 let installingVersion: string | null = null
 
 const ABOUT_ROOT_ID = 'dsh-desktop-about-root'
+const SETTINGS_UPDATE_BUTTON_ID = 'dsh-desktop-settings-update'
+const SETTINGS_UPDATE_STYLE_ID = 'dsh-desktop-settings-update-style'
+let settingsUpdateButton: HTMLButtonElement | undefined
+
 interface AboutInfo {
   desktopVersion: string
   harnessVersion: string
@@ -156,6 +160,7 @@ function scheduleDomSync(): void {
 function runDomSync(): void {
   domSyncScheduled = false
   mountMobileButton()
+  mountSettingsUpdateButton()
   if (bootScanSettled) return
   // The boot screen only exists until Harness renders its own UI, and the
   // sidebar appearing is that moment. Past it the selector can never match
@@ -317,6 +322,77 @@ function renderMobileButton(): void {
   }
 }
 
+
+/**
+ * Q7/T8: Visible Update control in Settings menu (nav list).
+ * Reuses existing updates:check — no new IPC channel. T0 preload only.
+ */
+function mountSettingsUpdateButton(): void {
+  if (!document.getElementById(SETTINGS_UPDATE_STYLE_ID)) {
+    const style = document.createElement('style')
+    style.id = SETTINGS_UPDATE_STYLE_ID
+    style.textContent = `
+      #${SETTINGS_UPDATE_BUTTON_ID} {
+        box-sizing: border-box;
+        cursor: pointer;
+        height: 40px;
+        color: var(--dsw-alias-label-primary, inherit);
+        text-align: left;
+        background: transparent;
+        border: none;
+        border-radius: 12px;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 16px 9px 12px;
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 22px;
+        display: flex;
+        width: 100%;
+        margin-top: 8px;
+      }
+      #${SETTINGS_UPDATE_BUTTON_ID}:hover {
+        background: var(--dsw-specific-sidebar-nav-item-hover, rgba(127,127,127,0.12));
+      }
+    `
+    document.head.appendChild(style)
+  }
+
+  // Settings modal nav list (dsh-client-ui-settings-general CSS module class).
+  const navList =
+    document.querySelector<HTMLElement>('.tqoa8q_navList') ||
+    document.querySelector<HTMLElement>('[class*="navList"]')
+  if (!navList) {
+    if (settingsUpdateButton && !settingsUpdateButton.isConnected) {
+      settingsUpdateButton = undefined
+    }
+    return
+  }
+
+  if (!settingsUpdateButton?.isConnected) {
+    settingsUpdateButton =
+      (document.getElementById(SETTINGS_UPDATE_BUTTON_ID) as HTMLButtonElement | null) ?? undefined
+  }
+  if (!settingsUpdateButton) {
+    const created = document.createElement('button')
+    created.id = SETTINGS_UPDATE_BUTTON_ID
+    created.type = 'button'
+    created.textContent = 'Update'
+    created.setAttribute('aria-label', 'Update')
+    created.title = locale === 'es' ? 'Buscar updates' : checkForUpdatesLabel(locale)
+    created.addEventListener('click', () => {
+      void ipcRenderer.invoke('updates:check').catch((error: unknown) => {
+        console.error('[updater] settings Update check failed', error)
+      })
+    })
+    settingsUpdateButton = created
+  }
+  if (settingsUpdateButton.parentElement !== navList) {
+    navList.appendChild(settingsUpdateButton)
+  }
+}
+
 async function mountSafeModeBanner(): Promise<void> {
   if (location.protocol === 'file:' || document.getElementById(SAFE_MODE_BANNER_ID)) return
   try {
@@ -429,6 +505,7 @@ function initializeUi(): void {
   mount()
   mountAbout()
   mountMobileButton()
+  mountSettingsUpdateButton()
   checkBootFailureInDom()
   domObserver.observe(document.documentElement, {
     childList: true,

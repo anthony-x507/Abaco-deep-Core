@@ -17,6 +17,12 @@ import {
 } from 'abaco-effect-broker'
 import { executeAuthorized } from 'abaco-mediacion-pilot'
 import { resolveLocalWhisperTools } from 'abaco-mediacion-pilot/ops'
+import {
+  DEFAULT_LOCAL_MODEL,
+  listCachedLocalWhisperModels,
+  pickCachedModel,
+  resolveLocalWhisperModel,
+} from './lib/normalize-config.js'
 
 export const name = 'abaco-voice'
 
@@ -26,18 +32,16 @@ export const LOCAL_TRANSCRIBE_PATH = '/api/abaco-voice.local-transcribe'
 export const LOCAL_STATUS_PATH = '/api/abaco-voice.local-status'
 
 const MAX_BYTES = 25 * 1024 * 1024
-const DEFAULT_MODEL = 'mlx-community/whisper-tiny'
+const DEFAULT_MODEL = DEFAULT_LOCAL_MODEL
 
 function failure(message, status = 422) {
   return Response.json({ ok: false, error: message }, { status })
 }
 
-function installHint() {
+function toolsMissingMessage() {
   return (
-    'Whisper local no está instalado (o no está en PATH). En Mac Apple Silicon: ' +
-    '`pipx install mlx-whisper` o `pip install mlx-whisper`, y asegúrate de ' +
-    'tener `ffmpeg` (`brew install ffmpeg`). Reinicia ABACO DEEP HARNES. ' +
-    'No uses clave OpenAI para este modo.'
+    'Whisper local no disponible (binario o ffmpeg ausente, o sin modelos en cache HF). ' +
+    'No es un problema de API key (modo local).'
   )
 }
 
@@ -76,13 +80,17 @@ export function apply(ctx) {
         }, { status: 403, headers: { 'cache-control': 'no-store' } })
       }
       const tools = await resolveLocalWhisperTools()
+      const cached_models = await listCachedLocalWhisperModels()
+      const picked_model = pickCachedModel(cached_models)
       return Response.json({
         ok: true,
-        available: tools.available,
+        available: tools.available && !!picked_model,
         engine: tools.engine,
         hasFfmpeg: !!tools.ffmpeg,
         hasWhisper: !!tools.bin,
-        hint: tools.available ? null : installHint(),
+        cached_models,
+        picked_model,
+        hint: null,
         mediated: true,
         grant_id: decision.grant.grant_id,
       }, { headers: { 'cache-control': 'no-store' } })
@@ -95,16 +103,16 @@ export function apply(ctx) {
     fetch: async (request) => {
       const url = new URL(request.url)
       const filename = url.searchParams.get('filename') || 'audio.webm'
-      let model = url.searchParams.get('model') || DEFAULT_MODEL
-      // Exact BAD plain ids only — do not substring-match (would kill whisper-base-mlx).
-      const BAD = {
-        'mlx-community/whisper-base': 'mlx-community/whisper-base-mlx',
-        'whisper-base': 'mlx-community/whisper-base-mlx',
-        'mlx-community/whisper-small': 'mlx-community/whisper-small-mlx',
-        'whisper-small': 'mlx-community/whisper-small-mlx',
+      let model = resolveLocalWhisperModel(url.searchParams.get('model') || DEFAULT_MODEL)
+      const cached = await listCachedLocalWhisperModels()
+      const picked = pickCachedModel(cached)
+      if (picked && !cached.includes(model)) model = picked
+      if (!picked) {
+        return failure(
+          'Whisper local: no hay modelos en cache HF (small-mlx/base-mlx/tiny-mlx/tiny). No es API key.',
+          503,
+        )
       }
-      if (!model) model = DEFAULT_MODEL
-      else if (Object.prototype.hasOwnProperty.call(BAD, model)) model = BAD[model]
       const language = url.searchParams.get('language') || 'es'
 
       const contentLength = Number(request.headers.get('content-length'))
@@ -141,7 +149,7 @@ export function apply(ctx) {
       // 2) Authorize proc.spawn BEFORE any child process (suite: direct spawn = red).
       const toolsProbe = await resolveLocalWhisperTools()
       if (!toolsProbe.available) {
-        return failure(installHint(), 503)
+        return failure(toolsMissingMessage(), 503)
       }
       const binResource = toolsProbe.engine === 'mlx_whisper' ? 'bin:mlx_whisper' : 'bin:whisper'
       const spawnDecision = authorize({
