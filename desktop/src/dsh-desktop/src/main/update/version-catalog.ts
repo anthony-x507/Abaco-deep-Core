@@ -2,6 +2,22 @@ import type { AvailableRelease } from '../../shared/contracts'
 
 export type { AvailableRelease }
 
+/** Owner/repo for electron-updater's GitHub Releases provider (stable channel). */
+export const GITHUB_UPDATE_OWNER = 'anthony-x507'
+export const GITHUB_UPDATE_REPO = 'Abaco-deep-Core'
+
+/** Stable channel feed: GitHub Releases — not a generic HTTP URL. */
+export const GITHUB_STABLE_FEED = {
+  provider: 'github' as const,
+  owner: GITHUB_UPDATE_OWNER,
+  repo: GITHUB_UPDATE_REPO
+}
+
+/**
+ * Legacy generic latest/download URL. Kept for the version-index asset path and
+ * archive URL construction only — the stable auto-update channel uses
+ * {@link GITHUB_STABLE_FEED}, not `provider: 'generic'`.
+ */
 export const STABLE_FEED_URL =
   'https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download'
 // The release pipeline must attach `versions.json` to the release for the

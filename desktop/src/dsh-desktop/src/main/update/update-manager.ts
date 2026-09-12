@@ -24,7 +24,7 @@ import {
   archiveFeedUrl,
   compareVersions,
   fetchAvailableReleases,
-  STABLE_FEED_URL
+  GITHUB_STABLE_FEED
 } from './version-catalog'
 
 const { autoUpdater } = electronUpdater
@@ -201,7 +201,7 @@ export async function installSpecificVersion(version: unknown): Promise<UpdateSt
     scheduleReset()
   } finally {
     checkPromise = undefined
-    autoUpdater.setFeedURL({ provider: 'generic', url: STABLE_FEED_URL })
+    autoUpdater.setFeedURL({ ...GITHUB_STABLE_FEED })
     autoUpdater.allowDowngrade = false
     pendingDowngrade = false
   }
@@ -234,6 +234,8 @@ export function stopUpdateManager(): void {
 }
 
 function configureUpdater(): void {
+  // Stable channel: GitHub Releases (owner/repo), not the legacy generic feed.
+  autoUpdater.setFeedURL({ ...GITHUB_STABLE_FEED })
   // The download is ours to start: an update the user skipped should not be
   // fetched at all, and update-available is the only place that is known.
   autoUpdater.autoDownload = false

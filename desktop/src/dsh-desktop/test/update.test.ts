@@ -102,9 +102,28 @@ describe('installing a specific version', () => {
     expect(manager).toContain('export async function installSpecificVersion')
     expect(manager).toContain('archiveFeedUrl(version)')
     expect(manager).toContain('autoUpdater.allowDowngrade = true')
-    expect(manager).toContain("setFeedURL({ provider: 'generic', url: STABLE_FEED_URL })")
+    expect(manager).toContain('setFeedURL({ ...GITHUB_STABLE_FEED })')
+    expect(manager).not.toContain("setFeedURL({ provider: 'generic', url: STABLE_FEED_URL })")
     expect(manager).toContain('autoUpdater.allowDowngrade = false')
     expect(manager).toContain('downloadAvailableUpdate()')
+  })
+
+  it('configures the stable channel with GitHub Releases, not a generic feed', async () => {
+    const manager = await readFile(
+      path.join(projectRoot, 'src/main/update/update-manager.ts'),
+      'utf8'
+    )
+    const catalog = await readFile(
+      path.join(projectRoot, 'src/main/update/version-catalog.ts'),
+      'utf8'
+    )
+    expect(catalog).toContain("provider: 'github' as const")
+    expect(catalog).toContain("owner: GITHUB_UPDATE_OWNER")
+    expect(catalog).toContain("repo: GITHUB_UPDATE_REPO")
+    expect(manager).toContain('autoUpdater.setFeedURL({ ...GITHUB_STABLE_FEED })')
+    expect(manager).toContain("ipcMain.handle('updates:check'")
+    expect(manager).toContain("ipcMain.handle('updates:download'")
+    expect(manager).toContain("ipcMain.handle('updates:install'")
   })
 })
 

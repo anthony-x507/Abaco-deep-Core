@@ -1,6 +1,6 @@
 import type { UpdateStatus } from '../shared/contracts'
 
-export type UpdateLocale = 'en' | 'zh'
+export type UpdateLocale = 'en' | 'zh' | 'es'
 
 export function shouldShowUpdate(status: UpdateStatus): boolean {
   if (['available', 'downloading', 'downloaded'].includes(status.phase)) return true
@@ -125,4 +125,33 @@ export function updateMessage(status: UpdateStatus, locale: UpdateLocale): strin
     case 'idle':
       return ''
   }
+}
+
+
+/** Primary action on an available update: download then install. */
+export function updateNowLabel(locale: UpdateLocale): string {
+  if (locale === 'zh') return '同意更新'
+  if (locale === 'es') return 'Actualizar ahora'
+  return 'Update now'
+}
+
+/** Dismiss for this sitting — no durable skip, no autoInstall until next check. */
+export function updateLaterLabel(locale: UpdateLocale): string {
+  if (locale === 'zh') return '稍后'
+  if (locale === 'es') return 'Más tarde'
+  return 'Later'
+}
+
+/** Manual check entry in About / settings. */
+export function checkForUpdatesLabel(locale: UpdateLocale): string {
+  if (locale === 'zh') return '检查更新'
+  if (locale === 'es') return 'Buscar updates'
+  return 'Check for updates'
+}
+
+export function detectUpdateLocale(language: string): UpdateLocale {
+  const normalized = language.toLowerCase()
+  if (normalized.startsWith('zh')) return 'zh'
+  if (normalized.startsWith('es')) return 'es'
+  return 'en'
 }

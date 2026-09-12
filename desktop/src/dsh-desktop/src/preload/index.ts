@@ -19,9 +19,13 @@ import {
 } from '../shared/abaco-browser'
 import { setupDesktopStoragePersistence } from './desktop-storage'
 import {
+  checkForUpdatesLabel,
+  detectUpdateLocale,
   isUpdateDismissed,
   shouldShowUpdate,
   updateHeadline,
+  updateLaterLabel,
+  updateNowLabel,
   type UpdateLocale
 } from './update-view'
 import { isPluginLoadError } from './plugin-error-view'
@@ -34,7 +38,7 @@ setupDesktopStoragePersistence()
 const ROOT_ID = 'dsh-desktop-update-root'
 const MOBILE_BUTTON_ID = 'dsh-desktop-mobile-button'
 const SAFE_MODE_BANNER_ID = 'dsh-desktop-safe-mode-banner'
-const locale: UpdateLocale = navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en'
+const locale: UpdateLocale = detectUpdateLocale(navigator.language)
 
 let host: HTMLDivElement | undefined
 let content: HTMLDivElement | undefined
@@ -43,6 +47,8 @@ let dismissedVersion: string | null = null
 let dismissedTransientPhase: UpdateStatus['phase'] | null = null
 let installing = false
 let accepting = false
+/** After "Actualizar ahora" / Update now: chain download → quitAndInstall. */
+let installWhenReady = false
 let versionPickerOpen = false
 let versionPickerLoading = false
 let versionPickerError = false
@@ -509,11 +515,24 @@ function applyStatus(status: UpdateStatus): void {
     host.dataset.updatePhase = status.phase
     host.dataset.updateManual = String(status.manual)
   }
-  if (status.phase === 'error') installing = false
+  if (status.phase === 'error') {
+    installing = false
+    installWhenReady = false
+  }
   if (['error', 'downloading', 'downloaded', 'up-to-date'].includes(status.phase)) {
     installingVersion = null
   }
   if (status.phase !== 'available') accepting = false
+  // Ahora = existing updates:download then updates:install (no new IPC).
+  if (status.phase === 'downloaded' && installWhenReady && !installing) {
+    installWhenReady = false
+    installing = true
+    void ipcRenderer.invoke('updates:install').catch((error: unknown) => {
+      installing = false
+      console.error('[updater] unable to install update', error)
+      render()
+    })
+  }
   render()
 }
 
@@ -568,18 +587,25 @@ function render(): void {
 
   if (status.phase === 'available') {
     const actions = element('div', 'actions')
-    const accept = button(locale === 'zh' ? '同意更新' : 'Update now', 'primary')
+    const accept = button(updateNowLabel(locale), 'primary')
     accept.disabled = accepting
     accept.addEventListener('click', () => {
       accepting = true
+      installWhenReady = true
       render()
       void ipcRenderer.invoke('updates:download').catch((error: unknown) => {
         accepting = false
+        installWhenReady = false
         console.error('[updater] unable to download update', error)
         render()
       })
     })
-    actions.append(accept, skipButton(status))
+    const later = button(updateLaterLabel(locale), 'secondary')
+    later.addEventListener('click', () => {
+      installWhenReady = false
+      dismissCurrent()
+    })
+    actions.append(accept, later)
     body.appendChild(actions)
   }
 
@@ -817,7 +843,7 @@ function renderAbout(): void {
   })
   actions.appendChild(selectVersionBtn)
 
-  const checkUpdatesBtn = button(zh ? '检查更新' : 'Check for updates', 'btn-action')
+  const checkUpdatesBtn = button(checkForUpdatesLabel(locale), 'btn-action')
   checkUpdatesBtn.addEventListener('click', () => {
     aboutOpen = false
     versionPickerOpen = false
@@ -907,6 +933,7 @@ function selectVersionFromAbout(release: AvailableRelease, currentVersion: strin
 }
 
 function dismissCurrent(): void {
+  installWhenReady = false
   if (!currentStatus) return
   if (currentStatus.availableVersion) {
     dismissedVersion = currentStatus.availableVersion

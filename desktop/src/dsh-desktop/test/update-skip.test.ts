@@ -74,7 +74,10 @@ describe('skipping one update', () => {
     // simply left alone — never costs a download.
     expect(manager).toContain('autoUpdater.autoDownload = false')
     expect(manager).toContain("ipcMain.handle('updates:download'")
-    expect(preload).toContain("'同意更新'")
+    expect(preload).toContain('updateNowLabel(locale)')
     expect(preload).toContain("ipcRenderer.invoke('updates:download')")
+    const labels = await readFile('src/preload/update-view.ts', 'utf8')
+    expect(labels).toContain("'同意更新'")
+    expect(labels).toContain("'Actualizar ahora'")
   })
 })

@@ -298,10 +298,9 @@ describe('GitHub release contract', () => {
     expect(packageJson.dependencies['electron-updater']).toBeTruthy()
     expect(packageJson.build.publish).toEqual([
       {
-        provider: 'generic',
-        url: 'https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download',
-        channel: 'latest',
-        useMultipleRangeRequest: false
+        provider: 'github',
+        owner: 'anthony-x507',
+        repo: 'Abaco-deep-Core'
       }
     ])
     expect(packageJson.build.win.verifyUpdateCodeSignature).toBe(false)
