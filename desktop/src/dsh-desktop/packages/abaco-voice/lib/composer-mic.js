@@ -1,6 +1,7 @@
 /**
- * CONTRACT-P0-MIC-BUILTIN-SILENCE-048 — pure helpers (unit-testable).
+ * CONTRACT-P0-MIC-BUILTIN-SILENCE-048 + DECODE-SILENCE-049 — pure helpers.
  * Prefer built-in Mac mic; silence preflight before local-transcribe POST.
+ * 0.4.9: decodeFailed skips energy; only tiny-blob (<256) blocks.
  */
 
 /** Built-in Mac / internal labels (must NOT also match BT). */
@@ -93,9 +94,15 @@ export function measureFloat32PeakRms(samples) {
 /**
  * R3 silence preflight decision (pure).
  * duration≥0.4s AND (peak abs<0.01 OR rms≈0 OR tiny useful blob).
+ *
+ * D1 / 0.4.9: decodeFailed → skip energy (peak/rms zeros are untrusted;
+ * WebAudio cannot decode webm/opus). Only tiny-blob (<256) blocks.
  */
-export function isSilentPreflight({ durationSec, peakAbs, rms, blobSize } = {}) {
+export function isSilentPreflight({ durationSec, peakAbs, rms, blobSize, decodeFailed } = {}) {
   if (!(Number(durationSec) >= SILENCE_MIN_DURATION_S)) return false
+  if (decodeFailed) {
+    return typeof blobSize === 'number' && blobSize < SILENCE_TINY_BLOB_BYTES
+  }
   if (typeof peakAbs === 'number' && peakAbs < SILENCE_PEAK_ABS_MAX) return true
   if (typeof rms === 'number' && rms < SILENCE_PEAK_ABS_MAX) return true
   if (
@@ -106,6 +113,32 @@ export function isSilentPreflight({ durationSec, peakAbs, rms, blobSize } = {}) 
     return true
   }
   return false
+}
+
+/**
+ * D1/D1b/D2/D3: throw Mic silencioso only when preflight says silent.
+ * decodeFailed must not pass peak/rms (energy skipped).
+ */
+export function assertNotSilentFromMeasurement({
+  durationSec,
+  peakAbs,
+  rms,
+  blobSize,
+  decodeFailed,
+  deviceLabel,
+} = {}) {
+  const args = decodeFailed
+    ? { durationSec, blobSize, decodeFailed: true }
+    : { durationSec, peakAbs, rms, blobSize }
+  if (isSilentPreflight(args)) {
+    const err = new Error(SILENCE_ERROR_ES)
+    err.meta = {
+      blobSize: typeof blobSize === 'number' ? blobSize : 0,
+      deviceLabel: deviceLabel != null ? String(deviceLabel) : '',
+      decodeFailed: !!decodeFailed,
+    }
+    throw err
+  }
 }
 
 /**

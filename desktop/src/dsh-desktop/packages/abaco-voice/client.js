@@ -207,8 +207,9 @@ window.__ModuleLoader__.load({
       return currentAudio !== null || currentNative !== null
     }
 
-    // ── Recorder (CONTRACT-P0-MIC-BUILTIN-SILENCE-048) ───────────────────
+    // ── Recorder (CONTRACT-P0-MIC-BUILTIN-SILENCE-048 + DECODE-SILENCE-049) ─
     // Prefer built-in Mac mic; silence preflight before local-transcribe POST.
+    // 0.4.9: decodeFailed → skip energy; only tiny-blob (<256) blocks.
     // PROHIBITED: sample rate constraint + getDisplayMedia for composer mic.
 
     let recorder = null
@@ -282,8 +283,12 @@ window.__ModuleLoader__.load({
       return { peak, rms: n ? Math.sqrt(sumSq / n) : 0 }
     }
 
-    function isSilentPreflight({ durationSec, peakAbs, rms, blobSize } = {}) {
+    function isSilentPreflight({ durationSec, peakAbs, rms, blobSize, decodeFailed } = {}) {
       if (!(Number(durationSec) >= SILENCE_MIN_DURATION_S)) return false
+      // D1: decodeFailed → skip energy. Only tiny-blob (<256) blocks.
+      if (decodeFailed) {
+        return typeof blobSize === 'number' && blobSize < SILENCE_TINY_BLOB_BYTES
+      }
       if (typeof peakAbs === 'number' && peakAbs < SILENCE_PEAK_ABS_MAX) return true
       if (typeof rms === 'number' && rms < SILENCE_PEAK_ABS_MAX) return true
       if (typeof blobSize === 'number' && blobSize > 0 && blobSize < SILENCE_TINY_BLOB_BYTES) return true
@@ -475,14 +480,21 @@ window.__ModuleLoader__.load({
         throw err
       }
       const measured = await analyzeBlobPeakRms(blob)
+      if (measured.decodeFailed) {
+        // D1: do NOT pass peakAbs/rms (zeros are untrusted). Skip energy.
+        // Only tiny-blob already blocked above. D1b: log then POST Whisper
+        // (ffmpeg+whisper can decode webm). D3: big blob + decodeFailed → pass.
+        console.warn('[abaco-voice] decodeFailed skip peak preflight', {
+          decodeFailed: true,
+          blobSize: size,
+          deviceLabel: meta.deviceLabel,
+        })
+        return
+      }
+      // D2: decode OK keep energy.
       const peakAbs = measured.peak
       const rms = measured.rms
-      const silent = isSilentPreflight({ durationSec, peakAbs, rms, blobSize: size })
-      const decodeFallbackSilent =
-        !!measured.decodeFailed &&
-        Number(durationSec) >= SILENCE_MIN_DURATION_S &&
-        size < SILENCE_TINY_BLOB_BYTES * 4
-      if (silent || decodeFallbackSilent) {
+      if (isSilentPreflight({ durationSec, peakAbs, rms, blobSize: size })) {
         console.error('[abaco-voice] mic silence preflight', {
           ...meta,
           peakAbs,

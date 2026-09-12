@@ -8,6 +8,7 @@ import {
   SILENCE_MIN_DURATION_S,
   SILENCE_PEAK_ABS_MAX,
   SILENCE_TINY_BLOB_BYTES,
+  assertNotSilentFromMeasurement,
   buildComposerMicApplyConstraints,
   buildComposerMicAudioConstraints,
   isBluetoothMicLabel,
@@ -151,10 +152,10 @@ describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R4 BT vs built-in + chip', () =>
   })
 })
 
-describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R5 keep 0.4.7 + version 0.4.8', () => {
-  it('T-R5 sticky tiny→small-mlx; OFFLINE; Update; F1; 0 new IPC; version 0.4.8', async () => {
+describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R5 keep 0.4.7 + version 0.4.9', () => {
+  it('T-R5 sticky tiny→small-mlx; OFFLINE; Update; F1; 0 new IPC; version 0.4.9', async () => {
     const pkg = JSON.parse(await readFile('package.json', 'utf8'))
-    expect(pkg.version).toBe('0.4.8')
+    expect(pkg.version).toBe('0.4.9')
 
     const client = await readFile('packages/abaco-voice/client.js', 'utf8')
     const host = await readFile('packages/abaco-voice/index.js', 'utf8')
@@ -176,3 +177,92 @@ describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R5 keep 0.4.7 + version 0.4.8', 
     expect(client).toContain("offline: true")
   })
 })
+
+describe('CONTRACT-P0-MIC-DECODE-SILENCE-049 D1/D1b/D2/D3/T-D5', () => {
+  it('T-D5 decodeFailed + 50KB + 2s MUST NOT silent (allow POST, no Mic silencioso)', () => {
+    const args = {
+      durationSec: 2,
+      peakAbs: 0,
+      rms: 0,
+      blobSize: 50 * 1024,
+      decodeFailed: true,
+      deviceLabel: 'MacBook Pro Microphone',
+    }
+    // D1: energy zeros must be ignored when decodeFailed
+    expect(isSilentPreflight(args)).toBe(false)
+    expect(() => assertNotSilentFromMeasurement(args)).not.toThrow()
+    try {
+      assertNotSilentFromMeasurement(args)
+    } catch (e) {
+      throw new Error(`T-D5 must allow POST / not throw Mic silencioso: ${e && e.message}`)
+    }
+  })
+
+  it('D1 decodeFailed + tiny blob (<256) still blocks; D3 big blob passes', () => {
+    expect(
+      isSilentPreflight({
+        durationSec: 2,
+        peakAbs: 0,
+        rms: 0,
+        blobSize: SILENCE_TINY_BLOB_BYTES - 1,
+        decodeFailed: true,
+      }),
+    ).toBe(true)
+    expect(
+      isSilentPreflight({
+        durationSec: 2,
+        peakAbs: 0,
+        rms: 0,
+        blobSize: 50 * 1024,
+        decodeFailed: true,
+      }),
+    ).toBe(false)
+    expect(() =>
+      assertNotSilentFromMeasurement({
+        durationSec: 2,
+        peakAbs: 0,
+        rms: 0,
+        blobSize: SILENCE_TINY_BLOB_BYTES - 1,
+        decodeFailed: true,
+      }),
+    ).toThrow(SILENCE_ERROR_ES)
+  })
+
+  it('D2 decode OK keeps energy: quiet peak/rms still silent', () => {
+    expect(
+      isSilentPreflight({ durationSec: 2, peakAbs: 0, rms: 0, blobSize: 50 * 1024 }),
+    ).toBe(true)
+    expect(
+      isSilentPreflight({
+        durationSec: 2,
+        peakAbs: 0.5,
+        rms: 0.2,
+        blobSize: 50 * 1024,
+      }),
+    ).toBe(false)
+  })
+
+  it('D1b client skips energy on decodeFailed and logs blobSize+deviceLabel', async () => {
+    const client = await readFile('packages/abaco-voice/client.js', 'utf8')
+    expect(client).toContain('if (measured.decodeFailed)')
+    expect(client).toContain('decodeFailed skip peak preflight')
+    expect(client).toContain('decodeFailed: true')
+    expect(client).toContain('blobSize: size')
+    expect(client).toContain('deviceLabel: meta.deviceLabel')
+    // D1: decodeFailed branch returns without calling isSilentPreflight
+    const decodeBlock = client.slice(
+      client.indexOf('if (measured.decodeFailed)'),
+      client.indexOf('// D2: decode OK keep energy.'),
+    )
+    expect(decodeBlock).toContain('return')
+    expect(decodeBlock).not.toContain('isSilentPreflight')
+    expect(decodeBlock).not.toContain('measured.peak')
+    expect(decodeBlock).not.toContain('measured.rms')
+    expect(client).toContain('do NOT pass peakAbs/rms')
+    // D2 path still uses energy after decode OK
+    expect(client).toContain('const peakAbs = measured.peak')
+    expect(client).toContain('const rms = measured.rms')
+    expect(client).toContain('isSilentPreflight({ durationSec, peakAbs, rms, blobSize: size })')
+  })
+})
+
