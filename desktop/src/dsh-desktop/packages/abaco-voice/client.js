@@ -207,12 +207,111 @@ window.__ModuleLoader__.load({
       return currentAudio !== null || currentNative !== null
     }
 
-    // ── Recorder ─────────────────────────────────────────────────────────
+    // ── Recorder (CONTRACT-P0-MIC-BUILTIN-SILENCE-048) ───────────────────
+    // Prefer built-in Mac mic; silence preflight before local-transcribe POST.
+    // PROHIBITED: sample rate constraint + getDisplayMedia for composer mic.
 
     let recorder = null
     let recorderStream = null
     let chunks = []
     let startedAt = 0
+    let lastMicDeviceLabel = ''
+    let lastMicIsBuiltin = false
+
+    const BUILTIN_MIC_RE = /macbook|built-?in|internal|macintosh|imac|mac mini/i
+    const BT_MIC_RE = /airpods|bluetooth|hands-?free|\bhfp\b|headset/i
+    const SILENCE_MIN_DURATION_S = 0.4
+    const SILENCE_PEAK_ABS_MAX = 0.01
+    const SILENCE_TINY_BLOB_BYTES = 256
+    const SILENCE_ERROR_ES = 'Mic silencioso. Usa el micrófono del Mac, no AirPods.'
+    const MIC_DEL_MAC_CHIP = 'Mic del Mac'
+
+    function isBuiltinMicLabel(label) {
+      const s = String(label || '')
+      return BUILTIN_MIC_RE.test(s) && !BT_MIC_RE.test(s)
+    }
+
+    function isBluetoothMicLabel(label) {
+      return BT_MIC_RE.test(String(label || ''))
+    }
+
+    /** Pure — mirrored in lib/composer-mic.js for unit tests. */
+    function pickComposerMicDevice(devices) {
+      const inputs = (Array.isArray(devices) ? devices : []).filter(
+        (d) => d && (!d.kind || d.kind === 'audioinput'),
+      )
+      const builtin = inputs.find((d) => isBuiltinMicLabel(d.label))
+      if (builtin && builtin.deviceId) {
+        return {
+          deviceId: String(builtin.deviceId),
+          label: String(builtin.label || ''),
+          reason: 'builtin',
+          isBuiltin: true,
+        }
+      }
+      const nonBt = inputs.find((d) => d.deviceId && !isBluetoothMicLabel(d.label))
+      if (nonBt) {
+        return {
+          deviceId: String(nonBt.deviceId),
+          label: String(nonBt.label || ''),
+          reason: 'non-bt',
+          isBuiltin: isBuiltinMicLabel(nonBt.label),
+        }
+      }
+      return { deviceId: null, label: '', reason: 'default', isBuiltin: false }
+    }
+
+    function shouldRejectBluetoothTrack(trackLabel, devices) {
+      if (!isBluetoothMicLabel(trackLabel)) return false
+      const inputs = (Array.isArray(devices) ? devices : []).filter(
+        (d) => d && (!d.kind || d.kind === 'audioinput'),
+      )
+      return inputs.some((d) => isBuiltinMicLabel(d.label))
+    }
+
+    function measureFloat32PeakRms(samples) {
+      let peak = 0
+      let sumSq = 0
+      const n = samples && samples.length ? samples.length : 0
+      for (let i = 0; i < n; i++) {
+        const v = samples[i]
+        const a = v < 0 ? -v : v
+        if (a > peak) peak = a
+        sumSq += v * v
+      }
+      return { peak, rms: n ? Math.sqrt(sumSq / n) : 0 }
+    }
+
+    function isSilentPreflight({ durationSec, peakAbs, rms, blobSize } = {}) {
+      if (!(Number(durationSec) >= SILENCE_MIN_DURATION_S)) return false
+      if (typeof peakAbs === 'number' && peakAbs < SILENCE_PEAK_ABS_MAX) return true
+      if (typeof rms === 'number' && rms < SILENCE_PEAK_ABS_MAX) return true
+      if (typeof blobSize === 'number' && blobSize > 0 && blobSize < SILENCE_TINY_BLOB_BYTES) return true
+      return false
+    }
+
+    function buildComposerMicAudioConstraints(deviceId) {
+      // R2: never set sample rate
+      const audio = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }
+      if (deviceId) audio.deviceId = { exact: String(deviceId) }
+      return { audio, video: false }
+    }
+
+    function buildComposerMicApplyConstraints() {
+      // R2: never set sample rate
+      return { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    }
+
+    function silenceErrorMeta(blob, deviceLabel) {
+      return {
+        blobSize: blob && typeof blob.size === 'number' ? blob.size : 0,
+        deviceLabel: deviceLabel != null ? String(deviceLabel) : '',
+      }
+    }
 
     function pickMimeType() {
       const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
@@ -231,34 +330,88 @@ window.__ModuleLoader__.load({
       recorder = null
     }
 
+    async function listAudioInputsWithPermission() {
+      const md = navigator.mediaDevices
+      let devices = await md.enumerateDevices()
+      let inputs = devices.filter((d) => d.kind === 'audioinput')
+      const hasLabel = inputs.some((d) => d.label && String(d.label).trim())
+      if (hasLabel) return inputs
+      // Labels empty → short permission probe, re-enumerate, stop (R1).
+      const probe = await md.getUserMedia({ audio: true, video: false })
+      try {
+        probe.getTracks().forEach((t) => t.stop())
+      } catch {}
+      devices = await md.enumerateDevices()
+      return devices.filter((d) => d.kind === 'audioinput')
+    }
+
+    async function openComposerMicStream(preferredDeviceId) {
+      const md = navigator.mediaDevices
+      // Real microphone only — NOT getDisplayMedia / chromeMediaSource desktop (P1 monitor).
+      const stream = await md.getUserMedia(buildComposerMicAudioConstraints(preferredDeviceId || null))
+      return stream
+    }
+
     async function recorderStart() {
       if (recorder) return
       if (typeof navigator === 'undefined' || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
         throw new Error('getUserMedia no está disponible en este entorno')
       }
-      // Real microphone only — NOT getDisplayMedia / chromeMediaSource desktop (P1 monitor).
-      recorderStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      })
+      const inputs = await listAudioInputsWithPermission()
+      let pick = pickComposerMicDevice(inputs)
+
+      let stream = null
+      try {
+        stream = await openComposerMicStream(pick.deviceId)
+      } catch (e) {
+        // Exact deviceId may fail — fall back to default without deviceId.
+        if (pick.deviceId) {
+          pick = { deviceId: null, label: pick.label, reason: 'default', isBuiltin: false }
+          stream = await openComposerMicStream(null)
+        } else {
+          throw e
+        }
+      }
+
+      recorderStream = stream
       const audioTracks = recorderStream.getAudioTracks()
       if (!audioTracks.length) {
         recorderCleanup()
         throw new Error('No se obtuvo pista de micrófono (getUserMedia audio vacío)')
       }
+
+      // R4: if OS handed us BT/AirPods while built-in exists, reopen with built-in.
+      const track0 = audioTracks[0]
+      const trackLabel = track0 && track0.label ? track0.label : (pick.label || '')
+      if (shouldRejectBluetoothTrack(trackLabel, inputs)) {
+        const builtin = pickComposerMicDevice(inputs)
+        if (builtin.deviceId && builtin.isBuiltin) {
+          recorderCleanup()
+          recorderStream = await openComposerMicStream(builtin.deviceId)
+          pick = builtin
+        }
+      }
+
+      const finalTracks = recorderStream.getAudioTracks()
       // Reject accidental desktop/tab capture masquerading as mic.
-      for (const t of audioTracks) {
+      for (const t of finalTracks) {
         const settings = typeof t.getSettings === 'function' ? (t.getSettings() || {}) : {}
         if (settings.chromeMediaSource === 'desktop' || settings.displaySurface) {
           recorderCleanup()
           throw new Error('Fuente de audio no es micrófono (desktop/tab). Usa el mic del sistema.')
         }
-        try { t.applyConstraints({ echoCancellation: true, noiseSuppression: true, autoGainControl: true }) } catch {}
+        try { t.applyConstraints(buildComposerMicApplyConstraints()) } catch {}
       }
+
+      const finalLabel = (finalTracks[0] && finalTracks[0].label) || pick.label || ''
+      lastMicDeviceLabel = finalLabel
+      lastMicIsBuiltin = isBuiltinMicLabel(finalLabel) || !!pick.isBuiltin
+      // If somehow still BT with builtin available — refuse (R4 hard).
+      if (shouldRejectBluetoothTrack(finalLabel, inputs)) {
+        recorderCleanup()
+        throw new Error(SILENCE_ERROR_ES)
+      }
+
       chunks = []
       recorder = new MediaRecorder(recorderStream, {
         mimeType: pickMimeType(),
@@ -269,6 +422,77 @@ window.__ModuleLoader__.load({
       }
       recorder.start(250)
       startedAt = Date.now()
+      return { label: lastMicDeviceLabel, isBuiltin: lastMicIsBuiltin }
+    }
+
+    async function analyzeBlobPeakRms(blob) {
+      if (!blob || typeof blob.arrayBuffer !== 'function') return { peak: 0, rms: 0 }
+      if (typeof AudioContext === 'undefined' && typeof webkitAudioContext === 'undefined') {
+        return { peak: 0, rms: 0, decodeFailed: true }
+      }
+      try {
+        const Ctx = AudioContext || webkitAudioContext
+        const ctx = new Ctx()
+        const buf = await blob.arrayBuffer()
+        const audioBuf = await new Promise((resolve, reject) => {
+          try {
+            const p = ctx.decodeAudioData(buf.slice(0), resolve, reject)
+            if (p && typeof p.then === 'function') p.then(resolve, reject)
+          } catch (e) { reject(e) }
+        })
+        try { await ctx.close() } catch {}
+        let peak = 0
+        let sumSq = 0
+        let n = 0
+        for (let ch = 0; ch < audioBuf.numberOfChannels; ch++) {
+          const data = audioBuf.getChannelData(ch)
+          const m = measureFloat32PeakRms(data)
+          if (m.peak > peak) peak = m.peak
+          // Accumulate approx RMS across channels
+          for (let i = 0; i < data.length; i++) {
+            sumSq += data[i] * data[i]
+            n++
+          }
+        }
+        return { peak, rms: n ? Math.sqrt(sumSq / n) : 0 }
+      } catch {
+        return { peak: 0, rms: 0, decodeFailed: true }
+      }
+    }
+
+    /**
+     * R3: silence preflight BEFORE POST local-transcribe.
+     * Throws SILENCE_ERROR_ES (≠ API key). R3b logs blob.size + device.label.
+     */
+    async function assertNotSilentBeforeLocalTranscribe(blob, durationSec) {
+      const meta = silenceErrorMeta(blob, lastMicDeviceLabel)
+      const size = meta.blobSize
+      // Tiny-blob fast-path only — do NOT pass peakAbs:0 (would false-positive all clips).
+      if (isSilentPreflight({ durationSec, blobSize: size })) {
+        console.error('[abaco-voice] mic silence preflight', meta)
+        const err = new Error(SILENCE_ERROR_ES)
+        err.meta = meta
+        throw err
+      }
+      const measured = await analyzeBlobPeakRms(blob)
+      const peakAbs = measured.peak
+      const rms = measured.rms
+      const silent = isSilentPreflight({ durationSec, peakAbs, rms, blobSize: size })
+      const decodeFallbackSilent =
+        !!measured.decodeFailed &&
+        Number(durationSec) >= SILENCE_MIN_DURATION_S &&
+        size < SILENCE_TINY_BLOB_BYTES * 4
+      if (silent || decodeFallbackSilent) {
+        console.error('[abaco-voice] mic silence preflight', {
+          ...meta,
+          peakAbs,
+          rms,
+          durationSec,
+        })
+        const err = new Error(SILENCE_ERROR_ES)
+        err.meta = { ...meta, peakAbs, rms }
+        throw err
+      }
     }
 
     function recorderStop() {
@@ -921,6 +1145,7 @@ window.__ModuleLoader__.load({
       const [state, setState] = React.useState('idle') // idle | recording | transcribing | error
       const [error, setError] = React.useState(null)
       const [duration, setDuration] = React.useState(0)
+      const [micChip, setMicChip] = React.useState(null) // optional «Mic del Mac»
       const timerRef = React.useRef(null)
       const liveRecRef = React.useRef(null)
       const liveTextRef = React.useRef('')
@@ -977,7 +1202,7 @@ window.__ModuleLoader__.load({
               return
             }
             const stopped = await recorderStop()
-            if (stopped) await transcribeBlob(stopped.blob)
+            if (stopped) await transcribeBlob(stopped.blob, stopped.duration)
             setState('idle')
             return
           }
@@ -1032,7 +1257,8 @@ window.__ModuleLoader__.load({
           assertBlobSttReady(cfg, provider)
           // Remember which blob provider to use on stop (may differ from saved cfg).
           liveRecRef.current = { __blobProviderId: provider.id }
-          await recorderStart()
+          const micInfo = await recorderStart()
+          setMicChip(micInfo && micInfo.isBuiltin ? MIC_DEL_MAC_CHIP : null)
           setState('recording')
           setDuration(0)
           timerRef.current = setInterval(() => setDuration((d) => d + 0.1), 100)
@@ -1044,7 +1270,7 @@ window.__ModuleLoader__.load({
         }
       }
 
-      async function transcribeBlob(blob) {
+      async function transcribeBlob(blob, durationSec) {
         const store = resolveStore()
         const cfg = await loadConfig(store)
         const forcedId = liveRecRef.current && liveRecRef.current.__blobProviderId
@@ -1056,10 +1282,18 @@ window.__ModuleLoader__.load({
         if (!provider) throw new Error('STT provider not configured')
         const provCfg = cfg.providers[provider.id] || {}
         try {
+          // R3: silence preflight BEFORE POST local-transcribe (≠ API key).
+          if (provider.id === 'local-whisper-stt') {
+            await assertNotSilentBeforeLocalTranscribe(blob, durationSec)
+          }
           const result = await provider.transcribe(blob, provCfg)
           if (result && result.text) onInsert(result.text)
           else {
             const isLocal = provider && provider.id === 'local-whisper-stt'
+            const meta = silenceErrorMeta(blob, lastMicDeviceLabel)
+            if (isLocal) {
+              console.error('[abaco-voice] empty local transcript', meta)
+            }
             setError(
               isLocal
                 ? 'Whisper local: transcripción vacía (sin voz detectada o modelo inválido). Habla cerca del micrófono; usa small-mlx / base-mlx en cache. No es API key.'
@@ -1068,7 +1302,11 @@ window.__ModuleLoader__.load({
             setState('error')
           }
         } catch (e) {
-          setError(e && e.message ? e.message : String(e))
+          const msg = e && e.message ? e.message : String(e)
+          if (msg === SILENCE_ERROR_ES || (e && e.meta)) {
+            console.error('[abaco-voice] mic silence/empty meta', e.meta || silenceErrorMeta(blob, lastMicDeviceLabel))
+          }
+          setError(msg)
           setState('error')
         }
       }
@@ -1115,6 +1353,15 @@ window.__ModuleLoader__.load({
             fontSize: 14, fontWeight: 500, ...styles[state],
           },
         }, label),
+        micChip && h('span', {
+          'data-abaco-mic-chip': 'mac',
+          title: lastMicDeviceLabel || micChip,
+          style: {
+            fontSize: 10, lineHeight: 1.2, padding: '2px 6px', borderRadius: 999,
+            background: 'var(--abaco-bg-2)', color: 'var(--abaco-fg-2)',
+            border: '1px solid var(--abaco-border)', whiteSpace: 'nowrap',
+          },
+        }, micChip),
         state === 'recording' && h('button', {
           type: 'button',
           'aria-label': 'Cancelar',
