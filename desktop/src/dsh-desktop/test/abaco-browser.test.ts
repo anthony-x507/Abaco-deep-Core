@@ -3,13 +3,16 @@ import { describe, expect, it } from 'vitest'
 import {
   ABACO_BROWSER_CHROME_HEIGHT,
   ABACO_BROWSER_DEFAULT_PLACEMENT,
+  ABACO_BROWSER_EMPTY_VIEW_BOUNDS,
   ABACO_BROWSER_PANEL_MAX_HEIGHT_PX,
   ABACO_BROWSER_PANEL_MAX_ASPECT,
   ABACO_BROWSER_PANEL_MAX_WIDTH_PX,
   ABACO_BROWSER_PANEL_MIN_ASPECT,
   ABACO_BROWSER_PANEL_MIN_WIDTH_PX,
   ABACO_BROWSER_PANEL_WIDTH_PX,
+  abacoBrowserRectsOverlap,
   buildSkillHandoffMarkdown,
+  canReportAbacoBrowserHostBounds,
   clampAbacoBrowserPanelWidth,
   clampPanelViewport,
   computeAbacoBrowserSyncBounds,
@@ -756,18 +759,15 @@ describe('ABACO browser P1 screen recording + panel', () => {
     expect(clampAbacoBrowserPanelWidth(ABACO_BROWSER_PANEL_WIDTH_PX)).toBe(ABACO_BROWSER_PANEL_WIDTH_PX)
     expect(ABACO_BROWSER_PANEL_MIN_WIDTH_PX).toBe(360)
 
+    // Panel without reserved host → empty / no-mount (pin-derecha REVOKED).
     const panel = computeAbacoBrowserSyncBounds({
       contentWidth: 1400,
       contentHeight: 900,
       placement: 'panel'
     })
-    expect(panel.page.width).toBe(ABACO_BROWSER_PANEL_WIDTH_PX)
-    expect(panel.page.x).toBe(1400 - ABACO_BROWSER_PANEL_WIDTH_PX)
-    expect(panel.page.y).toBe(0)
-    expect(panel.page.height).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
-    expect(panel.page.height).toBeLessThanOrEqual(900 - ABACO_BROWSER_CHROME_HEIGHT)
-    expect(panel.chrome.height).toBe(ABACO_BROWSER_CHROME_HEIGHT)
-    expect(panel.chrome.x).toBe(panel.page.x)
+    expect(panel.page).toEqual(ABACO_BROWSER_EMPTY_VIEW_BOUNDS)
+    expect(panel.chrome.width).toBe(0)
+    expect(panel.chrome.height).toBe(0)
 
     const overlay = computeAbacoBrowserSyncBounds({
       contentWidth: 1400,
@@ -777,6 +777,7 @@ describe('ABACO browser P1 screen recording + panel', () => {
     expect(overlay.page).toEqual({ x: 0, y: 0, width: 1400, height: 900 })
     expect(overlay.chrome.width).toBe(1400)
 
+    // Hosted: full column height (max-720 + aspect REVOKED).
     const hosted = computeAbacoBrowserSyncBounds({
       contentWidth: 1400,
       contentHeight: 900,
@@ -786,8 +787,8 @@ describe('ABACO browser P1 screen recording + panel', () => {
     expect(hosted.page.width).toBe(380)
     expect(hosted.page.x).toBe(1000)
     expect(hosted.page.y).toBe(10)
-    expect(hosted.page.height).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
-    expect(hosted.page.height).toBeLessThanOrEqual(800)
+    expect(hosted.page.height).toBe(800)
+    expect(hosted.page.height).toBeGreaterThan(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
   })
 
   it('ships a desktopCapturer MediaRecorder screen recorder and wires RPC + IPC', async () => {
@@ -863,7 +864,7 @@ describe('ABACO browser P1 DoD (panel UX)', () => {
     expect(chromePreload).toContain("dataset.pending === 'true'")
   })
 
-  it('U2: clampPanelViewport / computeAbacoBrowserSyncBounds height and aspect', () => {
+  it('U2: clampPanelViewport / computeAbacoBrowserSyncBounds full-column (no card)', () => {
     const clamped = clampPanelViewport({
       width: 420,
       height: 2000,
@@ -872,23 +873,28 @@ describe('ABACO browser P1 DoD (panel UX)', () => {
     })
     expect(clamped.width).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_WIDTH_PX)
     expect(clamped.width).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_WIDTH_PX)
-    expect(clamped.height).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
-    expect(clamped.height).toBeLessThanOrEqual(900 - ABACO_BROWSER_CHROME_HEIGHT)
-    const aspect = clamped.width / clamped.height
-    expect(aspect).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_ASPECT - 0.001)
-    expect(aspect).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_ASPECT + 0.001)
+    // Full available height — 720/aspect card clamps REVOKED.
+    expect(clamped.height).toBe(900)
 
-    const panel = computeAbacoBrowserSyncBounds({
+    const panelNoHost = computeAbacoBrowserSyncBounds({
       contentWidth: 1280,
       contentHeight: 1000,
       placement: 'panel'
     })
-    expect(panel.page.width).toBeGreaterThanOrEqual(360)
-    expect(panel.page.width).toBeLessThanOrEqual(520)
-    expect(panel.page.height).toBeLessThanOrEqual(720)
-    expect(panel.page.height).toBeLessThanOrEqual(1000 - ABACO_BROWSER_CHROME_HEIGHT)
-    expect(panel.chrome.height).toBeLessThanOrEqual(ABACO_BROWSER_CHROME_HEIGHT)
-    expect(panel.chrome.y).toBe(panel.page.y)
+    expect(panelNoHost.page).toEqual(ABACO_BROWSER_EMPTY_VIEW_BOUNDS)
+
+    const hosted = computeAbacoBrowserSyncBounds({
+      contentWidth: 1280,
+      contentHeight: 1000,
+      placement: 'panel',
+      hostBounds: { x: 860, y: 0, width: 420, height: 1000 }
+    })
+    expect(hosted.page.width).toBeGreaterThanOrEqual(360)
+    expect(hosted.page.width).toBeLessThanOrEqual(520)
+    expect(hosted.page.height).toBe(1000)
+    expect(hosted.page.height).toBeGreaterThan(720)
+    expect(hosted.chrome.height).toBeLessThanOrEqual(ABACO_BROWSER_CHROME_HEIGHT)
+    expect(hosted.chrome.y).toBe(hosted.page.y)
   })
 
   it('U3: client toggle labels Abrir/Cerrar navegador', async () => {
@@ -953,3 +959,109 @@ describe('ABACO browser P1 DoD (panel UX)', () => {
     expect(pkg).toContain('"abaco-voice": "file:packages/abaco-voice"')
   })
 })
+
+
+describe('ABACO browser P1 hard-dock contract (H1–H7)', () => {
+  it('H1: anti-overlap helper — composer ∩ monitor blocks host report', () => {
+    const monitor = { x: 1000, y: 0, width: 400, height: 900 }
+    const composerClear = { x: 280, y: 800, width: 600, height: 80 }
+    const composerOverlap = { x: 900, y: 800, width: 400, height: 80 }
+    expect(abacoBrowserRectsOverlap(monitor, composerClear)).toBe(false)
+    expect(abacoBrowserRectsOverlap(monitor, composerOverlap)).toBe(true)
+    expect(canReportAbacoBrowserHostBounds(monitor, composerClear)).toBe(true)
+    expect(canReportAbacoBrowserHostBounds(monitor, composerOverlap)).toBe(false)
+    expect(canReportAbacoBrowserHostBounds({ x: 0, y: 0, width: 4, height: 900 }, null)).toBe(false)
+  })
+
+  it('H2: panel without host is empty / no pin-derecha', () => {
+    const panel = computeAbacoBrowserSyncBounds({
+      contentWidth: 1600,
+      contentHeight: 1000,
+      placement: 'panel'
+    })
+    expect(panel.page.width).toBe(0)
+    expect(panel.page.height).toBe(0)
+    expect(panel.page.x).toBe(0)
+    // Must NOT paint at contentWidth - W
+    expect(panel.page.x).not.toBe(1600 - ABACO_BROWSER_PANEL_WIDTH_PX)
+  })
+
+  it('H3: F2 Grabar→Parar skill handoff always setDraft+submit (no empty catch)', async () => {
+    const client = await readFile('packages/abaco-browser/client.js', 'utf8')
+    expect(client).toContain('submitSkillToChat')
+    expect(client).toContain('skillTextFromResult')
+    expect(client).toContain('inputActions.setDraft')
+    expect(client).toContain('inputActions.submit')
+    expect(client).toContain('onScreenRecordingStopped')
+    expect(client).toContain('__abacoBrowserSkillHandoffBound')
+    expect(client).toContain('bridge skill handoff')
+    // No silent empty catch swallowing handoff
+    expect(client).not.toMatch(/onScreenRecordingStopped\([^)]*\)\s*=>\s*\{\s*\}/)
+    const controller = await readFile('src/main/abaco-browser-controller.ts', 'utf8')
+    expect(controller).toContain('handoffF2SkillToAgent')
+    expect(controller).toContain('buildSkillHandoffMarkdown')
+  })
+
+  it('H4: click listeners re-attach on dom-ready and did-navigate', async () => {
+    const controller = await readFile('src/main/abaco-browser-controller.ts', 'utf8')
+    expect(controller).toContain("pageContents.on('dom-ready'")
+    expect(controller).toContain("pageContents.on('did-navigate'")
+    expect(controller).toContain('noteDomReady')
+    // did-navigate path must re-call noteDomReady (not only noteNavigation)
+    expect(controller).toMatch(/did-navigate[\s\S]*noteDomReady/u)
+    const recorder = await readFile('src/main/abaco-browser-recorder.ts', 'utf8')
+    expect(recorder).toContain('uninstallPageScript(true)')
+    expect(recorder).toContain('installPageScript')
+    expect(controller).not.toMatch(/\.setIgnoreMouseEvents\s*\(/)
+    expect(recorder).not.toMatch(/\.setIgnoreMouseEvents\s*\(/)
+  })
+
+  it('H5: F1 broker/voice untouched; GITHUB_STABLE_FEED intact', async () => {
+    const voice = await readFile('packages/abaco-voice/index.js', 'utf8')
+    expect(voice).toContain('authorize(')
+    const broker = await readFile('packages/abaco-effect-broker/index.js', 'utf8')
+    expect(broker).toContain('export function authorize')
+    const catalog = await readFile('src/main/update/version-catalog.ts', 'utf8')
+    expect(catalog).toContain('GITHUB_STABLE_FEED')
+    expect(catalog).toContain("provider: 'github'")
+    expect(catalog).toContain('anthony-x507')
+    expect(catalog).toContain('Abaco-deep-Core')
+    const manager = await readFile('src/main/update/update-manager.ts', 'utf8')
+    expect(manager).toContain('setFeedURL({ ...GITHUB_STABLE_FEED })')
+    const pkg = await readFile('package.json', 'utf8')
+    expect(pkg).toContain('"provider": "github"')
+    expect(pkg).toContain('"notarize": false')
+  })
+
+  it('H6: no window.__abaco_ctx =; layout stash pattern only', async () => {
+    const client = await readFile('packages/abaco-browser/client.js', 'utf8')
+    expect(client).not.toMatch(/window\.__abaco_ctx\s*=/)
+    expect(client).toContain('window.__abacoBrowserLayout')
+    expect(client).toContain("inject = ['slots', 'layout']")
+  })
+
+  it('H7: dock reserve CSS + full-height host; launcher forces panel', async () => {
+    const client = await readFile('packages/abaco-browser/client.js', 'utf8')
+    expect(client).toContain('data-abaco-browser-dock')
+    expect(client).toContain('applyDockReserve')
+    expect(client).toContain('clearDockReserve')
+    expect(client).toContain('grid-template-columns')
+    expect(client).toContain('!important')
+    expect(client).toContain('waitForDockReady')
+    expect(client).toContain("setPlacement('panel')")
+    expect(client).toContain('[class*="detailsCol"]')
+    expect(client).toContain('rectsOverlap')
+    const shared = await readFile('src/shared/abaco-browser.ts', 'utf8')
+    expect(shared).toMatch(/REVOKED/u)
+    expect(shared).toContain('ABACO_BROWSER_EMPTY_VIEW_BOUNDS')
+    const hosted = computeAbacoBrowserSyncBounds({
+      contentWidth: 1400,
+      contentHeight: 900,
+      placement: 'panel',
+      hostBounds: { x: 980, y: 0, width: 420, height: 900 }
+    })
+    expect(hosted.page.height).toBe(900)
+    expect(ABACO_BROWSER_DEFAULT_PLACEMENT).toBe('panel')
+  })
+})
+

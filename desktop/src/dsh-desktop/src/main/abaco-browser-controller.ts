@@ -254,6 +254,9 @@ export class AbacoBrowserController {
     }
 
     const target = url === undefined ? ABACO_BROWSER_DEFAULT_URL : normalizeBrowserUrl(url)
+    // Abrir navegador must dock as panel; overlay is not reachable from the
+    // launcher (agent/tests may still call setPlacement('overlay') explicitly).
+    this.placement = ABACO_BROWSER_DEFAULT_PLACEMENT
     this.hardenBrowserSession()
 
     const pageView = new WebContentsView({
@@ -306,10 +309,14 @@ export class AbacoBrowserController {
     })
     pageContents.on('did-navigate', (_event, url) => {
       this.recorder.noteNavigation('did-navigate', url)
+      // D-C — re-attach click listeners after navigations (dom-ready alone misses
+      // some same-document / race cases; clicks must stay alive ≥5 times).
+      void this.recorder.noteDomReady()
     })
     pageContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
       if (!isMainFrame) return
       this.recorder.noteNavigation('did-navigate-in-page', url)
+      void this.recorder.noteDomReady()
     })
     // A new document means the recorder's listeners are gone with the old one.
     pageContents.on('dom-ready', () => {
@@ -509,8 +516,9 @@ export class AbacoBrowserController {
   }
 
   /**
-   * Harness page reports the details-column host rect (DIP, content coords).
-   * Pass `null` to clear and fall back to the geometric right strip.
+   * Harness page reports the reserved details-column host rect (DIP, content
+   * coords). Pass `null` to clear. Panel placement without a host paints an
+   * empty / no-mount rect — pin-derecha without reserved host is REVOKED.
    */
   reportPanelHostBounds(bounds: AbacoBrowserPanelHostBounds | null): void {
     if (bounds === null) {
@@ -903,7 +911,9 @@ export class AbacoBrowserController {
   /**
    * Keep both views glued to the active placement geometry. Pure math lives in
    * {@link computeAbacoBrowserSyncBounds}; this method only reads window size /
-   * host bounds and applies the result.
+   * host bounds and applies the result. Panel without host → empty bounds
+   * (do not paint over chat). Mouse events stay on the page WebContentsView
+   * while open (never ignore-mouse on the panel).
    */
   private readonly syncBounds = (): void => {
     const pageView = this.pageView
