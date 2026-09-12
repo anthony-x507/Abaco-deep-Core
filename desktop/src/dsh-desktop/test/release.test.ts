@@ -178,14 +178,6 @@ describe('GitHub release contract', () => {
       to: 'splash.html'
     })
     expect(packageJson.build.extraResources).toContainEqual({
-      from: 'build/dsh-loader.gif',
-      to: 'dsh-loader.gif'
-    })
-    expect(packageJson.build.extraResources).toContainEqual({
-      from: 'build/dsh-loader-dark.gif',
-      to: 'dsh-loader-dark.gif'
-    })
-    expect(packageJson.build.extraResources).toContainEqual({
       from: 'build/dsh-desktop.patch.yml',
       to: 'dsh-desktop.patch.yml'
     })
@@ -238,11 +230,12 @@ describe('GitHub release contract', () => {
     expect(main).toContain("query: { theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light' }")
     expect(main).toContain('nativeTheme.themeSource = harnessThemePreference()')
     expect(splash).toContain('Starting ABACO DEEP HARNES')
-    expect(splash).toContain('src="dsh-loader.gif"')
-    expect(splash).toContain('src="dsh-loader-dark.gif"')
+    expect(splash).toContain('abaco-mark')
+    expect(splash).toContain('@keyframes abaco-blink')
+    expect(splash).not.toContain('dsh-loader.gif')
+    expect(splash).not.toContain('dsh-loader-dark.gif')
     expect(splash).toContain("document.documentElement.dataset.theme = splashTheme === 'dark'")
     expect(splash).toContain(":root[data-theme='dark']")
-    expect(splash).toContain('brightness(2.4) saturate(0.72)')
     expect(splash).not.toContain('filter: invert(1)')
     expect(splash).not.toContain('class="track"')
     expect(splash).toContain('position: fixed;')

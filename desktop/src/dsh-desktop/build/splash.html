@@ -27,9 +27,26 @@
         text-align: center;
       }
       html[data-platform="windows"] main { padding-top: 70px; }
-      .markFrame { display: grid; place-items: center; }
-      .mark { grid-area: 1 / 1; width: 196px; height: auto; image-rendering: pixelated; }
-      .markDark { display: none; }
+      .markFrame { display: grid; place-items: center; width: 196px; height: 196px; }
+      .abaco-mark {
+        display: grid;
+        place-items: center;
+        width: 120px;
+        height: 120px;
+        border-radius: 28px;
+        background: linear-gradient(145deg, #1a1b1f 0%, #2a2d36 100%);
+        color: #f4f5f7;
+        font-size: 72px;
+        font-weight: 750;
+        letter-spacing: -0.06em;
+        line-height: 1;
+        box-shadow: 0 10px 28px rgba(20, 22, 28, 0.18);
+        animation: abaco-blink 1.6s ease-in-out infinite;
+      }
+      @keyframes abaco-blink {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.42; transform: scale(0.96); }
+      }
       .title { margin: 0; font-size: 23px; font-weight: 650; letter-spacing: -0.02em; }
       .status { margin: -4px 0 0; color: #777a80; font-size: 13px; }
       :root[data-theme='dark'] {
@@ -39,18 +56,21 @@
         color: #f3f4f6;
         background: #141416;
       }
-      :root[data-theme='dark'] .markLight { display: none; }
-      :root[data-theme='dark'] .markDark {
-        display: block;
-        filter: brightness(2.4) saturate(0.72) drop-shadow(0 0 7px rgba(111, 134, 255, 0.16));
+      :root[data-theme='dark'] .abaco-mark {
+        background: linear-gradient(145deg, #f3f4f6 0%, #d7dae2 100%);
+        color: #141416;
+        box-shadow: 0 0 18px rgba(111, 134, 255, 0.18);
       }
       :root[data-theme='dark'] .status {
         color: #9ca0a8;
       }
       @media (prefers-color-scheme: dark) {
         :root:not([data-theme]) body { color: #f3f4f6; background: #141416; }
-        :root:not([data-theme]) .markLight { display: none; }
-        :root:not([data-theme]) .markDark { display: block; }
+        :root:not([data-theme]) .abaco-mark {
+          background: linear-gradient(145deg, #f3f4f6 0%, #d7dae2 100%);
+          color: #141416;
+          box-shadow: 0 0 18px rgba(111, 134, 255, 0.18);
+        }
         :root:not([data-theme]) .status { color: #9ca0a8; }
       }
     </style>
@@ -58,8 +78,7 @@
   <body>
     <main>
       <div class="markFrame" aria-hidden="true">
-        <img class="mark markLight" src="dsh-loader.gif" alt="" />
-        <img class="mark markDark" src="dsh-loader-dark.gif" alt="" />
+        <div class="abaco-mark" title="Abaco">A</div>
       </div>
       <h1 class="title" id="title">Starting ABACO DEEP HARNES</h1>
       <p class="status" id="status">First launch may take a moment.</p>
