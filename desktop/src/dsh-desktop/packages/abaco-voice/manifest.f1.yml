@@ -1,0 +1,15 @@
+id: abaco-voice
+tier_isolation: T3-lite
+caps:
+  effects: [host.fetch, tool.call, ui.slot, proc.spawn, fs.read, fs.write]
+  resources:
+    - /api/abaco-voice.local-status
+    - /api/abaco-voice.local-transcribe
+    - bin:mlx_whisper
+    - bin:whisper
+    - bin:ffmpeg
+    - fs:tmpdir
+  trust_ceiling: user
+admission:
+  inject: [connection]
+  note: "Voice route owner — ephemeral task grants via host.fetch user path; grants owned by broker."
