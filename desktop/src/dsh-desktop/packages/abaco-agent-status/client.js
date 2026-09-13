@@ -23,7 +23,7 @@ window.__ModuleLoader__.load({
     //   controller mirrors (`handleSessionStatus(sessionId, running)`), the
     //   same signal the shipped composer reads via useSession((s) => s.running).
     // Watermark pulse (0.4.15) hooks the SAME `useSession((s) => s.running)`
-    // bit: idle → low static opacity; running/streaming → opacity pulse ~500ms.
+    // bit: idle → low static opacity; running/streaming → opacity pulse ~2000ms (1 cycle / 2s).
     const SLOT = 'conversation.session.header.actions'
     const OCCUPANT_ID = 'abaco-agent-status'
     const STYLE_ID = 'abaco-agent-status-style'
@@ -171,7 +171,7 @@ window.__ModuleLoader__.load({
         '  transition: opacity 180ms ease, filter 180ms ease;',
         '}',
         '.abaco-chat-watermark.is-working, [' + WATERMARK_ATTR + '="working"] {',
-        '  animation: abaco-chat-watermark-pulse 500ms ease-in-out infinite;',
+        '  animation: abaco-chat-watermark-pulse 2000ms ease-in-out infinite;',
         '}',
         '@keyframes abaco-chat-watermark-pulse {',
         '  0%, 100% { opacity: 0.05; filter: saturate(0.8) brightness(0.95); }',

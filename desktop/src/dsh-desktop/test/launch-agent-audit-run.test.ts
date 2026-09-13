@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   auditLaunchAgents,
+  isOwnLaunchAgentPlistFilename,
   quarantineAppBundleLaunchAgents,
   type LaunchAgentRecord
 } from '../src/main/state/launch-agent-audit'
@@ -57,6 +58,15 @@ describe('launch agent audit', () => {
     await rm(testRoot, { recursive: true, force: true })
   })
 
+
+  it('allowlists Abaco/DSH LaunchAgent filenames only', () => {
+    expect(isOwnLaunchAgentPlistFilename('com.dsh.doctor.plist')).toBe(true)
+    expect(isOwnLaunchAgentPlistFilename('io.abaco.deepcore.helper.plist')).toBe(true)
+    expect(isOwnLaunchAgentPlistFilename('abaco-deep-harnes.worker.plist')).toBe(true)
+    expect(isOwnLaunchAgentPlistFilename('com.google.keystone.agent.plist')).toBe(false)
+    expect(isOwnLaunchAgentPlistFilename('com.spotify.client.plist')).toBe(false)
+  })
+
   it('repairs an agent that boots our binary as a desktop application', async () => {
     await writeAgentFile(doctorPlist)
     const settings = options()
@@ -90,21 +100,37 @@ describe('launch agent audit', () => {
     expect(existsSync(result.findings[0]!.backupPath!)).toBe(true)
   })
 
-  it('leaves an agent belonging to another application untouched', async () => {
+  it('never plutil/reads a foreign LaunchAgent plist (Sequoia app-data TCC)', async () => {
     const foreign = join(launchAgents, 'com.google.keystone.agent.plist')
     await writeAgentFile(foreign)
-    const settings = options({
-      readLaunchAgent: async () => ({
-        Label: 'com.google.keystone.agent',
-        ProgramArguments: ['/Users/alex/Library/Google/GoogleUpdater/Current/updater']
-      })
-    })
+    const readLaunchAgent = vi.fn(async () => ({
+      Label: 'com.google.keystone.agent',
+      ProgramArguments: ['/Users/alex/Library/Google/GoogleUpdater/Current/updater']
+    }))
+    const settings = options({ readLaunchAgent })
 
     const result = await auditLaunchAgents(settings)
 
     expect(result.findings).toEqual([])
+    expect(readLaunchAgent).not.toHaveBeenCalled()
     expect(settings.bootoutLaunchAgent).not.toHaveBeenCalled()
     expect(await readFile(foreign, 'utf8')).toBe('binary plist placeholder')
+  })
+
+  it('quarantine path also skips foreign filenames before read', async () => {
+    const foreign = join(launchAgents, 'com.spotify.client.plist')
+    await writeAgentFile(foreign)
+    const readLaunchAgent = vi.fn(async () => ({
+      Label: 'com.spotify.client',
+      ProgramArguments: [`${appBundlePath}/Contents/MacOS/ABACO DEEP HARNES`]
+    }))
+    const settings = options({ readLaunchAgent })
+
+    const result = await quarantineAppBundleLaunchAgents(settings)
+
+    expect(result.findings).toEqual([])
+    expect(readLaunchAgent).not.toHaveBeenCalled()
+    expect(existsSync(foreign)).toBe(true)
   })
 
   it('does nothing away from macOS', async () => {
@@ -163,12 +189,12 @@ describe('launch agent audit', () => {
   })
 
   it('quarantines Node-mode app-bundle jobs before an update', async () => {
-    const bundleWorkerPlist = join(launchAgents, 'com.example.bundle-worker.plist')
+    const bundleWorkerPlist = join(launchAgents, 'com.dsh.bundle-worker.plist')
     await writeAgentFile(bundleWorkerPlist)
     const settings = options({
       readLaunchAgent: async () => ({
         ...structuredClone(brokenAgent),
-        Label: 'com.example.bundle-worker',
+        Label: 'com.dsh.bundle-worker',
         EnvironmentVariables: { ELECTRON_RUN_AS_NODE: '1' }
       })
     })
@@ -178,11 +204,11 @@ describe('launch agent audit', () => {
     expect(result.failures).toEqual([])
     expect(result.findings[0]?.action).toBe('quarantined')
     expect(existsSync(bundleWorkerPlist)).toBe(false)
-    expect(settings.bootoutLaunchAgent).toHaveBeenCalledWith('gui/501/com.example.bundle-worker')
+    expect(settings.bootoutLaunchAgent).toHaveBeenCalledWith('gui/501/com.dsh.bundle-worker')
   })
 
   it('quarantines an app-bundle job when its service is absent from a live domain', async () => {
-    const bundleWorkerPlist = join(launchAgents, 'com.example.bundle-worker.plist')
+    const bundleWorkerPlist = join(launchAgents, 'com.dsh.bundle-worker.plist')
     await writeAgentFile(bundleWorkerPlist)
     const inspect = vi.fn(async (target: string) => ({
       code: target === 'gui/501' ? 0 : 113,
@@ -192,7 +218,7 @@ describe('launch agent audit', () => {
     const settings = options({
       readLaunchAgent: async () => ({
         ...structuredClone(brokenAgent),
-        Label: 'com.example.bundle-worker',
+        Label: 'com.dsh.bundle-worker',
         EnvironmentVariables: { ELECTRON_RUN_AS_NODE: '1' }
       }),
       bootoutLaunchAgent: vi.fn(async () => ({
@@ -208,19 +234,19 @@ describe('launch agent audit', () => {
     expect(result.failures).toEqual([])
     expect(result.findings[0]?.action).toBe('quarantined')
     expect(inspect.mock.calls).toEqual([
-      ['gui/501/com.example.bundle-worker'],
+      ['gui/501/com.dsh.bundle-worker'],
       ['gui/501']
     ])
     expect(existsSync(bundleWorkerPlist)).toBe(false)
   })
 
   it('fails closed when an app-bundle job cannot be stopped before update', async () => {
-    const bundleWorkerPlist = join(launchAgents, 'com.example.bundle-worker.plist')
+    const bundleWorkerPlist = join(launchAgents, 'com.dsh.bundle-worker.plist')
     await writeAgentFile(bundleWorkerPlist)
     const settings = options({
       readLaunchAgent: async () => ({
         ...structuredClone(brokenAgent),
-        Label: 'com.example.bundle-worker'
+        Label: 'com.dsh.bundle-worker'
       }),
       bootoutLaunchAgent: vi.fn(async () => ({ code: 5, stdout: '', stderr: 'not permitted' }))
     })
@@ -233,13 +259,13 @@ describe('launch agent audit', () => {
   })
 
   it('fails closed when neither the service nor its launchd domain can be inspected', async () => {
-    const bundleWorkerPlist = join(launchAgents, 'com.example.bundle-worker.plist')
+    const bundleWorkerPlist = join(launchAgents, 'com.dsh.bundle-worker.plist')
     await writeAgentFile(bundleWorkerPlist)
     const inspect = vi.fn(async () => ({ code: 113, stdout: '', stderr: 'unavailable' }))
     const settings = options({
       readLaunchAgent: async () => ({
         ...structuredClone(brokenAgent),
-        Label: 'com.example.bundle-worker'
+        Label: 'com.dsh.bundle-worker'
       }),
       bootoutLaunchAgent: vi.fn(async () => ({ code: 5, stdout: '', stderr: 'ambiguous' })),
       inspectLaunchAgent: inspect
@@ -250,7 +276,7 @@ describe('launch agent audit', () => {
     expect(result.findings).toEqual([])
     expect(result.failures[0]).toContain('ambiguous')
     expect(inspect.mock.calls).toEqual([
-      ['gui/501/com.example.bundle-worker'],
+      ['gui/501/com.dsh.bundle-worker'],
       ['gui/501']
     ])
     expect(existsSync(bundleWorkerPlist)).toBe(true)

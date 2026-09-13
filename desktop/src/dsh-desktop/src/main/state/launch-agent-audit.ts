@@ -13,6 +13,19 @@ import {
 } from './launchctl-service-state'
 
 const LAUNCH_AGENT_LABEL_PATTERN = /^[a-z0-9._-]+$/i
+
+/**
+ * Sequoia TCC (`kTCCServiceSystemPolicyAppData`): never plutil/parse a foreign
+ * LaunchAgent. Filename allowlist-first — Abaco / known DSH desktop agents only.
+ * Exported for tests.
+ */
+export function isOwnLaunchAgentPlistFilename(filename: string): boolean {
+  const base = filename.toLowerCase()
+  if (!base.endsWith('.plist')) return false
+  // Match Abaco product ids and historical DSH desktop agent names (e.g. com.dsh.*).
+  return /(?:^|[._-])(?:abaco|deepcore|deep-?harnes|dsh-desktop|dsh)(?:[._-]|$)/i.test(base)
+}
+
 const COMMAND_TIMEOUT_MS = 10_000
 const COMMAND_OUTPUT_LIMIT = 64 * 1024
 
@@ -293,6 +306,8 @@ export async function quarantineAppBundleLaunchAgents(
 
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.plist')) continue
+    // Never plutil/read foreign agents (Sequoia "data from other apps").
+    if (!isOwnLaunchAgentPlistFilename(entry.name)) continue
     const plistPath = join(launchAgentsDirectory, entry.name)
     let record: LaunchAgentRecord
     try {
@@ -369,6 +384,8 @@ export async function auditLaunchAgents(
 
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.plist')) continue
+    // Never plutil/read foreign agents (Sequoia "data from other apps").
+    if (!isOwnLaunchAgentPlistFilename(entry.name)) continue
     const plistPath = join(launchAgentsDirectory, entry.name)
 
     let record: LaunchAgentRecord

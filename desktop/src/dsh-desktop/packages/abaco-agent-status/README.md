@@ -11,7 +11,7 @@ desaparece (`null`). En sesiones hijas (subagente) el texto cambia a
 Desde **0.4.15** también monta un **watermark** grande del logo Abaco detrás
 del área de chat/composer (`pointer-events: none`, opacidad baja en idle).
 Mientras `SessionSnapshot.running` es true, el watermark pulsa claridad ~
-cada 500ms (`.abaco-chat-watermark.is-working` /
+cada 2000ms (1 ciclo / 2s) (`.abaco-chat-watermark.is-working` /
 `abaco-chat-watermark-pulse`).
 
 ## Cómo funciona

@@ -1336,7 +1336,9 @@ function launchHarness(): Promise<void> {
     maintenanceRecoveryLocked = false
     maintenanceAllowedRestoreId = undefined
     await refreshMigrationRecoveryLock(dshHome)
-    await auditInstalledLaunchAgents(dshHome)
+    // 0.4.16: cold-boot LaunchAgents audit removed — wholesale plutil of
+    // ~/Library/LaunchAgents triggered Sequoia "access data from other apps".
+    // Updater path still uses quarantineAppBundleLaunchAgents (filename allowlist).
     desktopStorageManager?.switchProfile(join(dshHome, 'profiles', 'web'))
     await runtime.start(launchDirectory)
 
