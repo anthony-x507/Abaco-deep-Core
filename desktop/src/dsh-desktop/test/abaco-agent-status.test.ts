@@ -16,7 +16,7 @@ describe('abaco-agent-status watermark pulse', () => {
     expect(source).toContain('abaco-chat-watermark-pulse')
     expect(source).toContain('/abaco-logo-new.png')
     expect(source).toContain('pointer-events: none')
-    expect(source).toContain('500ms')
+    expect(source).toContain('2000ms')
     expect(source).toContain('ChatWatermark')
     expect(source).toContain("data-abaco-chat-watermark")
 
