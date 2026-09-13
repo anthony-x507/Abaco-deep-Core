@@ -47,13 +47,13 @@ describe('DSH Desktop sidebar branding', () => {
     expect(client).toContain("ctx.slots.inject('sidebar.brand.name'")
     expect(client).toContain("ctx.slots.inject('conversation.hero.brand.mark'")
     expect(client).toContain("ctx.slots.register({ name: 'sidebar.brand.mark' }")
-    expect(client).toContain('aria-label="ABACO"')
+    expect(client).toContain("'aria-label': 'ABACO'")
     expect(client).toContain("'ABACO'")
-    // DeepSeek brand artwork is gone: no BrandWordmark / FishLogo imports and
-    // no /dsh-desktop-logo-*.png runtime asset dependency.
+    expect(client).toContain("/dsh-desktop-logo.png")
+    // DeepSeek brand artwork is gone: no BrandWordmark / FishLogo imports.
+    // Marks use the installed /dsh-desktop-logo.png raster (0.4.15 logo swap).
     expect(client).not.toContain('BrandWordmark')
     expect(client).not.toContain('FishLogo')
-    expect(client).not.toContain('dsh-desktop-logo')
     expect(client).not.toContain('translateX')
     const normalizedComposition = composition.replaceAll('\r\n', '\n')
     expect(normalizedComposition).toMatch(/- id: ui-brand-official\n  disabled: true/u)
@@ -125,6 +125,8 @@ describe('DSH Desktop sidebar branding', () => {
     expect(installer).toContain("'dsh-desktop-logo-light.png'")
     expect(installer).toContain("'build', 'logo-dark.png'")
     expect(installer).toContain("'dsh-desktop-logo-dark.png'")
+    expect(installer).toContain("'abaco-brand', 'abaco-logo-new.png'")
+    expect(installer).toContain("'abaco-logo-new.png'")
     expect(installer).toContain('<link rel="icon" type="image/png" href="/dsh-desktop-logo.png" />')
     // The manifest is edited as JSON now rather than as a pinned multi-line
     // string: 0.1.2-alpha.1 added "purpose": "any" to the icon entry, which no

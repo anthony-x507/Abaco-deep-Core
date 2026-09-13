@@ -8,13 +8,22 @@ desaparece (`null`). En sesiones hijas (subagente) el texto cambia a
 **"SUBAGENTE TRABAJANDO"**. El idioma (ES/EN) se elige con
 `navigator.language`.
 
+Desde **0.4.15** también monta un **watermark** grande del logo Abaco detrás
+del área de chat/composer (`pointer-events: none`, opacidad baja en idle).
+Mientras `SessionSnapshot.running` es true, el watermark pulsa claridad ~
+cada 2000ms (1 ciclo / 2s) (`.abaco-chat-watermark.is-working` /
+`abaco-chat-watermark-pulse`).
+
 ## Cómo funciona
 
 - **Slot:** `conversation.session.header.actions` (declarado por
   `@deepseek-ai/dsh-client-ui-conversation`, scope `session`, kind `list`).
 - **Estado:** `useSession((s) => s.running)` — `SessionSnapshot.running` es el
   estado "live" del agente que mantiene el Session controller; es el mismo
-  bit que lee el composer del propio harness.
+  bit que lee el composer del propio harness. Pill y watermark comparten este
+  hook (`ChatWatermark` + `AgentWorkingPill` en `client.js`).
+- **Watermark asset:** `/abaco-logo-new.png` (instalado por
+  `scripts/install-brand-assets.mjs` desde `build/abaco-brand/abaco-logo-new.png`).
 - **Estilo:** variables `--abaco-*` de `abaco-theme` (fallbacks inline), con
   una hoja `<style>` propia inyectada por el plugin (`abaco-agent-status-style`).
 
