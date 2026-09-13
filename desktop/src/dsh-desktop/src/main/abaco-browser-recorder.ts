@@ -590,6 +590,9 @@ export class AbacoBrowserRecorder {
    */
   async noteDomReady(): Promise<void> {
     if (!this.document) return
+    // Force re-attach: idempotent install alone no-ops when `__abacoRecorder`
+    // remains after listeners were lost (SPA / mid-navigation races). D-C.
+    await this.uninstallPageScript(true)
     await this.installPageScript()
   }
 

@@ -48,7 +48,9 @@ window.__ModuleLoader__.load({
 
     const defaultConfig = {
       ttsProvider: 'web-speech-tts',
-      sttProvider: 'web-speech-stt',
+      // Electron: on-device mlx_whisper / whisper via host route (no OpenAI key).
+      // Cloud OpenAI/Deepgram remain optional in Ajustes → Voz.
+      sttProvider: 'local-whisper-stt',
       providers: {},
       privacy: {
         disclosureAccepted: false,
@@ -61,11 +63,90 @@ window.__ModuleLoader__.load({
       return JSON.parse(JSON.stringify(defaultConfig))
     }
 
+    // Schema default ALWAYS small-mlx + es (Arq). 0.4.7: sticky tiny → small-mlx.
+    const DEFAULT_LOCAL_MODEL = 'mlx-community/whisper-small-mlx'
+    const DEFAULT_LOCAL_LANGUAGE = 'es'
+    const STICKY_TINY_LOCAL_MODELS = [
+      'mlx-community/whisper-tiny',
+      'mlx-community/whisper-tiny-mlx',
+      'whisper-tiny',
+    ]
+    // Exact BAD plain ids only — never substring-match whisper-base (would kill base-mlx).
+    const BAD_LOCAL_MODEL_MAP = {
+      'mlx-community/whisper-base': 'mlx-community/whisper-base-mlx',
+      'whisper-base': 'mlx-community/whisper-base-mlx',
+      'mlx-community/whisper-small': 'mlx-community/whisper-small-mlx',
+      'whisper-small': 'mlx-community/whisper-small-mlx',
+    }
+    const KNOWN_GOOD_LOCAL_MODELS = [
+      'mlx-community/whisper-small-mlx',
+      'mlx-community/whisper-base-mlx',
+      'mlx-community/whisper-tiny-mlx',
+      'mlx-community/whisper-tiny',
+    ]
+
+    function resolveLocalWhisperModel(model) {
+      const raw = model != null ? String(model).trim() : ''
+      if (!raw) return DEFAULT_LOCAL_MODEL
+      // Force-migrate sticky tiny (cached tiny does NOT pardon)
+      if (STICKY_TINY_LOCAL_MODELS.includes(raw)) return DEFAULT_LOCAL_MODEL
+      if (Object.prototype.hasOwnProperty.call(BAD_LOCAL_MODEL_MAP, raw)) return BAD_LOCAL_MODEL_MAP[raw]
+      if (KNOWN_GOOD_LOCAL_MODELS.includes(raw)) return raw
+      return DEFAULT_LOCAL_MODEL
+    }
+
+    /** Lock STT: openai without key → local-whisper; exact BAD → *-mlx; write-through. */
+    function normalizeVoiceConfig(raw) {
+      const base = defaultVoiceConfig()
+      const incoming = raw && typeof raw === 'object' ? raw : {}
+      const cfg = {
+        ...base,
+        ...incoming,
+        providers: { ...(incoming.providers || {}) },
+        privacy: { ...base.privacy, ...(incoming.privacy || {}) },
+      }
+      let changed = false
+      const requiresKeyIds = ['openai-stt', 'deepgram-stt', 'deepgram']
+      if (requiresKeyIds.includes(cfg.sttProvider)) {
+        const key = ((cfg.providers || {})[cfg.sttProvider] || {}).apiKey
+        if (!key || !String(key).trim()) {
+          cfg.sttProvider = 'local-whisper-stt'
+          changed = true
+        }
+      }
+      if (!cfg.sttProvider || cfg.sttProvider === 'web-speech-stt') {
+        cfg.sttProvider = 'local-whisper-stt'
+        changed = true
+      }
+      const lwPrev = cfg.providers['local-whisper-stt'] || {}
+      const lw = { ...lwPrev }
+      const resolved = resolveLocalWhisperModel(lw.model)
+      if (lw.model !== resolved) {
+        lw.model = resolved
+        changed = true
+      }
+      const lang = lw.language != null ? String(lw.language).trim() : ''
+      if (!lang) {
+        lw.language = DEFAULT_LOCAL_LANGUAGE
+        changed = true
+      }
+      if (JSON.stringify(lwPrev) !== JSON.stringify(lw)) {
+        cfg.providers['local-whisper-stt'] = lw
+        changed = true
+      }
+      return { config: cfg, changed }
+    }
+
     async function loadConfig(store) {
       const raw = store ? await store.get(STORE_KEY) : null
       if (!raw) return defaultVoiceConfig()
       try {
-        return { ...defaultVoiceConfig(), ...JSON.parse(raw) }
+        const { config, changed } = normalizeVoiceConfig(JSON.parse(raw))
+        // Persist coercion so openai-stt cannot stick without a valid key.
+        if (changed && store) {
+          try { await saveConfig(store, config) } catch {}
+        }
+        return config
       } catch {
         return defaultVoiceConfig()
       }
@@ -73,7 +154,9 @@ window.__ModuleLoader__.load({
 
     async function saveConfig(store, config) {
       if (!store) return
-      await store.set(STORE_KEY, JSON.stringify(config))
+      // Q5/T2: ALWAYS normalize before persist.
+      const { config: normalized } = normalizeVoiceConfig(config)
+      await store.set(STORE_KEY, JSON.stringify(normalized))
     }
 
     async function setProviderConfig(store, providerId, partial) {
@@ -124,12 +207,170 @@ window.__ModuleLoader__.load({
       return currentAudio !== null || currentNative !== null
     }
 
-    // ── Recorder ─────────────────────────────────────────────────────────
+    // ── Recorder (CONTRACT-P0-MIC-BUILTIN-SILENCE-048 + DECODE-SILENCE-049) ─
+    // Prefer built-in Mac mic; silence preflight before local-transcribe POST.
+    // 0.4.10: assertNotSilentBeforeLocalTranscribe is LOG-ONLY (never throw SILENCE_ERROR_ES).
+    // 0.4.11: deny FBI/Continuity before non-bt; raw-ish AEC/NS off; reject Whisper y-y-y.
+    // Empty audio: blob.size===0 OR duration<0.15s → «Sin audio grabado». Headphones may record.
+    // PROHIBITED: sample rate constraint + getDisplayMedia for composer mic.
 
     let recorder = null
     let recorderStream = null
     let chunks = []
     let startedAt = 0
+    let lastMicDeviceLabel = ''
+    let lastMicIsBuiltin = false
+
+    const BUILTIN_MIC_RE = /macbook|built-?in|internal|macintosh|imac|mac mini/i
+    const BT_MIC_RE = /airpods|bluetooth|hands-?free|\bhfp\b|headset/i
+    const DENY_MIC_RE = /fbi|continuity|iphone|desk view|iphone mic|apple watch/i
+    const SILENCE_MIN_DURATION_S = 0.4
+    const SILENCE_PEAK_ABS_MAX = 0.01
+    const SILENCE_TINY_BLOB_BYTES = 256
+    const SILENCE_ERROR_ES = 'Mic silencioso. Usa el micrófono del Mac, no AirPods.'
+    const HALLUCINATION_ERROR_ES = 'Audio no usable (alucinación Whisper). Prueba mic MacBook, habla 2–3 s.'
+    const EMPTY_AUDIO_ERROR_ES = 'Sin audio grabado'
+    const EMPTY_AUDIO_MIN_DURATION_S = 0.15
+    const MIC_DEL_MAC_CHIP = 'Mic del Mac'
+    const REAL_SHORT_ES = { sí: true, si: true, ya: true, no: true }
+    const FILLER_TOKEN_RE = /^(y|a|e|o|uh|um|ah|eh|oh|mm|m|hm|hmm|\.|…|\.{2,}|…+)$/i
+
+    function isBuiltinMicLabel(label) {
+      const s = String(label || '')
+      return BUILTIN_MIC_RE.test(s) && !BT_MIC_RE.test(s)
+    }
+
+    function isBluetoothMicLabel(label) {
+      return BT_MIC_RE.test(String(label || ''))
+    }
+
+    function isDeniedMicLabel(label) {
+      return DENY_MIC_RE.test(String(label || ''))
+    }
+
+    /** Pure — mirrored in lib/composer-mic.js for unit tests (C1). */
+    function pickComposerMicDevice(devices) {
+      const inputs = (Array.isArray(devices) ? devices : []).filter(
+        (d) => d && (!d.kind || d.kind === 'audioinput'),
+      )
+      const allowed = inputs.filter((d) => !isDeniedMicLabel(d.label))
+      const builtin = allowed.find((d) => isBuiltinMicLabel(d.label))
+      if (builtin && builtin.deviceId) {
+        return {
+          deviceId: String(builtin.deviceId),
+          label: String(builtin.label || ''),
+          reason: 'builtin',
+          isBuiltin: true,
+        }
+      }
+      const nonBt = allowed.find((d) => d.deviceId && !isBluetoothMicLabel(d.label))
+      if (nonBt) {
+        return {
+          deviceId: String(nonBt.deviceId),
+          label: String(nonBt.label || ''),
+          reason: 'non-bt',
+          isBuiltin: isBuiltinMicLabel(nonBt.label),
+        }
+      }
+      return { deviceId: null, label: '', reason: 'default', isBuiltin: false }
+    }
+
+    function shouldRejectBluetoothTrack(trackLabel, devices) {
+      if (!isBluetoothMicLabel(trackLabel)) return false
+      const inputs = (Array.isArray(devices) ? devices : []).filter(
+        (d) => d && (!d.kind || d.kind === 'audioinput'),
+      )
+      return inputs.some((d) => isBuiltinMicLabel(d.label))
+    }
+
+    function shouldRejectDeniedTrack(trackLabel, devices) {
+      if (!isDeniedMicLabel(trackLabel)) return false
+      const inputs = (Array.isArray(devices) ? devices : []).filter(
+        (d) => d && (!d.kind || d.kind === 'audioinput'),
+      )
+      return inputs.some((d) => d.deviceId && !isDeniedMicLabel(d.label))
+    }
+
+    function measureFloat32PeakRms(samples) {
+      let peak = 0
+      let sumSq = 0
+      const n = samples && samples.length ? samples.length : 0
+      for (let i = 0; i < n; i++) {
+        const v = samples[i]
+        const a = v < 0 ? -v : v
+        if (a > peak) peak = a
+        sumSq += v * v
+      }
+      return { peak, rms: n ? Math.sqrt(sumSq / n) : 0 }
+    }
+
+    function isSilentPreflight({ durationSec, peakAbs, rms, blobSize, decodeFailed } = {}) {
+      if (!(Number(durationSec) >= SILENCE_MIN_DURATION_S)) return false
+      // D1: decodeFailed → skip energy. Only tiny-blob (<256) blocks.
+      if (decodeFailed) {
+        return typeof blobSize === 'number' && blobSize < SILENCE_TINY_BLOB_BYTES
+      }
+      if (typeof peakAbs === 'number' && peakAbs < SILENCE_PEAK_ABS_MAX) return true
+      if (typeof rms === 'number' && rms < SILENCE_PEAK_ABS_MAX) return true
+      if (typeof blobSize === 'number' && blobSize > 0 && blobSize < SILENCE_TINY_BLOB_BYTES) return true
+      return false
+    }
+
+    function buildComposerMicAudioConstraints(deviceId) {
+      // R2/C2: never set sample rate; AEC+NS off, AGC on
+      const audio = {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: true,
+      }
+      if (deviceId) audio.deviceId = { exact: String(deviceId) }
+      return { audio, video: false }
+    }
+
+    function buildComposerMicApplyConstraints() {
+      // R2/C2: never set sample rate
+      return { echoCancellation: false, noiseSuppression: false, autoGainControl: true }
+    }
+
+    function isFillerToken(token) {
+      const t = String(token || '')
+      if (!t || REAL_SHORT_ES[t]) return false
+      if (FILLER_TOKEN_RE.test(t)) return true
+      return t.length >= 3 && /^(y+|a+|m{2,}|u+h+|h+m+|\.+|…+)$/i.test(t)
+    }
+
+    /** Pure — mirrored in lib/composer-mic.js (C3). */
+    function isWhisperHallucination(text) {
+      const s = String(text == null ? '' : text).trim().toLowerCase()
+      if (!s) return false
+      const compact = s.replace(/[¡!.,?¿…]+$/g, '').trim()
+      if (REAL_SHORT_ES[s] || REAL_SHORT_ES[compact]) return false
+      const rawTokens = s.split(/\s+/).filter(Boolean)
+      const tokens = rawTokens.map((t) => {
+        const stripped = t.replace(/^[¿¡"'([{]+|[.!?,;:"'`)\]}]+$/g, '')
+        return stripped || t
+      }).filter(Boolean)
+      if (!tokens.length) {
+        const onlyPunct = s.replace(/\s+/g, '')
+        return onlyPunct.length >= 3 && /^[.\u2026]+$/.test(onlyPunct)
+      }
+      const allFillers = tokens.every(isFillerToken)
+      if (allFillers && tokens.length >= 3) return true
+      const unique = {}
+      for (let i = 0; i < tokens.length; i++) unique[tokens[i]] = true
+      const uniqueCount = Object.keys(unique).length
+      const ratio = uniqueCount / tokens.length
+      if (tokens.length >= 6 && ratio < 0.15) return true
+      if (s.replace(/\s+/g, '').length >= 6 && tokens.length >= 3 && ratio < 0.15) return true
+      return false
+    }
+
+    function silenceErrorMeta(blob, deviceLabel) {
+      return {
+        blobSize: blob && typeof blob.size === 'number' ? blob.size : 0,
+        deviceLabel: deviceLabel != null ? String(deviceLabel) : '',
+      }
+    }
 
     function pickMimeType() {
       const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
@@ -148,19 +389,113 @@ window.__ModuleLoader__.load({
       recorder = null
     }
 
+    async function listAudioInputsWithPermission() {
+      const md = navigator.mediaDevices
+      let devices = await md.enumerateDevices()
+      let inputs = devices.filter((d) => d.kind === 'audioinput')
+      const hasLabel = inputs.some((d) => d.label && String(d.label).trim())
+      if (hasLabel) return inputs
+      // Labels empty → short permission probe, re-enumerate, stop (R1).
+      const probe = await md.getUserMedia({ audio: true, video: false })
+      try {
+        probe.getTracks().forEach((t) => t.stop())
+      } catch {}
+      devices = await md.enumerateDevices()
+      return devices.filter((d) => d.kind === 'audioinput')
+    }
+
+    async function openComposerMicStream(preferredDeviceId) {
+      const md = navigator.mediaDevices
+      // Real microphone only — NOT getDisplayMedia / chromeMediaSource desktop (P1 monitor).
+      const stream = await md.getUserMedia(buildComposerMicAudioConstraints(preferredDeviceId || null))
+      return stream
+    }
+
     async function recorderStart() {
       if (recorder) return
       if (typeof navigator === 'undefined' || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
         throw new Error('getUserMedia no está disponible en este entorno')
       }
-      recorderStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 16000,
-        },
-      })
+      const inputs = await listAudioInputsWithPermission()
+      let pick = pickComposerMicDevice(inputs)
+
+      let stream = null
+      try {
+        stream = await openComposerMicStream(pick.deviceId)
+      } catch (e) {
+        // Exact deviceId may fail — fall back to default without deviceId.
+        if (pick.deviceId) {
+          pick = { deviceId: null, label: pick.label, reason: 'default', isBuiltin: false }
+          stream = await openComposerMicStream(null)
+        } else {
+          throw e
+        }
+      }
+
+      recorderStream = stream
+      const audioTracks = recorderStream.getAudioTracks()
+      if (!audioTracks.length) {
+        recorderCleanup()
+        throw new Error('No se obtuvo pista de micrófono (getUserMedia audio vacío)')
+      }
+
+      // C1: if OS handed us FBI/Continuity, reopen with any non-denied pick.
+      const track0 = audioTracks[0]
+      const trackLabel = track0 && track0.label ? track0.label : (pick.label || '')
+      if (shouldRejectDeniedTrack(trackLabel, inputs)) {
+        const retry = pickComposerMicDevice(inputs)
+        if (retry.deviceId) {
+          recorderCleanup()
+          recorderStream = await openComposerMicStream(retry.deviceId)
+          pick = retry
+        } else {
+          const fallback = inputs.find((d) => d.deviceId && !isDeniedMicLabel(d.label))
+          if (fallback) {
+            recorderCleanup()
+            recorderStream = await openComposerMicStream(fallback.deviceId)
+            pick = {
+              deviceId: String(fallback.deviceId),
+              label: String(fallback.label || ''),
+              reason: 'default',
+              isBuiltin: isBuiltinMicLabel(fallback.label),
+            }
+          }
+        }
+      }
+
+      // R4: if OS handed us BT/AirPods while built-in exists, reopen with built-in.
+      const afterDenied = recorderStream.getAudioTracks()
+      const afterDeniedLabel = (afterDenied[0] && afterDenied[0].label) || pick.label || ''
+      if (shouldRejectBluetoothTrack(afterDeniedLabel, inputs)) {
+        const builtin = pickComposerMicDevice(inputs)
+        if (builtin.deviceId && builtin.isBuiltin) {
+          recorderCleanup()
+          recorderStream = await openComposerMicStream(builtin.deviceId)
+          pick = builtin
+        }
+      }
+
+      const finalTracks = recorderStream.getAudioTracks()
+      // Reject accidental desktop/tab capture masquerading as mic.
+      for (const t of finalTracks) {
+        const settings = typeof t.getSettings === 'function' ? (t.getSettings() || {}) : {}
+        if (settings.chromeMediaSource === 'desktop' || settings.displaySurface) {
+          recorderCleanup()
+          throw new Error('Fuente de audio no es micrófono (desktop/tab). Usa el mic del sistema.')
+        }
+        try { t.applyConstraints(buildComposerMicApplyConstraints()) } catch {}
+      }
+
+      const finalLabel = (finalTracks[0] && finalTracks[0].label) || pick.label || ''
+      lastMicDeviceLabel = finalLabel
+      lastMicIsBuiltin = isBuiltinMicLabel(finalLabel) || !!pick.isBuiltin
+      // N2/N3: prefer built-in reopen above; if still BT/headphones — allow record (never throw AirPods text).
+      if (shouldRejectBluetoothTrack(finalLabel, inputs)) {
+        console.warn('[abaco-voice] BT mic still active after reopen attempt; recording anyway', {
+          deviceLabel: finalLabel,
+        })
+      }
+
       chunks = []
       recorder = new MediaRecorder(recorderStream, {
         mimeType: pickMimeType(),
@@ -171,6 +506,71 @@ window.__ModuleLoader__.load({
       }
       recorder.start(250)
       startedAt = Date.now()
+      return { label: lastMicDeviceLabel, isBuiltin: lastMicIsBuiltin }
+    }
+
+    async function analyzeBlobPeakRms(blob) {
+      if (!blob || typeof blob.arrayBuffer !== 'function') return { peak: 0, rms: 0 }
+      if (typeof AudioContext === 'undefined' && typeof webkitAudioContext === 'undefined') {
+        return { peak: 0, rms: 0, decodeFailed: true }
+      }
+      try {
+        const Ctx = AudioContext || webkitAudioContext
+        const ctx = new Ctx()
+        const buf = await blob.arrayBuffer()
+        const audioBuf = await new Promise((resolve, reject) => {
+          try {
+            const p = ctx.decodeAudioData(buf.slice(0), resolve, reject)
+            if (p && typeof p.then === 'function') p.then(resolve, reject)
+          } catch (e) { reject(e) }
+        })
+        try { await ctx.close() } catch {}
+        let peak = 0
+        let sumSq = 0
+        let n = 0
+        for (let ch = 0; ch < audioBuf.numberOfChannels; ch++) {
+          const data = audioBuf.getChannelData(ch)
+          const m = measureFloat32PeakRms(data)
+          if (m.peak > peak) peak = m.peak
+          // Accumulate approx RMS across channels
+          for (let i = 0; i < data.length; i++) {
+            sumSq += data[i] * data[i]
+            n++
+          }
+        }
+        return { peak, rms: n ? Math.sqrt(sumSq / n) : 0 }
+      } catch {
+        return { peak: 0, rms: 0, decodeFailed: true }
+      }
+    }
+
+    /**
+     * N1: LOG-ONLY before POST local-transcribe.
+     * Never throws SILENCE_ERROR_ES / AirPods text. Helpers (isSilentPreflight) remain for tests only.
+     */
+    async function assertNotSilentBeforeLocalTranscribe(blob, durationSec) {
+      const meta = silenceErrorMeta(blob, lastMicDeviceLabel)
+      const size = meta.blobSize
+      let peakAbs
+      let rms
+      let decodeFailed
+      try {
+        const measured = await analyzeBlobPeakRms(blob)
+        peakAbs = measured.peak
+        rms = measured.rms
+        decodeFailed = measured.decodeFailed
+      } catch {
+        decodeFailed = true
+      }
+      console.warn('[abaco-voice] mic preflight log-only', {
+        blobSize: size,
+        durationSec,
+        deviceLabel: meta.deviceLabel,
+        peakAbs,
+        rms,
+        decodeFailed,
+      })
+      // N1: return — never throw SILENCE_ERROR_ES
     }
 
     function recorderStop() {
@@ -249,7 +649,15 @@ window.__ModuleLoader__.load({
         id: 'web-speech-stt',
         kind: 'stt',
         label: 'Web Speech (browser)',
-        capabilities: { languages: 'system-dependent', requiresKey: false, offline: 'partial', costPerMinute: 0 },
+        // live: true → MicButton drives SpeechRecognition while pressed.
+        // MediaRecorder + blob.transcribe: local-whisper / openai / deepgram.
+        capabilities: {
+          languages: 'system-dependent',
+          requiresKey: false,
+          offline: 'partial',
+          costPerMinute: 0,
+          live: true,
+        },
         configSchema: [
           {
             key: 'language',
@@ -260,35 +668,28 @@ window.__ModuleLoader__.load({
           { key: 'continuous', label: 'Continuous', type: 'boolean', default: false },
         ],
         defaultConfig: { language: 'es-ES', continuous: false },
-        transcribe(blob, opts) {
+        createRecognizer(opts) {
           const Ctor = typeof window !== 'undefined'
             ? (window.SpeechRecognition || window.webkitSpeechRecognition)
             : null
-          if (!Ctor) throw new Error('SpeechRecognition no está disponible en este navegador')
-          return new Promise((resolve, reject) => {
-            const rec = new Ctor()
-            rec.lang = (opts && opts.language) || 'es-ES'
-            rec.continuous = !!(opts && opts.continuous)
-            rec.interimResults = true
-            let finalText = ''
-            let settled = false
-            const finish = (err) => {
-              if (settled) return
-              settled = true
-              if (err) reject(err)
-              else resolve({ text: finalText.trim(), language: rec.lang })
-            }
-            rec.onresult = (e) => {
-              for (let i = e.resultIndex; i < e.results.length; i++) {
-                if (e.results[i].isFinal) finalText += e.results[i][0].transcript + ' '
-              }
-            }
-            rec.onerror = (e) => finish(new Error(`SpeechRecognition error: ${e.error || 'desconocido'}`))
-            rec.onend = () => finish(null)
-            rec.start()
-            // Safety net: never leave a recognizer hanging.
-            setTimeout(() => { try { rec.stop() } catch {} }, 60 * 1000)
-          })
+          if (!Ctor) {
+            throw new Error(
+              'SpeechRecognition no está disponible en este entorno (Electron). ' +
+              'Cambia el proveedor STT a Whisper local (macOS) en Ajustes → Voz.',
+            )
+          }
+          const rec = new Ctor()
+          rec.lang = (opts && opts.language) || 'es-ES'
+          rec.continuous = !!(opts && opts.continuous)
+          rec.interimResults = true
+          return rec
+        },
+        // Intentionally not blob-based — calling this means the mic path failed to detect live STT.
+        transcribe(_blob, _opts) {
+          throw new Error(
+            'web-speech-stt es live-only: usa SpeechRecognition mientras el mic está pulsado, ' +
+            'no MediaRecorder + blob.',
+          )
         },
       }
       registerProvider(tts)
@@ -332,7 +733,7 @@ window.__ModuleLoader__.load({
         ],
         defaultConfig: { model: 'gpt-4o-mini-tts', voice: 'alloy', speed: 1, instructions: '' },
         async synthesize(text, opts) {
-          if (!opts.apiKey) throw new Error('OpenAI API key required')
+          if (!opts.apiKey) throw new Error('Falta API key de OpenAI TTS. Pégala en Ajustes → Voz.')
           const res = await fetch('https://api.openai.com/v1/audio/speech', {
             method: 'POST',
             headers: {
@@ -379,7 +780,7 @@ window.__ModuleLoader__.load({
         ],
         defaultConfig: { model: 'whisper-1', language: '', prompt: '' },
         async transcribe(audioBlob, opts) {
-          if (!opts.apiKey) throw new Error('OpenAI API key required')
+          if (!opts.apiKey) throw new Error('Falta API key de OpenAI Whisper. Pégala en Ajustes → Voz. La clave DEEPSEEK de Modelos no sirve para STT.')
           const form = new FormData()
           form.append('file', audioBlob, 'audio.webm')
           form.append('model', opts.model || 'whisper-1')
@@ -556,6 +957,69 @@ window.__ModuleLoader__.load({
 
     // Deepgram STT (Nova-3).
     {
+
+    // Local Whisper (mlx_whisper / whisper CLI) — host Cordis route, on-device.
+    {
+      const LOCAL_TRANSCRIBE_PATH = '/api/abaco-voice.local-transcribe'
+      const LOCAL_STATUS_PATH = '/api/abaco-voice.local-status'
+      // 0.4.7: tiny removed from dropdown — sticky tiny always migrates to small-mlx
+      const localModels = [
+        { value: 'mlx-community/whisper-small-mlx', label: 'Small-MLX — default' },
+        { value: 'mlx-community/whisper-base-mlx', label: 'Base-MLX' },
+      ]
+      const localWhisper = {
+        id: 'local-whisper-stt',
+        kind: 'stt',
+        label: 'Whisper local (macOS)',
+        capabilities: {
+          languages: '99+ (modelo local)',
+          requiresKey: false,
+          offline: true,
+          costPerMinute: 0,
+          privacyNote: 'Audio stays on this Mac (mlx_whisper / whisper + ffmpeg).',
+        },
+        configSchema: [
+          { key: 'model', label: 'Model', type: 'select', options: localModels, default: 'mlx-community/whisper-small-mlx' },
+          { key: 'language', label: 'Language', type: 'text', placeholder: 'es, en, …' },
+        ],
+        defaultConfig: { model: 'mlx-community/whisper-small-mlx', language: 'es' },
+        async transcribe(audioBlob, opts) {
+          const model = resolveLocalWhisperModel((opts && opts.model) || DEFAULT_LOCAL_MODEL)
+          const language = (opts && opts.language) || DEFAULT_LOCAL_LANGUAGE || 'es'
+          const q = new URLSearchParams({
+            filename: 'audio.webm',
+            model: String(model),
+            language: String(language),
+          })
+          const res = await fetch(
+            `${window.location.origin}${LOCAL_TRANSCRIBE_PATH}?${q}`,
+            {
+              method: 'POST',
+              headers: { 'content-type': audioBlob.type || 'audio/webm' },
+              body: audioBlob,
+            },
+          )
+          let payload = null
+          try { payload = await res.json() } catch {}
+          if (!res.ok || !payload || payload.ok !== true) {
+            throw new Error(
+              (payload && payload.error) ||
+              `Whisper local falló (HTTP ${res.status}). Instala mlx-whisper + ffmpeg y reinicia la app.`,
+            )
+          }
+          return {
+            text: payload.text || '',
+            language,
+            segments: [],
+            duration: undefined,
+            meta: payload.meta || { offline: true },
+          }
+        },
+      }
+      localWhisper.__statusPath = LOCAL_STATUS_PATH
+      registerProvider(localWhisper)
+    }
+
       const deepgram = {
         id: 'deepgram-stt',
         kind: 'stt',
@@ -631,13 +1095,13 @@ window.__ModuleLoader__.load({
 
     let abacoCtx = null
 
-    // NOTE: do not read ctx.abaco.* — Cordis rejects accessing undeclared ctx
-    // properties ("cannot get property ... without inject"). The store falls
-    // back to window.__abaco_ctx and then to a localStorage shim below.
+    // NOTE: never read properties off the Cordis `ctx` proxy (including
+    // window.__abaco_ctx if it still points at one). Accessing undeclared
+    // keys throws "cannot get property … without inject" and kills the
+    // composer. Voice config persists only through this plain shim / bag.
     function resolveStore() {
-      const legacy = typeof window !== 'undefined' && window.__abaco_ctx && window.__abaco_ctx.store
-      if (legacy && typeof legacy.get === 'function') return legacy
-      // localStorage-backed shim (same key contract).
+      const bag = typeof window !== 'undefined' ? window.__abaco_voice_store : null
+      if (bag && typeof bag.get === 'function' && typeof bag.set === 'function') return bag
       const KEY = 'abaco-voice:fallback-store'
       let cache = null
       const read = () => {
@@ -648,11 +1112,13 @@ window.__ModuleLoader__.load({
       const persist = () => {
         try { window.localStorage.setItem(KEY, JSON.stringify(cache || {})) } catch {}
       }
-      return {
+      const shim = {
         async get(k) { return read()[k] != null ? read()[k] : null },
         async set(k, v) { read()[k] = v; persist() },
         async delete(k) { delete read()[k]; persist() },
       }
+      if (typeof window !== 'undefined') window.__abaco_voice_store = shim
+      return shim
     }
 
     async function ensureDisclosureAccepted(provider) {
@@ -689,61 +1155,263 @@ window.__ModuleLoader__.load({
 
     // ── Mic button (composer left accessory) ─────────────────────────────
 
+    function speechRecognitionAvailable() {
+      return typeof window !== 'undefined' &&
+        !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+    }
+
+    function isLiveSttProvider(provider) {
+      if (!provider) return false
+      // Electron has no SpeechRecognition — never take the live path there.
+      if (!speechRecognitionAvailable()) return false
+      if (provider.id === 'web-speech-stt') return true
+      return !!(provider.capabilities && provider.capabilities.live)
+    }
+
+    function providerConfigOf(cfg, providerId) {
+      if (!cfg || !cfg.providers || !providerId) return {}
+      return cfg.providers[providerId] || {}
+    }
+
+    function providerHasApiKey(cfg, provider) {
+      if (!provider) return false
+      const needs = !!(provider.capabilities && provider.capabilities.requiresKey)
+      if (!needs) return true
+      const key = providerConfigOf(cfg, provider.id).apiKey
+      return typeof key === 'string' && key.trim().length > 0
+    }
+
+    /** Spanish gate: Electron blob STT needs OpenAI/Deepgram key (DEEPSEEK model key ≠ Whisper). */
+    function missingSttKeyError(provider) {
+      const label = provider && provider.label ? provider.label : 'OpenAI Whisper / Deepgram'
+      return (
+        `Falta API key de ${label}. ` +
+        'Pégala en Ajustes → Voz (providers). ' +
+        'La clave DEEPSEEK de Modelos no sirve para STT.'
+      )
+    }
+
+    function pickBlobSttProvider(cfg) {
+      const preferred = ['local-whisper-stt', 'openai-stt', 'deepgram-stt', 'deepgram']
+      const ordered = []
+      if (cfg && cfg.sttProvider) ordered.push(cfg.sttProvider)
+      for (const id of preferred) if (!ordered.includes(id)) ordered.push(id)
+      let firstCapable = null
+      for (const id of ordered) {
+        const p = getProvider(id)
+        if (!p || typeof p.transcribe !== 'function') continue
+        if (p.id === 'web-speech-stt') continue
+        if (!firstCapable) firstCapable = p
+        if (providerHasApiKey(cfg, p)) return p
+      }
+      return firstCapable
+    }
+
+    function assertBlobSttReady(cfg, provider) {
+      if (!provider || typeof provider.transcribe !== 'function') {
+        throw new Error(
+          'SpeechRecognition no existe en Electron. Usa «Whisper local (macOS)» ' +
+          '(mlx_whisper + ffmpeg) o configura OpenAI/Deepgram en Ajustes → Voz.',
+        )
+      }
+      if (!providerHasApiKey(cfg, provider)) {
+        throw new Error(missingSttKeyError(provider))
+      }
+    }
+
     function MicButton({ onInsert }) {
       const [state, setState] = React.useState('idle') // idle | recording | transcribing | error
       const [error, setError] = React.useState(null)
       const [duration, setDuration] = React.useState(0)
+      const [micChip, setMicChip] = React.useState(null) // optional «Mic del Mac»
       const timerRef = React.useRef(null)
+      const liveRecRef = React.useRef(null)
+      const liveTextRef = React.useRef('')
+      const liveModeRef = React.useRef(false)
 
       React.useEffect(() => () => {
         if (timerRef.current) clearInterval(timerRef.current)
+        if (liveRecRef.current) {
+          try { liveRecRef.current.abort() } catch {}
+          try { liveRecRef.current.stop() } catch {}
+          liveRecRef.current = null
+        }
       }, [])
+
+      const stopLiveRecognition = () => new Promise((resolve) => {
+        const rec = liveRecRef.current
+        if (!rec) {
+          resolve(liveTextRef.current.trim())
+          return
+        }
+        let settled = false
+        const finish = () => {
+          if (settled) return
+          settled = true
+          liveRecRef.current = null
+          resolve(liveTextRef.current.trim())
+        }
+        const prevEnd = rec.onend
+        rec.onend = (ev) => {
+          try { if (typeof prevEnd === 'function') prevEnd(ev) } catch {}
+          finish()
+        }
+        try { rec.stop() } catch { finish() }
+        setTimeout(finish, 1500)
+      })
 
       const onClick = async () => {
         setError(null)
         try {
           if (state === 'recording') {
             setState('transcribing')
-            const stopped = await recorderStop()
             clearInterval(timerRef.current)
             setDuration(0)
-            if (stopped) await transcribe(stopped.blob)
+            if (liveModeRef.current) {
+              const textOut = await stopLiveRecognition()
+              liveModeRef.current = false
+              if (textOut) onInsert(textOut)
+              else {
+                setError('No se capturó texto. Habla mientras el mic está activo, o usa OpenAI/Deepgram.')
+                setState('error')
+                return
+              }
+              setState('idle')
+              return
+            }
+            const stopped = await recorderStop()
+            if (stopped) await transcribeBlob(stopped.blob, stopped.duration)
             setState('idle')
             return
           }
           const store = resolveStore()
           const cfg = await loadConfig(store)
-          const provider = getProvider(cfg.sttProvider)
+          let provider = getProvider(cfg.sttProvider)
           if (!provider) throw new Error('STT provider not configured')
+
+          // Electron: skip live SpeechRecognition; force MediaRecorder + cloud STT.
+          if (!isLiveSttProvider(provider)) {
+            const blobProvider = provider.id === 'web-speech-stt'
+              ? pickBlobSttProvider(cfg)
+              : (typeof provider.transcribe === 'function' ? provider : pickBlobSttProvider(cfg))
+            if (!blobProvider) {
+              throw new Error(
+                'SpeechRecognition no existe en Electron. Configura OpenAI Whisper o Deepgram ' +
+                'en Ajustes → Voz (API key) para transcribir con MediaRecorder.',
+              )
+            }
+            provider = blobProvider
+          }
+
           await ensureDisclosureAccepted(provider)
-          await recorderStart()
+          const provCfg = cfg.providers[provider.id] || {}
+
+          if (isLiveSttProvider(provider) && typeof provider.createRecognizer === 'function') {
+            liveTextRef.current = ''
+            liveModeRef.current = true
+            const rec = provider.createRecognizer(provCfg)
+            rec.onresult = (e) => {
+              for (let i = e.resultIndex; i < e.results.length; i++) {
+                const piece = e.results[i][0] && e.results[i][0].transcript ? e.results[i][0].transcript : ''
+                if (e.results[i].isFinal) liveTextRef.current += piece + ' '
+              }
+            }
+            rec.onerror = (e) => {
+              const msg = e && e.error ? e.error : 'desconocido'
+              if (msg === 'aborted' || msg === 'no-speech') return
+              setError(`SpeechRecognition error: ${msg}`)
+              setState('error')
+            }
+            liveRecRef.current = rec
+            rec.start()
+            setState('recording')
+            setDuration(0)
+            timerRef.current = setInterval(() => setDuration((d) => d + 0.1), 100)
+            return
+          }
+
+          // MediaRecorder → provider.transcribe(blob) → setDraft (+ submit)
+          liveModeRef.current = false
+          assertBlobSttReady(cfg, provider)
+          // Remember which blob provider to use on stop (may differ from saved cfg).
+          liveRecRef.current = { __blobProviderId: provider.id }
+          const micInfo = await recorderStart()
+          setMicChip(micInfo && micInfo.isBuiltin ? MIC_DEL_MAC_CHIP : null)
           setState('recording')
           setDuration(0)
           timerRef.current = setInterval(() => setDuration((d) => d + 0.1), 100)
         } catch (e) {
+          liveModeRef.current = false
+          liveRecRef.current = null
           setError(e && e.message ? e.message : String(e))
           setState('error')
         }
       }
 
-      async function transcribe(blob) {
+      async function transcribeBlob(blob, durationSec) {
         const store = resolveStore()
         const cfg = await loadConfig(store)
-        const provider = getProvider(cfg.sttProvider)
+        const forcedId = liveRecRef.current && liveRecRef.current.__blobProviderId
+        liveRecRef.current = null
+        let provider = forcedId ? getProvider(forcedId) : getProvider(cfg.sttProvider)
+        if (!provider || typeof provider.transcribe !== 'function') {
+          provider = pickBlobSttProvider(cfg)
+        }
         if (!provider) throw new Error('STT provider not configured')
         const provCfg = cfg.providers[provider.id] || {}
         try {
+          // N4: empty/short blob → «Sin audio grabado» (≠ AirPods). Else always POST Whisper.
+          if (!blob || blob.size === 0 || !(Number(durationSec) >= EMPTY_AUDIO_MIN_DURATION_S)) {
+            throw new Error(EMPTY_AUDIO_ERROR_ES)
+          }
+          // N1: log-only preflight (never throw SILENCE_ERROR_ES).
+          if (provider.id === 'local-whisper-stt') {
+            await assertNotSilentBeforeLocalTranscribe(blob, durationSec)
+          }
           const result = await provider.transcribe(blob, provCfg)
-          if (result && result.text) onInsert(result.text)
+          if (result && result.text) {
+            // C3: reject Whisper filler loops before setDraft / onInsert.
+            if (provider.id === 'local-whisper-stt' && isWhisperHallucination(result.text)) {
+              setError(HALLUCINATION_ERROR_ES)
+              setState('error')
+              return
+            }
+            onInsert(result.text)
+          }
+          else {
+            const isLocal = provider && provider.id === 'local-whisper-stt'
+            const meta = silenceErrorMeta(blob, lastMicDeviceLabel)
+            if (isLocal) {
+              console.error('[abaco-voice] empty local transcript', meta)
+            }
+            setError(
+              isLocal
+                ? 'Whisper local: transcripción vacía (sin voz detectada o modelo inválido). Habla cerca del micrófono; usa small-mlx / base-mlx en cache. No es API key.'
+                : 'Transcripción vacía — revisa API key / audio.',
+            )
+            setState('error')
+          }
         } catch (e) {
-          setError(e && e.message ? e.message : String(e))
+          const msg = e && e.message ? e.message : String(e)
+          if (msg === EMPTY_AUDIO_ERROR_ES || (e && e.meta)) {
+            console.error('[abaco-voice] mic empty/meta', e.meta || silenceErrorMeta(blob, lastMicDeviceLabel))
+          }
+          setError(msg)
           setState('error')
         }
       }
 
       const onCancel = () => {
         clearInterval(timerRef.current)
-        recorderCancel()
+        if (liveModeRef.current && liveRecRef.current) {
+          try { liveRecRef.current.abort() } catch {}
+          try { liveRecRef.current.stop() } catch {}
+          liveRecRef.current = null
+          liveModeRef.current = false
+          liveTextRef.current = ''
+        } else {
+          recorderCancel()
+        }
         setState('idle')
         setDuration(0)
       }
@@ -763,7 +1431,7 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+        { style: { display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', maxWidth: 280 } },
         h('button', {
           type: 'button',
           'aria-label': state === 'recording' ? 'Detener grabación' : 'Transcribir voz',
@@ -775,6 +1443,15 @@ window.__ModuleLoader__.load({
             fontSize: 14, fontWeight: 500, ...styles[state],
           },
         }, label),
+        micChip && h('span', {
+          'data-abaco-mic-chip': 'mac',
+          title: lastMicDeviceLabel || micChip,
+          style: {
+            fontSize: 10, lineHeight: 1.2, padding: '2px 6px', borderRadius: 999,
+            background: 'var(--abaco-bg-2)', color: 'var(--abaco-fg-2)',
+            border: '1px solid var(--abaco-border)', whiteSpace: 'nowrap',
+          },
+        }, micChip),
         state === 'recording' && h('button', {
           type: 'button',
           'aria-label': 'Cancelar',
@@ -784,18 +1461,89 @@ window.__ModuleLoader__.load({
             background: 'transparent', color: 'var(--abaco-fg-2)', border: 'none', fontSize: 14,
           },
         }, '×'),
+        error && h('span', {
+          role: 'alert',
+          style: {
+            display: 'block', flex: '1 1 100%', fontSize: 11,
+            color: 'var(--abaco-danger, #F87171)', lineHeight: 1.3,
+          },
+        }, error),
       )
+    }
+
+    function resolveSetDraft(props) {
+      const inputActions = props && props.inputActions
+      if (inputActions && typeof inputActions.setDraft === 'function') {
+        return { setDraft: inputActions.setDraft.bind(inputActions), actions: inputActions, source: 'inputActions.setDraft' }
+      }
+      if (props && typeof props.setDraft === 'function') {
+        return { setDraft: props.setDraft, actions: inputActions || null, source: 'props.setDraft' }
+      }
+      if (props && props.input && typeof props.input.setDraft === 'function') {
+        return { setDraft: props.input.setDraft.bind(props.input), actions: inputActions || null, source: 'input.setDraft' }
+      }
+      const win = typeof window !== 'undefined' ? window : null
+      // Plain bag only — never win.__abaco_ctx.* (Cordis proxy → without inject).
+      const bridge = win && win.__abaco_inputActions
+      if (bridge && typeof bridge.setDraft === 'function') {
+        return { setDraft: bridge.setDraft.bind(bridge), actions: bridge, source: 'window.__abaco_inputActions' }
+      }
+      return null
     }
 
     function AbacoMicButton(props) {
       const draft = currentDraft(props)
-      const inputActions = props && props.inputActions
-      const canWrite = inputActions && typeof inputActions.setDraft === 'function'
+      const draftRef = React.useRef(draft)
+      draftRef.current = draft
+      const [writeError, setWriteError] = React.useState(null)
+
+      React.useEffect(() => {
+        const actions = props && props.inputActions
+        if (actions && typeof actions.setDraft === 'function' && typeof window !== 'undefined') {
+          window.__abaco_inputActions = actions
+        }
+      }, [props && props.inputActions])
+
       const onInsert = (text) => {
-        if (!canWrite) return
-        inputActions.setDraft(draft ? `${draft} ${text}` : text)
+        setWriteError(null)
+        const trimmed = String(text || '').trim()
+        if (!trimmed) return
+        const resolved = resolveSetDraft(props)
+        if (!resolved) {
+          const msg = 'No se puede escribir en el borrador: setDraft no disponible (inputActions ausente).'
+          setWriteError(msg)
+          console.error('abaco-voice:', msg)
+          return
+        }
+        const current = draftRef.current || ''
+        const next = current ? `${current} ${trimmed}` : trimmed
+        try {
+          resolved.setDraft(next)
+        } catch (e) {
+          const msg = e && e.message ? e.message : String(e)
+          setWriteError(`setDraft falló (${resolved.source}): ${msg}`)
+          return
+        }
+        // mic submit: call submit/send when the composer exposes it; else setDraft is enough.
+        const actions = resolved.actions
+        if (actions) {
+          if (typeof actions.submit === 'function') {
+            try { actions.submit() } catch (e) { console.warn('abaco-voice mic submit failed:', e) }
+          } else if (typeof actions.send === 'function') {
+            try { actions.send() } catch (e) { console.warn('abaco-voice mic send failed:', e) }
+          }
+        }
       }
-      return h(MicButton, { onInsert: canWrite ? onInsert : () => {} })
+
+      return h(
+        'div',
+        { style: { display: 'inline-flex', flexDirection: 'column', gap: 2 } },
+        h(MicButton, { onInsert }),
+        writeError && h('span', {
+          role: 'alert',
+          style: { fontSize: 11, color: 'var(--abaco-danger, #F87171)', maxWidth: 220, lineHeight: 1.3 },
+        }, writeError),
+      )
     }
 
     // ── Speak button (per assistant message) ─────────────────────────────
@@ -1070,8 +1818,13 @@ window.__ModuleLoader__.load({
     const inject = ['slots']
 
     function apply(ctx) {
+      // Keep a handle for tests only — never expose the Cordis proxy on window
+      // (reading .store / .inputActions throws "without inject" in the composer).
       abacoCtx = ctx
-      window.__abaco_ctx = ctx
+      if (typeof window !== 'undefined') {
+        delete window.__abaco_ctx
+        resolveStore()
+      }
 
       // Mic button → conversation.input.left (list / session)
       ctx.slots.inject('conversation.input.left', () =>

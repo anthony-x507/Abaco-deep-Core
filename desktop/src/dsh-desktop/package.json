@@ -1,6 +1,6 @@
 {
   "name": "abaco-deep-harnes",
-  "version": "0.4.0",
+  "version": "0.4.13",
   "description": "ABACO DEEP HARNES — the ABACO desktop shell and agent harness client (cross-platform).",
   "private": true,
   "type": "module",
@@ -279,12 +279,15 @@
     "abaco-brand": "file:packages/abaco-brand",
     "abaco-device-identity": "file:packages/abaco-device-identity",
     "abaco-voice": "file:packages/abaco-voice",
+    "abaco-effect-broker": "file:packages/abaco-effect-broker",
+    "abaco-mediacion-pilot": "file:packages/abaco-mediacion-pilot",
     "abaco-documents": "file:packages/abaco-documents",
     "abaco-agent-status": "file:packages/abaco-agent-status",
     "abaco-browser": "file:packages/abaco-browser",
     "abaco-context": "file:packages/abaco-context",
     "abaco-memory": "file:packages/abaco-memory",
     "abaco-vault": "file:packages/abaco-vault",
+    "abaco-observability": "file:packages/abaco-observability",
     "abaco-cloud-sync": "file:packages/abaco-cloud-sync",
     "abaco-onboarding": "file:packages/abaco-onboarding",
     "abaco-experimental": "file:packages/abaco-experimental",
@@ -368,14 +371,6 @@
         "to": "splash.html"
       },
       {
-        "from": "build/dsh-loader.gif",
-        "to": "dsh-loader.gif"
-      },
-      {
-        "from": "build/dsh-loader-dark.gif",
-        "to": "dsh-loader-dark.gif"
-      },
-      {
         "from": "build/plugin-recovery.html",
         "to": "plugin-recovery.html"
       },
@@ -394,10 +389,9 @@
     ],
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download",
-        "channel": "latest",
-        "useMultipleRangeRequest": false
+        "provider": "github",
+        "owner": "anthony-x507",
+        "repo": "Abaco-deep-Core"
       }
     ],
     "detectUpdateChannel": false,
@@ -417,7 +411,10 @@
       "target": [
         "dmg",
         "zip"
-      ]
+      ],
+      "notarize": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "dmg": {
       "format": "UDBZ"

@@ -13,10 +13,10 @@ window.__ModuleLoader__.load({
       pluginSandboxRelaxed: false,
     }
 
-    function apply(ctx) {
-      const store = ctx.abaco?.store
-      ctx.abaco = ctx.abaco || {}
-      ctx.abaco.features = {
+    function apply(_ctx) {
+      const bag = (typeof window !== 'undefined' && (window.__abaco_services = window.__abaco_services || {})) || {}
+      const store = bag.store
+      bag.features = {
         async list() {
           if (!store) return DEFAULTS
           const raw = await store.get(FEATURES_KEY)
@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
         },
         async set(key, value) {
           if (!store) return
-          const cur = await ctx.abaco.features.list()
+          const cur = await bag.features.list()
           const next = { ...cur, [key]: !!value }
           await store.set(FEATURES_KEY, JSON.stringify(next))
           return next

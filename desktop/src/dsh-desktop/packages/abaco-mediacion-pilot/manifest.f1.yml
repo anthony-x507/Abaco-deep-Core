@@ -1,0 +1,13 @@
+id: abaco-mediacion-pilot
+tier_isolation: T3-lite
+caps:
+  effects: [proc.spawn, fs.read, fs.write]
+  resources:
+    - bin:mlx_whisper
+    - bin:whisper
+    - bin:ffmpeg
+    - fs:tmpdir
+  trust_ceiling: user
+admission:
+  inject: []
+  note: "Executor cell only — grants owned by route identity abaco-voice + broker."

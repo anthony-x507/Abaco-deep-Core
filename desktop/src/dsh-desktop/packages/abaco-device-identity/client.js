@@ -10,15 +10,14 @@ window.__ModuleLoader__.load({
     // process on boot. This plugin just reads it.
     const DEVICE_GLOBAL = '__ABACO_DEVICE__'
 
-    function apply(ctx) {
-      // expose identity read helpers on the ctx so other plugins can call them
-      ctx.abaco = ctx.abaco || {}
-      ctx.abaco.getDevice = () => {
+    function apply(_ctx) {
+      // Cordis forbids undeclared ctx.* without inject ("cannot get property …
+      // without inject"). Publish helpers on a plain window bag instead.
+      const bag = (typeof window !== 'undefined' && (window.__abaco_services = window.__abaco_services || {})) || {}
+      bag.getDevice = () => {
         if (typeof window !== 'undefined' && window[DEVICE_GLOBAL]) return window[DEVICE_GLOBAL]
         return null
       }
-      // simple in-renderer secure-store shim (uses localStorage encrypted by
-      // app-level secret). Real production version will route through Host IPC.
       const inMemoryStore = new Map()
       const localKey = 'abaco-device-store'
       let persisted = {}
@@ -28,7 +27,7 @@ window.__ModuleLoader__.load({
 
       for (const [k, v] of Object.entries(persisted)) inMemoryStore.set(k, v)
 
-      ctx.abaco.store = {
+      bag.store = {
         async get(key) {
           return inMemoryStore.get(key) ?? null
         },

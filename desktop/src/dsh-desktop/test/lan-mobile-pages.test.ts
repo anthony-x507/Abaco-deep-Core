@@ -85,7 +85,7 @@ describe('LAN mobile page', () => {
     expect(html).toContain('id="todoDock" class="todo-dock"')
     expect(html).toContain('function updateTodos(projections)')
     expect(html).toContain('projections?.values?.todos')
-    expect(html).toContain('Deep diving...</div>')
+    expect(html).toContain('diving in...</div>')
     expect(html).toContain("box.innerHTML=messages.map(renderMessage).join('')+status")
     expect(html).not.toContain('id="turnStatus"')
     expect(html).toContain('.messages .turn-status{align-self:flex-start;flex:none;margin:3px 4px}')

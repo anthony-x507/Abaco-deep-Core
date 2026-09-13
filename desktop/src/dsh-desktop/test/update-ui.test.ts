@@ -2,10 +2,14 @@ import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import type { UpdateStatus } from '../src/shared/contracts'
 import {
+  checkForUpdatesLabel,
+  detectUpdateLocale,
   isUpdateDismissed,
   shouldShowUpdate,
   updateHeadline,
-  updateMessage
+  updateLaterLabel,
+  updateMessage,
+  updateNowLabel
 } from '../src/preload/update-view'
 
 const downloading: UpdateStatus = {
@@ -113,9 +117,52 @@ describe('about dialog and version selection wiring', () => {
     expect(main).toContain("window.webContents.send('desktop:show-about', info)")
     expect(preload).toContain("ipcRenderer.on('desktop:show-about'")
     expect(preload).toContain("zh ? '选择版本' : 'Select version'")
-    expect(preload).toContain("zh ? '检查更新' : 'Check for updates'")
+    expect(preload).toContain('checkForUpdatesLabel(locale)')
     expect(preload).toContain("button('×', 'about-close')")
     expect(preload).toContain('mountAbout()')
   })
 })
 
+describe('updater DoD labels (Ahora / Más tarde / Buscar)', () => {
+  it('exposes ES+EN (and zh) action strings for the banner and settings', () => {
+    expect(updateNowLabel('es')).toBe('Actualizar ahora')
+    expect(updateLaterLabel('es')).toBe('Más tarde')
+    expect(checkForUpdatesLabel('es')).toBe('Buscar updates')
+    expect(updateNowLabel('en')).toBe('Update now')
+    expect(updateLaterLabel('en')).toBe('Later')
+    expect(checkForUpdatesLabel('en')).toBe('Check for updates')
+    expect(detectUpdateLocale('es-MX')).toBe('es')
+    expect(detectUpdateLocale('en-US')).toBe('en')
+  })
+})
+
+describe('updater banner wires download then install without new IPC', () => {
+  it('uses updateNow/Later helpers and existing updates:* channels only', async () => {
+    const preload = await readFile('src/preload/index.ts', 'utf8')
+    expect(preload).toContain('updateNowLabel(locale)')
+    expect(preload).toContain('updateLaterLabel(locale)')
+    expect(preload).toContain('checkForUpdatesLabel(locale)')
+    expect(preload).toContain('installWhenReady = true')
+    expect(preload).toContain("ipcRenderer.invoke('updates:download')")
+    expect(preload).toContain("ipcRenderer.invoke('updates:install')")
+    expect(preload).toContain("ipcRenderer.invoke('updates:check')")
+
+    const channelMatches = preload.match(/ipcRenderer\.invoke\('(updates:[^']+)'/g) ?? []
+    const channels = [
+      ...new Set(
+        [...preload.matchAll(/ipcRenderer\.invoke\('(updates:[^']+)'/g)].map((m) => m[1]!)
+      )
+    ]
+    const allowed = [
+      'updates:check',
+      'updates:status',
+      'updates:download',
+      'updates:install',
+      'updates:skip',
+      'updates:install-version',
+      'updates:list-versions'
+    ]
+    expect(channels.length).toBeGreaterThan(0)
+    expect(channels.every((c) => allowed.includes(c))).toBe(true)
+  })
+})

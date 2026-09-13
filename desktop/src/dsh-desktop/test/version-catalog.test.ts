@@ -3,13 +3,27 @@ import {
   archiveFeedUrl,
   compareVersions,
   fetchAvailableReleases,
+  GITHUB_STABLE_FEED,
+  GITHUB_UPDATE_OWNER,
+  GITHUB_UPDATE_REPO,
   parseVersionIndex,
   STABLE_FEED_URL,
   VERSION_INDEX_URL
 } from '../src/main/update/version-catalog'
 
 describe('version-catalog constants', () => {
-  it('points the stable feed and index at the ABACO GitHub release feed', () => {
+  it('uses GitHub Releases provider for the stable updater channel (not generic)', () => {
+    expect(GITHUB_STABLE_FEED).toEqual({
+      provider: 'github',
+      owner: 'anthony-x507',
+      repo: 'Abaco-deep-Core'
+    })
+    expect(GITHUB_UPDATE_OWNER).toBe('anthony-x507')
+    expect(GITHUB_UPDATE_REPO).toBe('Abaco-deep-Core')
+    expect(GITHUB_STABLE_FEED.provider).not.toBe('generic')
+  })
+
+  it('keeps the archive/index URLs on the ABACO GitHub release assets path', () => {
     expect(STABLE_FEED_URL).toBe(
       'https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download'
     )

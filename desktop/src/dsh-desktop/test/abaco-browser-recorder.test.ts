@@ -521,9 +521,9 @@ describe('ABACO browser recorder session (F2)', () => {
         notes: 'y=160'
       })
     )
-    // A new document finished loading: the listeners are re-injected.
+    // A new document finished loading: force re-attach (uninstall + install).
     await recorder.noteDomReady()
-    expect(fake.evaluated).toHaveLength(2)
+    expect(fake.evaluated).toHaveLength(3)
 
     clock += 1000
     const result = await recorder.stop()
@@ -589,7 +589,9 @@ describe('ABACO browser recorder session (F2)', () => {
     await expect(readFile(document.screenshots.initial ?? '', 'utf8')).resolves.toBe('fake-png-bytes')
 
     // The page half is torn down, and the status reads back the finished session.
-    expect(fake.evaluated[2]).toContain('__abacoRecorder')
+    // start install + noteDomReady(uninstall,install) + stop uninstall
+    expect(fake.evaluated.length).toBeGreaterThanOrEqual(4)
+    expect(fake.evaluated[fake.evaluated.length - 1]).toContain('__abacoRecorder')
     const status = recorder.status()
     expect(status.recording).toBe(false)
     expect(status.actionCount).toBe(8)

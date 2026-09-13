@@ -19,17 +19,29 @@ import {
   ABACO_BROWSER_TAKEOVER_MESSAGE,
   ABACO_BROWSER_THEME_CHANGED_CHANNEL,
   ABACO_BROWSER_WAIT_FOR_MAX_TIMEOUT_MS,
+  ABACO_BROWSER_DEFAULT_PLACEMENT,
+  ABACO_BROWSER_OPENED_CHANNEL,
+  ABACO_BROWSER_CLOSED_CHANNEL,
+  ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL,
   ABACO_BROWSER_WAIT_FOR_TIMEOUT_MS,
+  buildSkillHandoffMarkdown,
+  computeAbacoBrowserSyncBounds,
   abacoBrowserShortcutFor,
+  isAbacoBrowserPlacement,
+  isAbacoBrowserPanelHostBounds,
   isHttpUrl,
   normalizeBrowserUrl,
   type AbacoBrowserChromeState,
   type AbacoBrowserClickResult,
   type AbacoBrowserDomReading,
   type AbacoBrowserMode,
+  type AbacoBrowserPanelHostBounds,
+  type AbacoBrowserPlacement,
   type AbacoBrowserRecordingResult,
   type AbacoBrowserRecordingStatus,
   type AbacoBrowserScreenshot,
+  type AbacoBrowserScreenRecordingResult,
+  type AbacoBrowserScreenRecordingStatus,
   type AbacoBrowserShortcut,
   type AbacoBrowserState,
   type AbacoBrowserTheme,
@@ -45,6 +57,8 @@ import {
   type PageElementRef
 } from './abaco-browser-page-scripts'
 import { AbacoBrowserRecorder, type AbacoBrowserRecorderPort } from './abaco-browser-recorder'
+import { AbacoBrowserScreenRecorder } from './abaco-browser-screen-recorder'
+import { writeBrowserSkillFromRecording } from './abaco-browser-skill-writer'
 
 /**
  * Clamp a caller-supplied budget to a sane range.
@@ -69,10 +83,26 @@ export interface AbacoBrowserViewPaths {
    * passes it in because only main may touch `app.getPath`.
    */
   recordingsDir: string
+  /**
+   * Where screen recordings are written:
+   * `<userData>/abaco-browser/screen-recordings`.
+   */
+  screenRecordingsDir: string
+  /**
+   * Where F3 / P1 auto-save writes `SKILL.md`:
+   * `<DSH_HOME>/skills`.
+   */
+  skillsDir: string
+  /**
+   * Called when a preload in this overlay fails to load. Main owns the harness
+   * log, so the controller reports the failure instead of deciding what to do
+   * with it. Optional: the overlay still runs without a listener.
+   */
+  onPreloadError?: (preloadPath: string, error: unknown) => void
 }
 
 /**
- * Full-window web browser overlay for the main ABACO DEEP HARNES window.
+ * Right-side / details-column web browser panel for the main ABACO DEEP HARNES window (P1).
  *
  * The Harness chat stays exactly where it is: it keeps being the window's own
  * `webContents` and is never re-parented, reloaded or otherwise touched. The
@@ -89,13 +119,11 @@ export interface AbacoBrowserViewPaths {
  *   - `chromeBarView` — the local `abaco-browser-chrome.html` strip. It is added
  *                    last, so child-view stacking paints it above the page.
  *
- * F0 geometry decision: the page view covers the entire content rect and the
- * opaque chrome strip is laid over its first {@link ABACO_BROWSER_CHROME_HEIGHT}
- * rows. That keeps `syncBounds` a pure function of the window size (no per-view
- * arithmetic to get wrong on resize/fullscreen) and matches the requested
- * "covers the whole window, chrome on top" behaviour. Keeping the page alive
- * under the strip is also the natural seam for F1+, where the strip may become
- * translucent or animate.
+ * P1 geometry: default {@link ABACO_BROWSER_DEFAULT_PLACEMENT} (`panel`) mounts
+ * page + chrome as a CARD top-right of the reserved host track (width 420–560,
+ * height 360–520, aspect ∈ [0.70, 1.30]; empty/no-mount without host). `overlay`
+ * restores the F0 full-window cover (launcher must not open it). The chrome
+ * strip still covers the card's first {@link ABACO_BROWSER_CHROME_HEIGHT} rows.
  *
  * `close()` only removes the overlay and destroys its views, so the launcher can
  * open it again; `dispose()` (bound to the window's `closed` event) is the
@@ -145,6 +173,11 @@ export class AbacoBrowserController {
   private chromeStateTimer: NodeJS.Timeout | undefined
   private lastChromeStateAt = 0
   private readonly recorder: AbacoBrowserRecorder
+  private readonly screenRecorder: AbacoBrowserScreenRecorder
+  /** P1 — `panel` (default) or full-window `overlay`. */
+  private placement: AbacoBrowserPlacement = ABACO_BROWSER_DEFAULT_PLACEMENT
+  /** Optional details-column rect reported by the harness page. */
+  private panelHostBounds: AbacoBrowserPanelHostBounds | null = null
 
   constructor(
     private readonly parent: BrowserWindow,
@@ -177,6 +210,11 @@ export class AbacoBrowserController {
       port,
       outputDir: paths.recordingsDir,
       log: (message) => console.warn(`[abaco-browser-recorder] ${message}`)
+    })
+    this.screenRecorder = new AbacoBrowserScreenRecorder({
+      parent: this.parent,
+      outputDir: paths.screenRecordingsDir,
+      log: (message) => console.warn(`[abaco-browser-screen] ${message}`)
     })
   }
 
@@ -211,10 +249,14 @@ export class AbacoBrowserController {
     if (this.isOpen()) {
       if (url !== undefined) this.navigate(url)
       this.focusPage()
+      this.notifyHarness(ABACO_BROWSER_OPENED_CHANNEL)
       return
     }
 
     const target = url === undefined ? ABACO_BROWSER_DEFAULT_URL : normalizeBrowserUrl(url)
+    // Abrir navegador must dock as panel; overlay is not reachable from the
+    // launcher (agent/tests may still call setPlacement('overlay') explicitly).
+    this.placement = ABACO_BROWSER_DEFAULT_PLACEMENT
     this.hardenBrowserSession()
 
     const pageView = new WebContentsView({
@@ -267,10 +309,14 @@ export class AbacoBrowserController {
     })
     pageContents.on('did-navigate', (_event, url) => {
       this.recorder.noteNavigation('did-navigate', url)
+      // D-C — re-attach click listeners after navigations (dom-ready alone misses
+      // some same-document / race cases; clicks must stay alive ≥5 times).
+      void this.recorder.noteDomReady()
     })
     pageContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
       if (!isMainFrame) return
       this.recorder.noteNavigation('did-navigate-in-page', url)
+      void this.recorder.noteDomReady()
     })
     // A new document means the recorder's listeners are gone with the old one.
     pageContents.on('dom-ready', () => {
@@ -306,6 +352,12 @@ export class AbacoBrowserController {
     })
     chromeBarView.setBackgroundColor('#00000000')
     chromeBarView.webContents.setZoomFactor(1)
+    // The strip renders a fully inert document and does all of its work in this
+    // preload, so a preload that fails to load leaves a visible but completely
+    // dead address bar with no other trace. Report it to the harness log.
+    chromeBarView.webContents.on('preload-error', (_event, preloadPath, error) => {
+      this.paths.onPreloadError?.(preloadPath, error)
+    })
 
     this.pageView = pageView
     this.chromeBarView = chromeBarView
@@ -333,6 +385,7 @@ export class AbacoBrowserController {
       .catch(this.reportLoadFailure)
     void pageContents.loadURL(target).catch(this.reportLoadFailure)
     this.focusPage()
+    this.notifyHarness(ABACO_BROWSER_OPENED_CHANNEL)
   }
 
   /** Unmount the overlay and destroy both views; the launcher can open it again. */
@@ -348,6 +401,13 @@ export class AbacoBrowserController {
         console.warn('[abaco-browser-recorder] could not save the recording on close:', error)
       })
     }
+    if (this.screenRecorder.isRecording()) {
+      void this.screenRecorder.abort().catch((error: unknown) => {
+        console.warn('[abaco-browser-screen] could not abort screen recording on close:', error)
+      })
+    }
+    this.panelHostBounds = null
+    this.placement = ABACO_BROWSER_DEFAULT_PLACEMENT
     if (this.chromeStateTimer !== undefined) {
       clearTimeout(this.chromeStateTimer)
       this.chromeStateTimer = undefined
@@ -373,6 +433,7 @@ export class AbacoBrowserController {
     if (!this.disposed && !this.parent.isDestroyed() && this.parent.isFocused()) {
       this.parent.webContents.focus()
     }
+    this.notifyHarness(ABACO_BROWSER_CLOSED_CHANNEL)
   }
 
   /** Load `url` in the overlay, assuming https when no scheme was typed. */
@@ -413,13 +474,115 @@ export class AbacoBrowserController {
 
   /**
    * Hand ownership to the agent or to the user. Called by the chrome bar's mode
-   * button through the F0 IPC surface; the agent cannot flip it (no RPC route
-   * touches it), which is what keeps a runaway tool from lifting its own gate.
+   * button through the F0 IPC surface and by the agent's
+   * `grab-control` / `release-control` RPC routes (same setter, two doors).
+   * The Harness *page* preload still has no `setMode`, so ordinary page script
+   * cannot flip ownership behind the user's back.
    */
   setBrowserMode(mode: AbacoBrowserMode): AbacoBrowserMode {
     this.mode = mode
     this.publishChromeState()
     return this.mode
+  }
+
+  /** Agent tool: take the wheel (`setBrowserMode('agent')`). Self-mounting. */
+  agentGrabControl(): AbacoBrowserState {
+    if (!this.isOpen()) this.open()
+    this.setBrowserMode('agent')
+    return this.agentState()
+  }
+
+  /** Agent tool: return the wheel to the user (`setBrowserMode('manual')`). */
+  agentReleaseControl(): AbacoBrowserState {
+    this.setBrowserMode('manual')
+    return this.agentState()
+  }
+
+  /* ──────────────────────────────────────────────────────────────────────────
+   * P1 — placement (right panel vs full-window overlay)
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  browserPlacement(): AbacoBrowserPlacement {
+    return this.placement
+  }
+
+  setPlacement(placement: AbacoBrowserPlacement): AbacoBrowserPlacement {
+    if (!isAbacoBrowserPlacement(placement)) {
+      throw new Error('ABACO browser placement must be "panel" or "overlay".')
+    }
+    this.placement = placement
+    this.syncBounds()
+    return this.placement
+  }
+
+  /**
+   * Harness page reports the reserved details-column host rect (DIP, content
+   * coords). Pass `null` to clear. Panel placement without a host paints an
+   * empty / no-mount rect — pin-derecha without reserved host is REVOKED.
+   */
+  reportPanelHostBounds(bounds: AbacoBrowserPanelHostBounds | null): void {
+    if (bounds === null) {
+      this.panelHostBounds = null
+      this.syncBounds()
+      return
+    }
+    if (!isAbacoBrowserPanelHostBounds(bounds)) {
+      throw new Error('ABACO browser panel host bounds must be { x, y, width, height } numbers.')
+    }
+    this.panelHostBounds = {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height
+    }
+    this.syncBounds()
+  }
+
+  /* ──────────────────────────────────────────────────────────────────────────
+   * P1 — desktopCapturer screen recording
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  /** Start capturing the ABACO window's pixels via desktopCapturer. */
+  async agentScreenRecordStart(): Promise<AbacoBrowserScreenRecordingStatus> {
+    this.requirePageContents()
+    const status = await this.screenRecorder.start()
+    this.publishChromeState()
+    return status
+  }
+
+  /**
+   * Stop capturing and notify the agent: the returned `notice` + `path` are the
+   * notification payload the tools surface in the tool result.
+   */
+  async agentScreenRecordStop(): Promise<AbacoBrowserScreenRecordingResult> {
+    const result = await this.screenRecorder.stop()
+    this.publishChromeState()
+    if (result.ok) {
+      const seconds =
+        typeof result.durationMs === 'number' ? Math.round(result.durationMs / 1000) : 0
+      const skillMarkdown = buildSkillHandoffMarkdown({
+        title: 'Screen recording',
+        actionDescriptions: [
+          seconds > 0
+            ? `Grabación de pantalla de ${seconds}s demostrando el flujo en la ventana ABACO.`
+            : 'Grabación de pantalla demostrando el flujo en la ventana ABACO.'
+        ],
+        skillPath: result.path,
+        recordingPath: result.path
+      })
+      const payload: AbacoBrowserScreenRecordingResult = {
+        ...result,
+        skillMarkdown,
+        kind: 'screen'
+      }
+      this.notifyHarness(ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL, payload)
+      return payload
+    }
+    return result
+  }
+
+  screenRecordingStatus(): AbacoBrowserScreenRecordingStatus {
+    return this.screenRecorder.status()
   }
 
   /* ──────────────────────────────────────────────────────────────────────────
@@ -448,7 +611,77 @@ export class AbacoBrowserController {
   async stopRecording(): Promise<AbacoBrowserRecordingResult> {
     const result = await this.recorder.stop()
     this.publishChromeState()
+    if (result.ok) {
+      await this.handoffF2SkillToAgent(result)
+    }
     return result
+  }
+
+  /**
+   * P1 D4 — after F2 recordStop, auto-save the skill and push markdown to the
+   * Harness page on the existing `screen-recording-stopped` channel so the
+   * client can `setDraft` + `submit` (disk-only is not enough).
+   */
+  private async handoffF2SkillToAgent(result: AbacoBrowserRecordingResult): Promise<void> {
+    try {
+      const saved = await writeBrowserSkillFromRecording({
+        recordingsDir: this.paths.recordingsDir,
+        skillsDir: this.paths.skillsDir,
+        ...(result.sessionId.length > 0 ? { recordingId: result.sessionId } : {})
+      })
+      const actionDescriptions =
+        saved.ok && Array.isArray(saved.actionDescriptions) && saved.actionDescriptions.length > 0
+          ? saved.actionDescriptions
+          : saved.ok && saved.description
+            ? [saved.description]
+            : ['Grabación de acciones del navegador (F2).']
+      const title = saved.ok && saved.name.length > 0 ? saved.name : 'browser-skill'
+      const skillPath = saved.ok ? saved.path : result.path
+      const skillMarkdown = buildSkillHandoffMarkdown({
+        title,
+        actionDescriptions,
+        skillPath,
+        recordingPath: result.path
+      })
+      const payload: AbacoBrowserScreenRecordingResult = {
+        ok: true,
+        path: result.path,
+        sessionId: result.sessionId,
+        durationMs: result.durationMs,
+        mimeType: 'application/json',
+        byteLength: 0,
+        notice: saved.ok
+          ? `Recording saved and skill "${saved.name}" written for the agent.`
+          : `Recording saved at ${result.path}; skill auto-save failed: ${saved.error}`,
+        skillMarkdown,
+        kind: 'f2-actions',
+        ...(saved.ok
+          ? { skillPath: saved.path, skillName: saved.name }
+          : {})
+      }
+      this.notifyHarness(ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL, payload)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const skillMarkdown = buildSkillHandoffMarkdown({
+        title: 'browser-skill',
+        actionDescriptions: [
+          `Grabación F2 con ${result.actionCount} acción(es). Auto-save del skill falló: ${message}`
+        ],
+        skillPath: result.path,
+        recordingPath: result.path
+      })
+      this.notifyHarness(ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL, {
+        ok: true,
+        path: result.path,
+        sessionId: result.sessionId,
+        durationMs: result.durationMs,
+        mimeType: 'application/json',
+        byteLength: 0,
+        notice: `Recording saved; skill handoff error: ${message}`,
+        skillMarkdown,
+        kind: 'f2-actions'
+      } satisfies AbacoBrowserScreenRecordingResult)
+    }
   }
 
   /** Live recording state; also reads back the last session once it has stopped. */
@@ -514,6 +747,7 @@ export class AbacoBrowserController {
    */
   agentState(): AbacoBrowserState {
     const contents = this.isOpen() ? this.pageView?.webContents : undefined
+    const screen = this.screenRecorder.status()
     if (!contents || contents.isDestroyed()) {
       return {
         open: false,
@@ -522,7 +756,9 @@ export class AbacoBrowserController {
         title: '',
         loading: false,
         canGoBack: false,
-        canGoForward: false
+        canGoForward: false,
+        screenRecording: screen.recording,
+        lastScreenRecordingPath: screen.lastRecordingPath
       }
     }
     return {
@@ -532,7 +768,9 @@ export class AbacoBrowserController {
       title: contents.getTitle(),
       loading: contents.isLoading(),
       canGoBack: contents.navigationHistory.canGoBack(),
-      canGoForward: contents.navigationHistory.canGoForward()
+      canGoForward: contents.navigationHistory.canGoForward(),
+      screenRecording: screen.recording,
+      lastScreenRecordingPath: screen.lastRecordingPath
     }
   }
 
@@ -671,9 +909,11 @@ export class AbacoBrowserController {
   }
 
   /**
-   * Keep both views glued to the window's content rect. F0's layout: the page
-   * fills the window, the chrome strip covers its first rows. Also the window's
-   * `resize` handler.
+   * Keep both views glued to the active placement geometry. Pure math lives in
+   * {@link computeAbacoBrowserSyncBounds}; this method only reads window size /
+   * host bounds and applies the result. Panel without host → empty bounds
+   * (do not paint over chat). Mouse events stay on the page WebContentsView
+   * while open (never ignore-mouse on the panel).
    */
   private readonly syncBounds = (): void => {
     const pageView = this.pageView
@@ -681,15 +921,15 @@ export class AbacoBrowserController {
     if (!pageView || !chromeBarView) return
     if (this.disposed || this.parent.isDestroyed()) return
     const { width, height } = this.parent.getContentBounds()
-    const contentWidth = Math.max(0, Math.floor(width))
-    const contentHeight = Math.max(0, Math.floor(height))
-    pageView.setBounds({ x: 0, y: 0, width: contentWidth, height: contentHeight })
-    chromeBarView.setBounds({
-      x: 0,
-      y: 0,
-      width: contentWidth,
-      height: Math.min(ABACO_BROWSER_CHROME_HEIGHT, contentHeight)
+    const { page, chrome } = computeAbacoBrowserSyncBounds({
+      contentWidth: width,
+      contentHeight: height,
+      placement: this.placement,
+      hostBounds: this.panelHostBounds,
+      chromeHeight: ABACO_BROWSER_CHROME_HEIGHT
     })
+    pageView.setBounds(page)
+    chromeBarView.setBounds(chrome)
   }
 
   /** Push the current address/history/mode/recording state to the chrome bar. */
@@ -713,7 +953,9 @@ export class AbacoBrowserController {
       // write that ends it, so the button cannot appear over a half-written
       // session.
       hasRecording: !status.recording && status.lastRecordingPath.length > 0,
-      lastRecordingId: status.recording ? '' : status.sessionId
+      lastRecordingId: status.recording ? '' : status.sessionId,
+      screenRecording: this.screenRecorder.isRecording(),
+      placement: this.placement
     }
     chromeBar.send(ABACO_BROWSER_CHROME_STATE_CHANNEL, state)
   }
@@ -869,6 +1111,18 @@ export class AbacoBrowserController {
       contents.once('did-stop-loading', settle)
       contents.once('did-fail-load', settle)
     })
+  }
+
+  /**
+   * Push a one-shot fact to the Harness page (opened / closed / screen
+   * recording stopped). The chrome bar has its own channels; this is the
+   * page-side door the client plugin listens on.
+   */
+  private notifyHarness(channel: string, payload?: unknown): void {
+    if (this.parent.isDestroyed()) return
+    const contents = this.parent.webContents
+    if (!contents || contents.isDestroyed()) return
+    contents.send(channel, payload)
   }
 
   private readonly dispose = (): void => {

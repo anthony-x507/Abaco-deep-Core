@@ -36,6 +36,20 @@ const TEXT_LIKE_EXTENSIONS = new Set([
   '.txt', '.md', '.markdown', '.csv', '.json', '.yaml', '.yml', '.xml',
 ])
 
+/** Image types the 📎 pipeline accepts (matches native SubmitImageAttachment). */
+const IMAGE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp',
+])
+const IMAGE_MIME = new Set([
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+])
+/** iPhone Camera defaults — convert via macOS `sips` before embedding. */
+const HEIC_EXTENSIONS = new Set(['.heic', '.heif'])
+const HEIC_MIME = new Set(['image/heic', 'image/heif', 'image/heic-sequence'])
+const OFFICE_REJECT = new Set(['.xlsx', '.xls', '.numbers', '.pptx', '.ppt', '.doc'])
+/** Cap for base64-in-draft embedding (native normalized ceiling). */
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024
+
 function failure(message, status = 422) {
   return Response.json({ ok: false, error: message }, { status })
 }
@@ -46,16 +60,35 @@ function extnameOf(filePath) {
   return idx <= 0 ? '' : base.slice(idx).toLowerCase()
 }
 
-/** Classify the request into 'pdf' | 'docx' | 'text' | null by header, then name. */
+/** Classify the request into 'pdf' | 'docx' | 'text' | 'image' | null by header, then name. */
 function classify(contentType, name) {
   if (contentType === 'application/pdf') return 'pdf'
   if (contentType.includes('openxmlformats-officedocument.wordprocessingml')) return 'docx'
-  if (contentType.startsWith('text/')) return 'text'
+  if (HEIC_MIME.has(contentType)) return 'heic'
+  if (IMAGE_MIME.has(contentType) || contentType.startsWith('image/')) {
+    // Only admit the four media types the session submit plane serializes.
+    if (IMAGE_MIME.has(contentType)) return 'image'
+    const ext = extnameOf(name)
+    if (IMAGE_EXTENSIONS.has(ext)) return 'image'
+    if (HEIC_EXTENSIONS.has(ext)) return 'heic'
+    return null
+  }
+  if (contentType.startsWith('text/') || contentType === 'application/json' || contentType === 'application/xml') {
+    return 'text'
+  }
   const ext = extnameOf(name)
   if (ext === '.pdf') return 'pdf'
   if (ext === '.docx') return 'docx'
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image'
+  if (HEIC_EXTENSIONS.has(ext)) return 'heic'
   if (TEXT_LIKE_EXTENSIONS.has(ext)) return 'text'
+  if (OFFICE_REJECT.has(ext)) return 'office-reject'
   return null
+}
+
+/** Exported for unit tests (same classifier the extract route uses). */
+export function classifyDocument(contentType, name) {
+  return classify((contentType || '').split(';', 1)[0]?.trim().toLowerCase() || '', name || '')
 }
 
 /** Truncate extracted prose to the shared ceiling, reporting the truncation. */
@@ -134,6 +167,82 @@ async function extractText(bytes) {
   }
 }
 
+function resolveImageMediaType(contentType, name) {
+  if (IMAGE_MIME.has(contentType)) return contentType
+  const ext = extnameOf(name)
+  switch (ext) {
+    case '.png': return 'image/png'
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg'
+    case '.gif': return 'image/gif'
+    case '.webp': return 'image/webp'
+    default: return null
+  }
+}
+
+
+async function convertHeicToJpeg(bytes, name) {
+  const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { spawn } = await import('node:child_process')
+  if (process.platform !== 'darwin') {
+    throw new Error(
+      `HEIC/HEIF no convertible fuera de macOS${name ? `: ${name}` : ''}. Exporta JPEG/PNG desde Fotos.`,
+    )
+  }
+  const dir = await mkdtemp(join(tmpdir(), 'abaco-heic-'))
+  const srcPath = join(dir, 'in.heic')
+  const dstPath = join(dir, 'out.jpg')
+  try {
+    await writeFile(srcPath, Buffer.from(bytes))
+    await new Promise((resolve, reject) => {
+      const child = spawn('sips', ['-s', 'format', 'jpeg', srcPath, '--out', dstPath], {
+        stdio: ['ignore', 'ignore', 'pipe'],
+      })
+      let err = ''
+      child.stderr.on('data', (c) => { err += String(c) })
+      child.on('error', reject)
+      child.on('close', (code) => {
+        if (code === 0) resolve()
+        else reject(new Error(`sips falló al convertir HEIC (code ${code}): ${err.trim() || 'sin detalle'}`))
+      })
+    })
+    const jpeg = await readFile(dstPath)
+    return jpeg
+  } finally {
+    try { await rm(dir, { recursive: true, force: true }) } catch {}
+  }
+}
+
+async function extractImage(bytes, contentType, name) {
+  if (bytes.length > MAX_IMAGE_BYTES) {
+    throw new Error(
+      `Imagen demasiado grande (${(bytes.length / 1024 / 1024).toFixed(1)} MB). ` +
+      `Máximo para el botón 📎: ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)} MB ` +
+      `(arrastra la foto al compositor para el límite nativo de 20 MB).`,
+    )
+  }
+  const mediaType = resolveImageMediaType(contentType, name)
+  if (!mediaType) {
+    throw new Error(`Tipo de imagen no soportado${name ? `: ${name}` : ''}. Aceptados: PNG, JPEG, GIF, WEBP.`)
+  }
+  const data = Buffer.from(bytes).toString('base64')
+  const text = `[image ${mediaType}; base64]\n${data}`
+  const clamped = clampText(text)
+  return {
+    text: clamped.text,
+    meta: {
+      kind: 'image',
+      mediaType,
+      byteLength: bytes.length,
+      charCount: clamped.charCount,
+      wordCount: clamped.wordCount,
+      truncated: clamped.truncated,
+    },
+  }
+}
+
 /**
  * Register the extraction route on the shared API channel.
  *
@@ -170,18 +279,33 @@ export function apply(ctx) {
 
       const contentType = (request.headers.get('content-type') || '').split(';', 1)[0]?.trim().toLowerCase()
       const kind = classify(contentType, filename)
+      if (kind === 'office-reject') {
+        return failure(
+          `Excel/Numbers/PowerPoint no se extraen aún${filename ? `: ${filename}` : ''}. Exporta CSV o PDF y vuelve a subir.`,
+          415,
+        )
+      }
       if (kind === null) {
         return failure(
-          `Tipo de archivo no soportado${filename ? `: ${filename}` : ''}. Aceptados: PDF, DOCX, TXT, MD, CSV, JSON, YAML, XML.`,
+          `Tipo de archivo no soportado${filename ? `: ${filename}` : ''}. Aceptados: PDF, DOCX, TXT, MD, CSV, JSON, YAML, XML, PNG, JPEG, GIF, WEBP, HEIC (macOS).`,
           415,
         )
       }
 
       try {
+        let workBytes = bytes
+        let workType = contentType
+        let workName = filename
+        if (kind === 'heic') {
+          workBytes = await convertHeicToJpeg(bytes, filename)
+          workType = 'image/jpeg'
+          workName = (filename || 'photo.heic').replace(/\.heic$/i, '.jpg').replace(/\.heif$/i, '.jpg')
+        }
         const extracted =
-          kind === 'pdf' ? await extractPdf(bytes)
-          : kind === 'docx' ? await extractDocx(bytes)
-          : await extractText(bytes)
+          kind === 'pdf' ? await extractPdf(workBytes)
+          : kind === 'docx' ? await extractDocx(workBytes)
+          : (kind === 'image' || kind === 'heic') ? await extractImage(workBytes, workType, workName)
+          : await extractText(workBytes)
         return Response.json({
           ok: true,
           name: filename,

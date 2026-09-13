@@ -962,6 +962,7 @@ export async function writeBrowserSkillFromRecording(
     return failure(`Could not write ${path}: ${describe(error)}`)
   }
 
+  const actionDescriptions = draft.steps.map((step) => describeSkillStep(step))
   return {
     ok: true,
     name: slug,
@@ -969,7 +970,9 @@ export async function writeBrowserSkillFromRecording(
     directory,
     description: draft.description,
     stepCount: draft.steps.length,
-    error: ''
+    error: '',
+    markdown,
+    actionDescriptions
   }
 }
 
@@ -1051,7 +1054,17 @@ async function resolveUniqueSkillDirectory(
 }
 
 function failure(error: string): AbacoBrowserSaveSkillResult {
-  return { ok: false, name: '', path: '', directory: '', description: '', stepCount: 0, error }
+  return {
+    ok: false,
+    name: '',
+    path: '',
+    directory: '',
+    description: '',
+    stepCount: 0,
+    error,
+    markdown: '',
+    actionDescriptions: []
+  }
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

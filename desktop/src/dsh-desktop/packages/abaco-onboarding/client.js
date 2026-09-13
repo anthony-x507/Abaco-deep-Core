@@ -85,8 +85,8 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function apply(ctx) {
-      const store = ctx.abaco?.store
+    function apply(_ctx) {
+      const store = typeof window !== 'undefined' && window.__abaco_services && window.__abaco_services.store
       if (!store) return
       let mounted = false
 

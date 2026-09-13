@@ -1,20 +1,31 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AvailableRelease, UpdateStatus } from '../shared/contracts'
 import {
+  ABACO_BROWSER_CLOSED_CHANNEL,
+  ABACO_BROWSER_OPENED_CHANNEL,
+  ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL,
   abacoBrowserChannels,
   type AbacoBrowserCommandResult,
   type AbacoBrowserMode,
+  type AbacoBrowserPanelHostBounds,
+  type AbacoBrowserPlacement,
   type AbacoBrowserRecordingResult,
   type AbacoBrowserRecordingStatus,
   type AbacoBrowserSaveSkillRequest,
   type AbacoBrowserSaveSkillResult,
+  type AbacoBrowserScreenRecordingResult,
+  type AbacoBrowserScreenRecordingStatus,
   type AbacoBrowserTheme
 } from '../shared/abaco-browser'
 import { setupDesktopStoragePersistence } from './desktop-storage'
 import {
+  checkForUpdatesLabel,
+  detectUpdateLocale,
   isUpdateDismissed,
   shouldShowUpdate,
   updateHeadline,
+  updateLaterLabel,
+  updateNowLabel,
   type UpdateLocale
 } from './update-view'
 import { isPluginLoadError } from './plugin-error-view'
@@ -27,7 +38,7 @@ setupDesktopStoragePersistence()
 const ROOT_ID = 'dsh-desktop-update-root'
 const MOBILE_BUTTON_ID = 'dsh-desktop-mobile-button'
 const SAFE_MODE_BANNER_ID = 'dsh-desktop-safe-mode-banner'
-const locale: UpdateLocale = navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en'
+const locale: UpdateLocale = detectUpdateLocale(navigator.language)
 
 let host: HTMLDivElement | undefined
 let content: HTMLDivElement | undefined
@@ -36,6 +47,8 @@ let dismissedVersion: string | null = null
 let dismissedTransientPhase: UpdateStatus['phase'] | null = null
 let installing = false
 let accepting = false
+/** After "Actualizar ahora" / Update now: chain download → quitAndInstall. */
+let installWhenReady = false
 let versionPickerOpen = false
 let versionPickerLoading = false
 let versionPickerError = false
@@ -43,6 +56,10 @@ let versionPickerList: AvailableRelease[] | null = null
 let installingVersion: string | null = null
 
 const ABOUT_ROOT_ID = 'dsh-desktop-about-root'
+const SETTINGS_UPDATE_BUTTON_ID = 'dsh-desktop-settings-update'
+const SETTINGS_UPDATE_STYLE_ID = 'dsh-desktop-settings-update-style'
+let settingsUpdateButton: HTMLButtonElement | undefined
+
 interface AboutInfo {
   desktopVersion: string
   harnessVersion: string
@@ -143,6 +160,7 @@ function scheduleDomSync(): void {
 function runDomSync(): void {
   domSyncScheduled = false
   mountMobileButton()
+  mountSettingsUpdateButton()
   if (bootScanSettled) return
   // The boot screen only exists until Harness renders its own UI, and the
   // sidebar appearing is that moment. Past it the selector can never match
@@ -211,8 +229,38 @@ contextBridge.exposeInMainWorld('dshAbacoBrowser', {
    * result is a value either way, so a caller never has to catch a rejected
    * `invoke` to find out that the flow could not be compiled. */
   saveSkill: (request?: AbacoBrowserSaveSkillRequest): Promise<AbacoBrowserSaveSkillResult> =>
-    ipcRenderer.invoke(abacoBrowserChannels.saveSkill, request)
+    ipcRenderer.invoke(abacoBrowserChannels.saveSkill, request),
+  /* ── P1 — placement + desktopCapturer screen record ───────────────────── */
+  setPlacement: (placement: AbacoBrowserPlacement): Promise<AbacoBrowserPlacement> =>
+    ipcRenderer.invoke(abacoBrowserChannels.setPlacement, placement),
+  placement: (): Promise<AbacoBrowserPlacement> =>
+    ipcRenderer.invoke(abacoBrowserChannels.placement),
+  reportPanelHostBounds: (
+    bounds: AbacoBrowserPanelHostBounds | null
+  ): Promise<AbacoBrowserCommandResult> =>
+    ipcRenderer.invoke(abacoBrowserChannels.reportPanelHostBounds, bounds),
+  startScreenRecording: (): Promise<AbacoBrowserScreenRecordingStatus> =>
+    ipcRenderer.invoke(abacoBrowserChannels.screenRecordStart),
+  stopScreenRecording: (): Promise<AbacoBrowserScreenRecordingResult> =>
+    ipcRenderer.invoke(abacoBrowserChannels.screenRecordStop),
+  screenRecordingStatus: (): Promise<AbacoBrowserScreenRecordingStatus> =>
+    ipcRenderer.invoke(abacoBrowserChannels.screenRecordStatus),
+  onOpened: (listener: () => void): (() => void) => subscribeAbacoBrowser(ABACO_BROWSER_OPENED_CHANNEL, listener),
+  onClosed: (listener: () => void): (() => void) => subscribeAbacoBrowser(ABACO_BROWSER_CLOSED_CHANNEL, listener),
+  onScreenRecordingStopped: (
+    listener: (result: AbacoBrowserScreenRecordingResult) => void
+  ): (() => void) => subscribeAbacoBrowser(ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL, listener)
 })
+
+function subscribeAbacoBrowser(channel: string, listener: (...args: unknown[]) => void): () => void {
+  const wrapped = (_event: unknown, ...args: unknown[]): void => {
+    listener(...args)
+  }
+  ipcRenderer.on(channel, wrapped)
+  return () => {
+    ipcRenderer.removeListener(channel, wrapped)
+  }
+}
 
 /**
  * `[data-dsh-*]` lookups are attribute selectors with no index behind them, so
@@ -271,6 +319,77 @@ function renderMobileButton(): void {
   if (button.title !== label) {
     button.setAttribute('aria-label', label)
     button.title = label
+  }
+}
+
+
+/**
+ * Q7/T8: Visible Update control in Settings menu (nav list).
+ * Reuses existing updates:check — no new IPC channel. T0 preload only.
+ */
+function mountSettingsUpdateButton(): void {
+  if (!document.getElementById(SETTINGS_UPDATE_STYLE_ID)) {
+    const style = document.createElement('style')
+    style.id = SETTINGS_UPDATE_STYLE_ID
+    style.textContent = `
+      #${SETTINGS_UPDATE_BUTTON_ID} {
+        box-sizing: border-box;
+        cursor: pointer;
+        height: 40px;
+        color: var(--dsw-alias-label-primary, inherit);
+        text-align: left;
+        background: transparent;
+        border: none;
+        border-radius: 12px;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 16px 9px 12px;
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 22px;
+        display: flex;
+        width: 100%;
+        margin-top: 8px;
+      }
+      #${SETTINGS_UPDATE_BUTTON_ID}:hover {
+        background: var(--dsw-specific-sidebar-nav-item-hover, rgba(127,127,127,0.12));
+      }
+    `
+    document.head.appendChild(style)
+  }
+
+  // Settings modal nav list (dsh-client-ui-settings-general CSS module class).
+  const navList =
+    document.querySelector<HTMLElement>('.tqoa8q_navList') ||
+    document.querySelector<HTMLElement>('[class*="navList"]')
+  if (!navList) {
+    if (settingsUpdateButton && !settingsUpdateButton.isConnected) {
+      settingsUpdateButton = undefined
+    }
+    return
+  }
+
+  if (!settingsUpdateButton?.isConnected) {
+    settingsUpdateButton =
+      (document.getElementById(SETTINGS_UPDATE_BUTTON_ID) as HTMLButtonElement | null) ?? undefined
+  }
+  if (!settingsUpdateButton) {
+    const created = document.createElement('button')
+    created.id = SETTINGS_UPDATE_BUTTON_ID
+    created.type = 'button'
+    created.textContent = 'Update'
+    created.setAttribute('aria-label', 'Update')
+    created.title = locale === 'es' ? 'Buscar updates' : checkForUpdatesLabel(locale)
+    created.addEventListener('click', () => {
+      void ipcRenderer.invoke('updates:check').catch((error: unknown) => {
+        console.error('[updater] settings Update check failed', error)
+      })
+    })
+    settingsUpdateButton = created
+  }
+  if (settingsUpdateButton.parentElement !== navList) {
+    navList.appendChild(settingsUpdateButton)
   }
 }
 
@@ -386,6 +505,7 @@ function initializeUi(): void {
   mount()
   mountAbout()
   mountMobileButton()
+  mountSettingsUpdateButton()
   checkBootFailureInDom()
   domObserver.observe(document.documentElement, {
     childList: true,
@@ -472,11 +592,24 @@ function applyStatus(status: UpdateStatus): void {
     host.dataset.updatePhase = status.phase
     host.dataset.updateManual = String(status.manual)
   }
-  if (status.phase === 'error') installing = false
+  if (status.phase === 'error') {
+    installing = false
+    installWhenReady = false
+  }
   if (['error', 'downloading', 'downloaded', 'up-to-date'].includes(status.phase)) {
     installingVersion = null
   }
   if (status.phase !== 'available') accepting = false
+  // Ahora = existing updates:download then updates:install (no new IPC).
+  if (status.phase === 'downloaded' && installWhenReady && !installing) {
+    installWhenReady = false
+    installing = true
+    void ipcRenderer.invoke('updates:install').catch((error: unknown) => {
+      installing = false
+      console.error('[updater] unable to install update', error)
+      render()
+    })
+  }
   render()
 }
 
@@ -531,18 +664,25 @@ function render(): void {
 
   if (status.phase === 'available') {
     const actions = element('div', 'actions')
-    const accept = button(locale === 'zh' ? '同意更新' : 'Update now', 'primary')
+    const accept = button(updateNowLabel(locale), 'primary')
     accept.disabled = accepting
     accept.addEventListener('click', () => {
       accepting = true
+      installWhenReady = true
       render()
       void ipcRenderer.invoke('updates:download').catch((error: unknown) => {
         accepting = false
+        installWhenReady = false
         console.error('[updater] unable to download update', error)
         render()
       })
     })
-    actions.append(accept, skipButton(status))
+    const later = button(updateLaterLabel(locale), 'secondary')
+    later.addEventListener('click', () => {
+      installWhenReady = false
+      dismissCurrent()
+    })
+    actions.append(accept, later)
     body.appendChild(actions)
   }
 
@@ -780,7 +920,7 @@ function renderAbout(): void {
   })
   actions.appendChild(selectVersionBtn)
 
-  const checkUpdatesBtn = button(zh ? '检查更新' : 'Check for updates', 'btn-action')
+  const checkUpdatesBtn = button(checkForUpdatesLabel(locale), 'btn-action')
   checkUpdatesBtn.addEventListener('click', () => {
     aboutOpen = false
     versionPickerOpen = false
@@ -870,6 +1010,7 @@ function selectVersionFromAbout(release: AvailableRelease, currentVersion: strin
 }
 
 function dismissCurrent(): void {
+  installWhenReady = false
   if (!currentStatus) return
   if (currentStatus.availableVersion) {
     dismissedVersion = currentStatus.availableVersion

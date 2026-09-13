@@ -73,7 +73,11 @@ const TIMEOUTS = {
   readDom: 30_000,
   screenshot: 30_000,
   waitFor: 90_000,
-  state: 15_000
+  state: 15_000,
+  grabControl: 15_000,
+  releaseControl: 15_000,
+  screenRecordStart: 30_000,
+  screenRecordStop: 60_000
 }
 
 /** Default selector wait used when the model does not pass `timeoutMs`. */
@@ -187,7 +191,17 @@ function stateProperties() {
     title: { type: 'string', required: true, description: 'Current page title.' },
     loading: { type: 'boolean', required: true, description: 'Whether the page is still loading.' },
     canGoBack: { type: 'boolean', required: true },
-    canGoForward: { type: 'boolean', required: true }
+    canGoForward: { type: 'boolean', required: true },
+    screenRecording: {
+      type: 'boolean',
+      required: true,
+      description: 'True while a desktopCapturer screen recording is running.'
+    },
+    lastScreenRecordingPath: {
+      type: 'string',
+      required: true,
+      description: 'Absolute path of the last finished screen recording; empty when none.'
+    }
   }
 }
 
@@ -296,6 +310,18 @@ function renderScreenshot(_args, value) {
   return textBlock(lines.join('\n'))
 }
 
+function renderGrabControl(_args, value) {
+  return textBlock(
+    [...describeState(value), 'Grabbed control of the ABACO browser (mode: agent).'].join('\n')
+  )
+}
+
+function renderReleaseControl(_args, value) {
+  return textBlock(
+    [...describeState(value), 'Released control of the ABACO browser (mode: manual).'].join('\n')
+  )
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
  * Screenshot persistence
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -337,7 +363,7 @@ const MODE_NOTE =
   'Fails with a clear message while the browser is in manual mode (the user has taken over) — do not retry in a loop; ask the user to hand control back.'
 
 /**
- * Register the seven browser tools.
+ * Register the browser tools (page actions + grab/release + screen record).
  *
  * Registration goes through `ctx.tools.register`, whose disposers are
  * effect-scoped: a plugin reload unregisters the previous set, so there is
@@ -377,7 +403,9 @@ function apply(ctx) {
           title: result.title,
           loading: result.loading === true,
           canGoBack: result.canGoBack === true,
-          canGoForward: result.canGoForward === true
+          canGoForward: result.canGoForward === true,
+          screenRecording: result.screenRecording === true,
+          lastScreenRecordingPath: result.lastScreenRecordingPath ?? ''
         }
       }
     })
@@ -581,7 +609,7 @@ function apply(ctx) {
     defineTool({
       name: 'abaco_browser_state',
       description:
-        'Report the state of the ABACO integrated browser without touching the page: current url and title, whether it is loading, whether back and forward are available, whether the overlay is open, and who owns it (agent or manual). This is the only browser tool that works while the browser is in manual mode.',
+        'Report the state of the ABACO integrated browser without touching the page: current url and title, whether it is loading, whether back and forward are available, whether the overlay is open, and who owns it (agent or manual). Safe in manual mode. To take the wheel back, call abaco_browser_grab_control.',
       parameters: {},
       output: {
         schema: {
@@ -602,7 +630,9 @@ function apply(ctx) {
           title: state.title,
           loading: state.loading === true,
           canGoBack: state.canGoBack === true,
-          canGoForward: state.canGoForward === true
+          canGoForward: state.canGoForward === true,
+          screenRecording: state.screenRecording === true,
+          lastScreenRecordingPath: state.lastScreenRecordingPath ?? ''
         }
       }
     })
@@ -649,6 +679,142 @@ function apply(ctx) {
       }
     })
   )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'abaco_browser_grab_control',
+      description:
+        'Take ownership of the ABACO integrated browser (mode: agent). Same control plane as the chrome AGENT/MANUAL button. Use this after the user took over (manual mode) and has handed the page back, or when you need to drive the page again. Returns the browser state.',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: stateProperties()
+        },
+        render: renderGrabControl
+      },
+      timeoutMs: TIMEOUTS.grabControl,
+      async execute(_args, exec) {
+        const state = await callRoute('grab-control', {}, exec.signal)
+        return {
+          open: state.open === true,
+          mode: state.mode,
+          url: state.url,
+          title: state.title,
+          loading: state.loading === true,
+          canGoBack: state.canGoBack === true,
+          canGoForward: state.canGoForward === true,
+          screenRecording: state.screenRecording === true,
+          lastScreenRecordingPath: state.lastScreenRecordingPath ?? ''
+        }
+      }
+    })
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'abaco_browser_release_control',
+      description:
+        'Return ownership of the ABACO integrated browser to the user (mode: manual). Same control plane as the chrome AGENT/MANUAL button. After this, page-driving tools will refuse until the user hands control back or you call abaco_browser_grab_control.',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: stateProperties()
+        },
+        render: renderReleaseControl
+      },
+      timeoutMs: TIMEOUTS.releaseControl,
+      async execute(_args, exec) {
+        const state = await callRoute('release-control', {}, exec.signal)
+        return {
+          open: state.open === true,
+          mode: state.mode,
+          url: state.url,
+          title: state.title,
+          loading: state.loading === true,
+          canGoBack: state.canGoBack === true,
+          canGoForward: state.canGoForward === true,
+          screenRecording: state.screenRecording === true,
+          lastScreenRecordingPath: state.lastScreenRecordingPath ?? ''
+        }
+      }
+    })
+  )
+  ctx.tools.register(
+    defineTool({
+      name: 'abaco_browser_screen_record_start',
+      description:
+        'Start a desktopCapturer screen recording of the ABACO DEEP HARNES window (pixel capture, distinct from the DOM action recorder). Returns the live recording status. Safe in manual mode so you can record while the user demonstrates.',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            recording: { type: 'boolean', required: true },
+            sessionId: { type: 'string', required: true },
+            startedAt: { type: 'string', required: true },
+            lastRecordingPath: { type: 'string', required: true },
+            lastError: { type: 'string', required: true }
+          }
+        }
+      },
+      timeoutMs: TIMEOUTS.screenRecordStart,
+      async execute(_args, exec) {
+        const status = await callRoute('screen-record-start', {}, exec.signal)
+        return {
+          recording: status.recording === true,
+          sessionId: status.sessionId ?? '',
+          startedAt: status.startedAt ?? '',
+          lastRecordingPath: status.lastRecordingPath ?? '',
+          lastError: status.lastError ?? ''
+        }
+      }
+    })
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'abaco_browser_screen_record_stop',
+      description:
+        'Stop the desktopCapturer screen recording, persist a WebM under userData/abaco-browser/screen-recordings/, and return a notice + durable path for the agent (this IS the notification).',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            ok: { type: 'boolean', required: true },
+            path: { type: 'string', required: true },
+            sessionId: { type: 'string', required: true },
+            durationMs: { type: 'integer', required: true },
+            mimeType: { type: 'string', required: true },
+            byteLength: { type: 'integer', required: true },
+            notice: { type: 'string', required: true, description: 'Human-readable notification for the agent.' },
+            frameCount: { type: 'integer' }
+          }
+        }
+      },
+      timeoutMs: TIMEOUTS.screenRecordStop,
+      async execute(_args, exec) {
+        const result = await callRoute('screen-record-stop', {}, exec.signal)
+        return {
+          ok: result.ok === true,
+          path: result.path ?? '',
+          sessionId: result.sessionId ?? '',
+          durationMs: result.durationMs ?? 0,
+          mimeType: result.mimeType ?? 'video/webm',
+          byteLength: result.byteLength ?? 0,
+          notice: result.notice ?? '',
+          ...(typeof result.frameCount === 'number' ? { frameCount: result.frameCount } : {})
+        }
+      }
+    })
+  )
+
 }
 
 export { apply, inject, name }

@@ -2,6 +2,21 @@ import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import {
   ABACO_BROWSER_CHROME_HEIGHT,
+  ABACO_BROWSER_DEFAULT_PLACEMENT,
+  ABACO_BROWSER_EMPTY_VIEW_BOUNDS,
+  ABACO_BROWSER_PANEL_MAX_HEIGHT_PX,
+  ABACO_BROWSER_PANEL_MAX_ASPECT,
+  ABACO_BROWSER_PANEL_MAX_WIDTH_PX,
+  ABACO_BROWSER_PANEL_MIN_ASPECT,
+  ABACO_BROWSER_PANEL_MIN_HEIGHT_PX,
+  ABACO_BROWSER_PANEL_MIN_WIDTH_PX,
+  ABACO_BROWSER_PANEL_WIDTH_PX,
+  abacoBrowserRectsOverlap,
+  buildSkillHandoffMarkdown,
+  canReportAbacoBrowserHostBounds,
+  clampAbacoBrowserPanelWidth,
+  clampPanelViewport,
+  computeAbacoBrowserSyncBounds,
   ABACO_BROWSER_CTRL_HOST,
   ABACO_BROWSER_CTRL_PORT_ENV,
   ABACO_BROWSER_CTRL_TOKEN_ENV,
@@ -67,7 +82,7 @@ describe('ABACO browser overlay (F0)', () => {
     expect(controller).toContain('session.fromPartition(ABACO_BROWSER_PARTITION)')
   })
 
-  it('mounts the overlay as child views and keeps both glued to the window content rect', async () => {
+  it('mounts the browser as child views and syncs bounds from placement geometry', async () => {
     const controller = await readFile('src/main/abaco-browser-controller.ts', 'utf8')
 
     expect(controller).toContain('new WebContentsView')
@@ -79,7 +94,12 @@ describe('ABACO browser overlay (F0)', () => {
     expect(controller).toContain("this.parent.on('resize', this.syncBounds)")
     expect(controller).toContain("this.parent.on('enter-full-screen', this.syncBounds)")
     expect(controller).toContain('this.parent.getContentBounds()')
+    expect(controller).toContain('computeAbacoBrowserSyncBounds')
+    expect(controller).toContain('setPlacement')
+    expect(controller).toContain('reportPanelHostBounds')
+    expect(controller).toContain('ABACO_BROWSER_DEFAULT_PLACEMENT')
     expect(ABACO_BROWSER_CHROME_HEIGHT).toBe(44)
+    expect(ABACO_BROWSER_DEFAULT_PLACEMENT).toBe('panel')
   })
 
   it('registers the control channels behind a main-frame-or-chrome-bar guard', async () => {
@@ -143,12 +163,17 @@ describe('ABACO browser overlay (F0)', () => {
     // `sidebar.footer.action` is declared by the stock sidebar package as a
     // root-scope list slot whose occupant props are `{ wide }`.
     expect(manifest.name).toBe('abaco-browser')
-    expect(manifest.dsh.client.inject).toEqual(['@deepseek-ai/dsh-client-ui-sidebar'])
+    expect(manifest.dsh.client.inject).toEqual(['@deepseek-ai/dsh-client-ui-sidebar', '@deepseek-ai/dsh-client-ui-layout'])
     expect(manifest.dsh.client.platform).toBe('web')
     expect(client).toContain("const SLOT = 'sidebar.footer.action'")
     expect(client).toContain('ctx.slots.inject(SLOT')
     expect(client).toContain('ctx.slots.register(')
-    expect(client).toContain("const inject = ['slots']")
+    expect(client).toContain("const inject = ['slots', 'layout']")
+    expect(client).toContain("const NOTIFY_SLOT = 'conversation.input.left'")
+    expect(client).toContain('layout.openDetails')
+    expect(client).toContain('reportPanelHostBounds')
+    expect(client).toContain('onScreenRecordingStopped')
+    expect(client).toContain('inputActions.submit')
     // The launcher only reads the slot's own `wide` prop and the bridge global.
     expect(client).toContain('window.dshAbacoBrowser')
     expect(client).not.toContain('ctx.props')
@@ -170,6 +195,8 @@ function stubState(overrides: Partial<AbacoBrowserState> = {}): AbacoBrowserStat
     loading: false,
     canGoBack: false,
     canGoForward: false,
+    screenRecording: false,
+    lastScreenRecordingPath: '',
     ...overrides
   }
 }
@@ -188,7 +215,7 @@ function stubTarget(options: { open?: boolean; mode?: 'agent' | 'manual' } = {})
 } {
   const calls: string[] = []
   const open = options.open !== false
-  const mode = options.mode ?? 'agent'
+  let mode: 'agent' | 'manual' = options.mode ?? 'agent'
   const target: AbacoBrowserControlTarget = {
     isOpen: () => open,
     browserMode: () => mode,
@@ -228,6 +255,39 @@ function stubTarget(options: { open?: boolean; mode?: 'agent' | 'manual' } = {})
     agentScreenshot: async () => {
       calls.push('screenshot')
       return { mimeType: 'image/png', width: 10, height: 20, byteLength: 3, dataBase64: 'AAA=' }
+    },
+    agentGrabControl: () => {
+      mode = 'agent'
+      calls.push('grab-control')
+      return stubState({ open, mode })
+    },
+    agentReleaseControl: () => {
+      mode = 'manual'
+      calls.push('release-control')
+      return stubState({ open, mode })
+    },
+    agentScreenRecordStart: async () => {
+      calls.push('screen-record-start')
+      return {
+        recording: true,
+        sessionId: 'sess',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        lastRecordingPath: '',
+        lastError: ''
+      }
+    },
+    agentScreenRecordStop: async () => {
+      calls.push('screen-record-stop')
+      return {
+        ok: true,
+        path: '/tmp/rec.webm',
+        sessionId: 'sess',
+        durationMs: 1000,
+        mimeType: 'video/webm' as const,
+        byteLength: 12,
+        notice: 'Screen recording saved: /tmp/rec.webm',
+        frameCount: 3
+      }
     }
   }
   return { target, calls }
@@ -335,7 +395,11 @@ describe('ABACO browser agent control plane (F1)', () => {
       'type:#q:hello:submit',
       'read-dom:default',
       'wait-for:#go',
-      'screenshot'
+      'screenshot',
+      'grab-control',
+      'release-control',
+      'screen-record-start',
+      'screen-record-stop'
     ])
 
     const unknown = await rpc(server, 'reboot', {})
@@ -368,7 +432,15 @@ describe('ABACO browser agent control plane (F1)', () => {
     const server = new AbacoBrowserRpcServer({ controller: () => target, log: () => {} })
     await server.start()
 
-    for (const route of abacoBrowserRpcRoutes.filter((name) => name !== 'state')) {
+    const gated = abacoBrowserRpcRoutes.filter(
+      (name) =>
+        name !== 'state' &&
+        name !== 'grab-control' &&
+        name !== 'release-control' &&
+        name !== 'screen-record-start' &&
+        name !== 'screen-record-stop'
+    )
+    for (const route of gated) {
       const { status, payload } = await rpc(server, route, { url: 'https://example.com/', selector: '#go', text: 'x' })
       expect(status).toBe(409)
       expect(payload.error).toBe(ABACO_BROWSER_TAKEOVER_MESSAGE)
@@ -377,7 +449,11 @@ describe('ABACO browser agent control plane (F1)', () => {
     const state = await rpc(server, 'state')
     expect(state.status).toBe(200)
     expect((state.payload.result as AbacoBrowserState).mode).toBe('manual')
-    expect(calls).toEqual([])
+    // Grab is how the agent leaves manual mode — same setBrowserMode as the chrome bar.
+    const grabbed = await rpc(server, 'grab-control', {})
+    expect(grabbed.status).toBe(200)
+    expect((grabbed.payload.result as AbacoBrowserState).mode).toBe('agent')
+    expect(calls).toEqual(['grab-control'])
     await server.stop()
   })
 
@@ -500,32 +576,38 @@ describe('ABACO browser agent tools (F1)', () => {
     expect(isAbacoBrowserMode('auto')).toBe(false)
   })
 
-  it('exposes the mode switch to the user and never to the agent', async () => {
+  it('exposes the mode switch to the chrome bar and to agent grab/release tools', async () => {
     const main = await readFile('src/main/index.ts', 'utf8')
     const preload = await readFile('src/preload/index.ts', 'utf8')
     const chromePreload = await readFile('src/preload/abaco-browser-chrome.ts', 'utf8')
     const chromeHtml = await readFile('build/abaco-browser-chrome.html', 'utf8')
+    const shared = await readFile('src/shared/abaco-browser.ts', 'utf8')
+    const controller = await readFile('src/main/abaco-browser-controller.ts', 'utf8')
 
     expect(abacoBrowserChannels.mode).toBe('abaco:browser:mode')
-    // F2 renamed this one literal from the F1 `abaco:browser:setMode` to the
-    // kebab-case the rest of the family uses. Only the chrome bar invokes it and
-    // both halves ship in one bundle, so nothing else had to change; the
-    // invariant this test guards (the agent has no route to it) is untouched.
     expect(abacoBrowserChannels.setMode).toBe('abaco:browser:set-mode')
     expect(main).toContain('ipcMain.handle(abacoBrowserChannels.mode,')
     expect(main).toContain('ipcMain.handle(abacoBrowserChannels.setMode,')
     expect(main).toContain('if (!isAbacoBrowserMode(mode))')
     expect(preload).toContain('mode: (): Promise<AbacoBrowserMode> => ipcRenderer.invoke(abacoBrowserChannels.mode)')
-    // The Harness page can read ownership but not change it: the agent's tools
-    // must have no route that lifts the gate that just refused them.
+    // Harness page script still cannot flip mode over IPC; the agent uses the
+    // loopback grab-control / release-control routes (same setBrowserMode).
     expect(preload).not.toContain('abacoBrowserChannels.setMode')
     expect(chromePreload).toContain('invoke(abacoBrowserChannels.setMode, mode)')
     expect(chromePreload).toContain('modeButton.dataset.mode = next')
     expect(chromeHtml).toContain('id="abaco-browser-mode"')
     expect(chromeHtml).toContain('abaco-browser-mode')
+    expect(abacoBrowserRpcRoutes).toContain('grab-control')
+    expect(abacoBrowserRpcRoutes).toContain('release-control')
+    expect(shared).toContain("'grab-control'")
+    expect(controller).toContain('agentGrabControl(): AbacoBrowserState')
+    expect(controller).toContain('agentReleaseControl(): AbacoBrowserState')
+    expect(controller).toContain("this.setBrowserMode('agent')")
+    expect(controller).toContain("this.setBrowserMode('manual')")
+    expect(controller).toContain('if (!this.isOpen()) this.open()')
   })
 
-  it('registers the seven agent tools against the real defineTool schema compiler', async () => {
+  it('registers the agent tools (incl. grab/release) against the real defineTool schema compiler', async () => {
     const plugin = await import('../packages/abaco-browser/index.js')
     interface CompiledSchema {
       properties: Record<string, unknown>
@@ -564,7 +646,11 @@ describe('ABACO browser agent tools (F1)', () => {
       'abaco_browser_read_dom',
       'abaco_browser_wait_for',
       'abaco_browser_state',
-      'abaco_browser_screenshot'
+      'abaco_browser_screenshot',
+      'abaco_browser_grab_control',
+      'abaco_browser_release_control',
+      'abaco_browser_screen_record_start',
+      'abaco_browser_screen_record_stop'
     ])
     // The compiled JSON Schema the model actually receives: a silently renamed
     // or dropped parameter would make a tool uncallable.
@@ -587,12 +673,23 @@ describe('ABACO browser agent tools (F1)', () => {
       abaco_browser_read_dom: { properties: ['maxChars'], required: [] },
       abaco_browser_wait_for: { properties: ['selector', 'timeoutMs'], required: ['selector'] },
       abaco_browser_state: { properties: [], required: [] },
-      abaco_browser_screenshot: { properties: [], required: [] }
+      abaco_browser_screenshot: { properties: [], required: [] },
+      abaco_browser_grab_control: { properties: [], required: [] },
+      abaco_browser_release_control: { properties: [], required: [] },
+      abaco_browser_screen_record_start: { properties: [], required: [] },
+      abaco_browser_screen_record_stop: { properties: [], required: [] }
     })
     // Every action tool reports ownership, so a refusal and a success describe
     // the same page the same way.
     for (const tool of registered) {
-      if (tool.name === 'abaco_browser_screenshot' || tool.name === 'abaco_browser_read_dom') continue
+      if (
+        tool.name === 'abaco_browser_screenshot' ||
+        tool.name === 'abaco_browser_read_dom' ||
+        tool.name === 'abaco_browser_screen_record_start' ||
+        tool.name === 'abaco_browser_screen_record_stop'
+      ) {
+        continue
+      }
       expect(Object.keys(tool.output.properties)).toContain('mode')
     }
   })
@@ -654,3 +751,357 @@ describe('ABACO browser agent tools (F1)', () => {
     expect(waitForInPage.toString()).toContain('setTimeout')
   })
 })
+
+
+describe('ABACO browser P1 screen recording + panel', () => {
+  it('computes panel/overlay syncBounds geometry with CARD clamps', () => {
+    expect(clampAbacoBrowserPanelWidth(10)).toBe(ABACO_BROWSER_PANEL_MIN_WIDTH_PX)
+    expect(clampAbacoBrowserPanelWidth(9999)).toBe(ABACO_BROWSER_PANEL_MAX_WIDTH_PX)
+    expect(clampAbacoBrowserPanelWidth(ABACO_BROWSER_PANEL_WIDTH_PX)).toBe(ABACO_BROWSER_PANEL_WIDTH_PX)
+    expect(ABACO_BROWSER_PANEL_MIN_WIDTH_PX).toBe(420)
+    expect(ABACO_BROWSER_PANEL_MAX_WIDTH_PX).toBe(560)
+    expect(ABACO_BROWSER_PANEL_WIDTH_PX).toBe(480)
+    expect(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX).toBe(360)
+    expect(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX).toBe(520)
+    expect(ABACO_BROWSER_PANEL_MIN_ASPECT).toBe(0.7)
+    expect(ABACO_BROWSER_PANEL_MAX_ASPECT).toBe(1.3)
+
+    // Panel without reserved host → empty / no-mount (pin-derecha REVOKED).
+    const panel = computeAbacoBrowserSyncBounds({
+      contentWidth: 1400,
+      contentHeight: 900,
+      placement: 'panel'
+    })
+    expect(panel.page).toEqual(ABACO_BROWSER_EMPTY_VIEW_BOUNDS)
+    expect(panel.chrome.width).toBe(0)
+    expect(panel.chrome.height).toBe(0)
+
+    const overlay = computeAbacoBrowserSyncBounds({
+      contentWidth: 1400,
+      contentHeight: 900,
+      placement: 'overlay'
+    })
+    expect(overlay.page).toEqual({ x: 0, y: 0, width: 1400, height: 900 })
+    expect(overlay.chrome.width).toBe(1400)
+
+    // Hosted: CARD (not full host height); width clamped up from 380→420.
+    const hosted = computeAbacoBrowserSyncBounds({
+      contentWidth: 1400,
+      contentHeight: 900,
+      placement: 'panel',
+      hostBounds: { x: 1000, y: 10, width: 380, height: 800 }
+    })
+    expect(hosted.page.width).toBe(420)
+    expect(hosted.page.y).toBe(10)
+    expect(hosted.page.height).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
+    expect(hosted.page.height).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX)
+    expect(hosted.page.height).not.toBe(900)
+    expect(hosted.page.height).not.toBe(800)
+    const aspect = hosted.page.width / hosted.page.height
+    expect(aspect).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_ASPECT)
+    expect(aspect).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_ASPECT)
+  })
+
+  it('ships a desktopCapturer MediaRecorder screen recorder and wires RPC + IPC', async () => {
+    const recorder = await readFile('src/main/abaco-browser-screen-recorder.ts', 'utf8')
+    const controller = await readFile('src/main/abaco-browser-controller.ts', 'utf8')
+    const rpc = await readFile('src/main/abaco-browser-rpc.ts', 'utf8')
+    const shared = await readFile('src/shared/abaco-browser.ts', 'utf8')
+    const main = await readFile('src/main/index.ts', 'utf8')
+    const preload = await readFile('src/preload/index.ts', 'utf8')
+
+    expect(recorder).toContain('desktopCapturer')
+    expect(recorder).toContain('getSources')
+    expect(recorder).toContain('MediaRecorder')
+    expect(recorder).toContain('.webm')
+    expect(controller).toContain('AbacoBrowserScreenRecorder')
+    expect(controller).toContain('agentScreenRecordStart')
+    expect(controller).toContain('agentScreenRecordStop')
+    expect(rpc).toContain("'screen-record-start'")
+    expect(rpc).toContain("'screen-record-stop'")
+    expect(rpc).toContain('SCREEN_RECORD_ROUTES')
+    expect(shared).toContain("'screen-record-start'")
+    expect(shared).toContain('ABACO_BROWSER_SCREEN_RECORDINGS_DIRNAME')
+    expect(shared).toContain('screenRecordStart')
+    expect(shared).toContain('reportPanelHostBounds')
+    expect(main).toContain('screenRecordingsDir:')
+    expect(main).toContain('abacoBrowserChannels.setPlacement')
+    expect(main).toContain('abacoBrowserChannels.screenRecordStart')
+    expect(preload).toContain('setPlacement:')
+    expect(preload).toContain('startScreenRecording:')
+    expect(preload).toContain('onOpened:')
+    expect(preload).toContain('onClosed:')
+    expect(preload).toContain('onScreenRecordingStopped:')
+    expect(controller).toContain('ABACO_BROWSER_OPENED_CHANNEL')
+    expect(controller).toContain('ABACO_BROWSER_CLOSED_CHANNEL')
+    expect(controller).toContain('ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL')
+    expect(abacoBrowserRpcRoutes).toContain('screen-record-start')
+    expect(abacoBrowserRpcRoutes).toContain('screen-record-stop')
+
+    const client = await readFile('packages/abaco-browser/client.js', 'utf8')
+    const chromeHtml = await readFile('build/abaco-browser-chrome.html', 'utf8')
+    const chromePreload = await readFile('src/preload/abaco-browser-chrome.ts', 'utf8')
+    const viteConfig = await readFile('electron.vite.config.ts', 'utf8')
+    expect(client).toContain('reportPanelHostBounds')
+    expect(client).toContain('measureDetailsColumn')
+    expect(chromeHtml).toContain('id="abaco-browser-screen-record"')
+    expect(chromeHtml).toContain("data-placement='panel'")
+    expect(chromePreload).toContain('screenRecordStart')
+    expect(viteConfig).toContain('isolatedEntries: true')
+    expect(viteConfig).toContain('externalizeDeps: false')
+  })
+})
+
+
+describe('ABACO browser P1 DoD (panel UX)', () => {
+  it('U1: chrome HTML keeps F2 record visible with ES labels under placement=panel', async () => {
+    const chromeHtml = await readFile('build/abaco-browser-chrome.html', 'utf8')
+    expect(chromeHtml).toContain("data-placement='panel'")
+    expect(chromeHtml).toContain('id="abaco-browser-record"')
+    expect(chromeHtml).toContain('id="abaco-browser-record-label"')
+    expect(chromeHtml).toContain('aria-label="Grabar skill"')
+    expect(chromeHtml).toContain('Grabar skill')
+    expect(chromeHtml).toMatch(/min-height:\s*24px/u)
+    // Must not hide .recordButton in panel; screen-record may be hidden first.
+    expect(chromeHtml).toMatch(
+      /body\[data-placement=['"]panel['"]\][^}]*\.screenRecordButton\s*\{[^}]*display:\s*none/u
+    )
+    expect(chromeHtml).toMatch(
+      /body\[data-placement=['"]panel['"]\][^}]*\.recordButton\s*\{[^}]*display:\s*inline-flex/u
+    )
+    expect(chromeHtml).not.toMatch(
+      /body\[data-placement=['"]panel['"]\]\s*\.recordButton\s*\{[^}]*display:\s*none/u
+    )
+    const chromePreload = await readFile('src/preload/abaco-browser-chrome.ts', 'utf8')
+    expect(chromePreload).toContain("'Grabar skill'")
+    expect(chromePreload).toContain("'Parar · mandar skill'")
+    expect(chromePreload).toContain("dataset.pending === 'true'")
+  })
+
+  it('U2: clampPanelViewport / computeAbacoBrowserSyncBounds CARD (not full-height)', () => {
+    const clamped = clampPanelViewport({
+      width: 480,
+      height: 2000,
+      contentHeight: 900,
+      chromeHeight: ABACO_BROWSER_CHROME_HEIGHT
+    })
+    expect(clamped.width).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_WIDTH_PX)
+    expect(clamped.width).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_WIDTH_PX)
+    expect(clamped.height).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
+    expect(clamped.height).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX)
+    expect(clamped.height).not.toBe(900)
+    const clampedAspect = clamped.width / clamped.height
+    expect(clampedAspect).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_ASPECT)
+    expect(clampedAspect).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_ASPECT)
+
+    const panelNoHost = computeAbacoBrowserSyncBounds({
+      contentWidth: 1280,
+      contentHeight: 1000,
+      placement: 'panel'
+    })
+    expect(panelNoHost.page).toEqual(ABACO_BROWSER_EMPTY_VIEW_BOUNDS)
+
+    const hosted = computeAbacoBrowserSyncBounds({
+      contentWidth: 1280,
+      contentHeight: 1000,
+      placement: 'panel',
+      hostBounds: { x: 860, y: 0, width: 480, height: 1000 }
+    })
+    expect(hosted.page.width).toBeGreaterThanOrEqual(420)
+    expect(hosted.page.width).toBeLessThanOrEqual(560)
+    expect(hosted.page.height).not.toBe(1000)
+    expect(hosted.page.height).toBeLessThanOrEqual(520)
+    expect(hosted.page.height).toBeGreaterThanOrEqual(360)
+    const hostedAspect = hosted.page.width / hosted.page.height
+    expect(hostedAspect).toBeGreaterThanOrEqual(0.7)
+    expect(hostedAspect).toBeLessThanOrEqual(1.3)
+    expect(hosted.chrome.height).toBeLessThanOrEqual(ABACO_BROWSER_CHROME_HEIGHT)
+    expect(hosted.chrome.y).toBe(hosted.page.y)
+  })
+
+  it('U3: client toggle labels Abrir/Cerrar navegador', async () => {
+    const client = await readFile('packages/abaco-browser/client.js', 'utf8')
+    expect(client).toContain("open: 'Abrir navegador'")
+    expect(client).toContain("close: 'Cerrar navegador'")
+    expect(client).toContain("open: 'Open browser'")
+    expect(client).toContain("close: 'Close browser'")
+    expect(client).toContain('bridge.close()')
+    expect(client).toContain('bridge.open()')
+    expect(client).toContain('openDetailsColumn')
+  })
+
+  it('U4: handoff builder includes action descriptions; notifier always submits', async () => {
+    const markdown = buildSkillHandoffMarkdown({
+      title: 'facturas-demo',
+      actionDescriptions: [
+        'navegar a https://panel.example.com',
+        'hacer click en #login'
+      ],
+      skillPath: '/tmp/skills/facturas-demo/SKILL.md',
+      recordingPath: '/tmp/rec/1.json'
+    })
+    expect(markdown).toContain('# facturas-demo')
+    expect(markdown).toContain('1. navegar a https://panel.example.com')
+    expect(markdown).toContain('2. hacer click en #login')
+    expect(markdown).toContain('/tmp/skills/facturas-demo/SKILL.md')
+    expect(markdown.toLowerCase()).toMatch(/aprend|guardar|learn|save/u)
+
+    const client = await readFile('packages/abaco-browser/client.js', 'utf8')
+    expect(client).toContain('skillMarkdown')
+    expect(client).toContain('inputActions.setDraft')
+    expect(client).toContain('inputActions.submit')
+    const controller = await readFile('src/main/abaco-browser-controller.ts', 'utf8')
+    expect(controller).toContain('handoffF2SkillToAgent')
+    expect(controller).toContain('writeBrowserSkillFromRecording')
+    expect(controller).toContain('buildSkillHandoffMarkdown')
+    expect(controller).toContain("kind: 'f2-actions'")
+    expect(controller).toContain('ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL')
+  })
+
+  it('U5: voice/broker authorize path unchanged; no spawn in voice', async () => {
+    const voice = await readFile('packages/abaco-voice/index.js', 'utf8')
+    expect(voice).toContain('authorize(')
+    expect(voice).not.toMatch(/\bspawn\s*\(/u)
+    const broker = await readFile('packages/abaco-effect-broker/index.js', 'utf8')
+    expect(broker).toContain('export function authorize')
+    // Controllers must not route record through authorize.
+    const controller = await readFile('src/main/abaco-browser-controller.ts', 'utf8')
+    expect(controller).not.toContain('authorize(')
+  })
+
+  it('U6: no window.__abaco_ctx =; patch disabled note; F1 file: deps intact', async () => {
+    const client = await readFile('packages/abaco-browser/client.js', 'utf8')
+    expect(client).not.toMatch(/window\.__abaco_ctx\s*=/)
+    expect(client).toContain('window.__abacoBrowserLayout')
+    const patch = await readFile('build/dsh-desktop.patch.yml', 'utf8')
+    expect(patch.toLowerCase()).toMatch(/disabled/u)
+    const pkg = await readFile('package.json', 'utf8')
+    expect(pkg).toContain('"abaco-effect-broker": "file:packages/abaco-effect-broker"')
+    expect(pkg).toContain('"abaco-mediacion-pilot": "file:packages/abaco-mediacion-pilot"')
+    expect(pkg).toContain('"abaco-voice": "file:packages/abaco-voice"')
+  })
+})
+
+
+describe('ABACO browser P1 hard-dock contract (H1–H7)', () => {
+  it('H1: anti-overlap helper — composer ∩ monitor blocks host report', () => {
+    const monitor = { x: 1000, y: 0, width: 400, height: 900 }
+    const composerClear = { x: 280, y: 800, width: 600, height: 80 }
+    const composerOverlap = { x: 900, y: 800, width: 400, height: 80 }
+    expect(abacoBrowserRectsOverlap(monitor, composerClear)).toBe(false)
+    expect(abacoBrowserRectsOverlap(monitor, composerOverlap)).toBe(true)
+    expect(canReportAbacoBrowserHostBounds(monitor, composerClear)).toBe(true)
+    expect(canReportAbacoBrowserHostBounds(monitor, composerOverlap)).toBe(false)
+    expect(canReportAbacoBrowserHostBounds({ x: 0, y: 0, width: 4, height: 900 }, null)).toBe(false)
+  })
+
+  it('H2: panel without host is empty / no pin-derecha', () => {
+    const panel = computeAbacoBrowserSyncBounds({
+      contentWidth: 1600,
+      contentHeight: 1000,
+      placement: 'panel'
+    })
+    expect(panel.page.width).toBe(0)
+    expect(panel.page.height).toBe(0)
+    expect(panel.page.x).toBe(0)
+    // Must NOT paint at contentWidth - W
+    expect(panel.page.x).not.toBe(1600 - ABACO_BROWSER_PANEL_WIDTH_PX)
+  })
+
+  it('H3: F2 Grabar→Parar skill handoff always setDraft+submit (no empty catch)', async () => {
+    const client = await readFile('packages/abaco-browser/client.js', 'utf8')
+    expect(client).toContain('submitSkillToChat')
+    expect(client).toContain('skillTextFromResult')
+    expect(client).toContain('inputActions.setDraft')
+    expect(client).toContain('inputActions.submit')
+    expect(client).toContain('onScreenRecordingStopped')
+    expect(client).toContain('__abacoBrowserSkillHandoffBound')
+    expect(client).toContain('bridge skill handoff')
+    // No silent empty catch swallowing handoff
+    expect(client).not.toMatch(/onScreenRecordingStopped\([^)]*\)\s*=>\s*\{\s*\}/)
+    const controller = await readFile('src/main/abaco-browser-controller.ts', 'utf8')
+    expect(controller).toContain('handoffF2SkillToAgent')
+    expect(controller).toContain('buildSkillHandoffMarkdown')
+  })
+
+  it('H4: click listeners re-attach on dom-ready and did-navigate', async () => {
+    const controller = await readFile('src/main/abaco-browser-controller.ts', 'utf8')
+    expect(controller).toContain("pageContents.on('dom-ready'")
+    expect(controller).toContain("pageContents.on('did-navigate'")
+    expect(controller).toContain('noteDomReady')
+    // did-navigate path must re-call noteDomReady (not only noteNavigation)
+    expect(controller).toMatch(/did-navigate[\s\S]*noteDomReady/u)
+    const recorder = await readFile('src/main/abaco-browser-recorder.ts', 'utf8')
+    expect(recorder).toContain('uninstallPageScript(true)')
+    expect(recorder).toContain('installPageScript')
+    expect(controller).not.toMatch(/\.setIgnoreMouseEvents\s*\(/)
+    expect(recorder).not.toMatch(/\.setIgnoreMouseEvents\s*\(/)
+  })
+
+  it('H5: F1 broker/voice untouched; GITHUB_STABLE_FEED intact', async () => {
+    const voice = await readFile('packages/abaco-voice/index.js', 'utf8')
+    expect(voice).toContain('authorize(')
+    const broker = await readFile('packages/abaco-effect-broker/index.js', 'utf8')
+    expect(broker).toContain('export function authorize')
+    const catalog = await readFile('src/main/update/version-catalog.ts', 'utf8')
+    expect(catalog).toContain('GITHUB_STABLE_FEED')
+    expect(catalog).toContain("provider: 'github'")
+    expect(catalog).toContain('anthony-x507')
+    expect(catalog).toContain('Abaco-deep-Core')
+    const manager = await readFile('src/main/update/update-manager.ts', 'utf8')
+    expect(manager).toContain('setFeedURL({ ...GITHUB_STABLE_FEED })')
+    const pkg = await readFile('package.json', 'utf8')
+    expect(pkg).toContain('"provider": "github"')
+    expect(pkg).toContain('"notarize": false')
+  })
+
+  it('H6: no window.__abaco_ctx =; layout stash pattern only', async () => {
+    const client = await readFile('packages/abaco-browser/client.js', 'utf8')
+    expect(client).not.toMatch(/window\.__abaco_ctx\s*=/)
+    expect(client).toContain('window.__abacoBrowserLayout')
+    expect(client).toContain("inject = ['slots', 'layout']")
+  })
+
+  it('H7: dock reserve CSS + CARD (not contentHeight); launcher forces panel', async () => {
+    const client = await readFile('packages/abaco-browser/client.js', 'utf8')
+    expect(client).toContain('data-abaco-browser-dock')
+    expect(client).toContain('applyDockReserve')
+    expect(client).toContain('clearDockReserve')
+    expect(client).toContain('grid-template-columns')
+    expect(client).toContain('!important')
+    expect(client).toContain('waitForDockReady')
+    expect(client).toContain("setPlacement('panel')")
+    expect(client).toContain('[class*="detailsCol"]')
+    expect(client).toContain('rectsOverlap')
+    expect(client).toContain('MIN_DOCK_W = 420')
+    expect(client).toContain('MAX_DOCK_W = 560')
+    const shared = await readFile('src/shared/abaco-browser.ts', 'utf8')
+    expect(shared).toMatch(/REVOKED/u)
+    expect(shared).toContain('ABACO_BROWSER_EMPTY_VIEW_BOUNDS')
+    expect(shared).toContain('ABACO_BROWSER_PANEL_MIN_HEIGHT_PX')
+    const hosted = computeAbacoBrowserSyncBounds({
+      contentWidth: 1400,
+      contentHeight: 900,
+      placement: 'panel',
+      hostBounds: { x: 980, y: 0, width: 480, height: 900 }
+    })
+    expect(hosted.page.height).not.toBe(900)
+    expect(hosted.page.height).toBeLessThanOrEqual(ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
+    expect(hosted.page.height).toBeGreaterThanOrEqual(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX)
+    const aspect = hosted.page.width / hosted.page.height
+    expect(aspect).toBeGreaterThanOrEqual(0.7)
+    expect(aspect).toBeLessThanOrEqual(1.3)
+    expect(ABACO_BROWSER_DEFAULT_PLACEMENT).toBe('panel')
+  })
+
+  it('H8: visible ES record labels Grabar skill / Parar · mandar skill', async () => {
+    const chromeHtml = await readFile('build/abaco-browser-chrome.html', 'utf8')
+    const chromePreload = await readFile('src/preload/abaco-browser-chrome.ts', 'utf8')
+    expect(chromeHtml).toContain('>Grabar skill</span>')
+    expect(chromeHtml).toContain('aria-label="Grabar skill"')
+    expect(chromePreload).toContain("RECORD_LABEL_IDLE = 'Grabar skill'")
+    expect(chromePreload).toContain("RECORD_LABEL_ACTIVE = 'Parar · mandar skill'")
+    expect(chromePreload).toContain('recordLabel.textContent = label')
+  })
+})
+

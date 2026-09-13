@@ -1,8 +1,7 @@
-diff --git a/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js
-index cdaea1a..131fc45 100644
---- a/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js
-+++ b/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js
-@@ -11,6 +11,7 @@ window.__ModuleLoader__.load({
+diff -Naur a/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js
+--- a/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js	1985-10-26 04:15:00
++++ b/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js	2026-09-12 19:44:03
+@@ -11,6 +11,7 @@
  		* LG breakpoint); a manual toggle below it re-expands over the squeezed center
  		* (stores.ts narrowExpanded). */
  		const SIDEBAR_AUTO_COLLAPSE = 1024;
@@ -10,7 +9,7 @@ index cdaea1a..131fc45 100644
  		/**
  		* Clamp a panel width into its contract range.
  		* @param px - requested width.
-@@ -32,7 +33,7 @@ window.__ModuleLoader__.load({
+@@ -32,7 +33,7 @@
  		* @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
  		*/
  		function computeColumns(viewport, sidebar, details) {
@@ -19,3 +18,12 @@ index cdaea1a..131fc45 100644
  			const d0 = details === 0 ? 0 : clampWidth(details, 300, 520);
  			if (s + d0 + 640 <= viewport) return {
  				sidebar: s,
+@@ -245,7 +246,7 @@
+ 				"data-dragging": dragging || void 0,
+ 				children: [
+ 					(0, react_jsx_runtime.jsx)(DocumentTitle, {
+-						productTitle: "DeepSeek Harness",
++						productTitle: "ABACO DEEP HARNES",
+ 						...documentTitle === void 0 ? {} : { title: documentTitle }
+ 					}),
+ 					(0, react_jsx_runtime.jsx)("div", {

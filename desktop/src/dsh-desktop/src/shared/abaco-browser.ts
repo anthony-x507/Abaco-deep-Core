@@ -50,6 +50,275 @@ export const ABACO_BROWSER_PARTITION = 'persist:abaco-browser'
  */
 export const ABACO_BROWSER_CHROME_HEIGHT = 44
 
+/**
+ * P1 — where the browser docks inside the main window.
+ *
+ * `panel` (default) keeps chat visible and mounts the browser as a right-hand
+ * strip (details-column range). `overlay` restores the F0 full-window cover.
+ */
+export type AbacoBrowserPlacement = 'panel' | 'overlay'
+
+export const ABACO_BROWSER_DEFAULT_PLACEMENT: AbacoBrowserPlacement = 'panel'
+
+/** Preferred CARD width in DIP when placement is `panel` (top-right of reserved track). */
+export const ABACO_BROWSER_PANEL_WIDTH_PX = 480
+
+/**
+ * Clamp for CARD width (P1 DoD: readable viewport, not a hairline strip).
+ * Width ∈ [420, 560]; default 480.
+ */
+export const ABACO_BROWSER_PANEL_MIN_WIDTH_PX = 420
+export const ABACO_BROWSER_PANEL_MAX_WIDTH_PX = 560
+
+/** CARD height band — never stretch to full host / contentHeight. */
+export const ABACO_BROWSER_PANEL_MIN_HEIGHT_PX = 360
+export const ABACO_BROWSER_PANEL_MAX_HEIGHT_PX = 520
+
+/**
+ * Acceptable width/height for the CARD page+chrome rect.
+ * Letterbox OK: reserved column may stay full-height; the WebContentsView must not.
+ */
+export const ABACO_BROWSER_PANEL_MIN_ASPECT = 0.7
+export const ABACO_BROWSER_PANEL_MAX_ASPECT = 1.3
+
+
+export function isAbacoBrowserPlacement(value: unknown): value is AbacoBrowserPlacement {
+  return value === 'panel' || value === 'overlay'
+}
+
+/** Host-reported bounds for the details column (DIP, window content coords). */
+export interface AbacoBrowserPanelHostBounds {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+export function isAbacoBrowserPanelHostBounds(value: unknown): value is AbacoBrowserPanelHostBounds {
+  if (value === null || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.x === 'number' &&
+    typeof v.y === 'number' &&
+    typeof v.width === 'number' &&
+    typeof v.height === 'number' &&
+    Number.isFinite(v.x) &&
+    Number.isFinite(v.y) &&
+    Number.isFinite(v.width) &&
+    Number.isFinite(v.height) &&
+    v.width >= 0 &&
+    v.height >= 0
+  )
+}
+
+
+/** Axis-aligned rect in DIP (content / client coords). */
+export interface AbacoBrowserRect {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** True when two positive-area rects intersect (edge-touch counts as overlap). */
+export function abacoBrowserRectsOverlap(a: AbacoBrowserRect, b: AbacoBrowserRect): boolean {
+  if (a.width <= 0 || a.height <= 0 || b.width <= 0 || b.height <= 0) return false
+  return !(
+    a.x + a.width <= b.x ||
+    b.x + b.width <= a.x ||
+    a.y + a.height <= b.y ||
+    b.y + b.height <= a.y
+  )
+}
+
+/**
+ * Host bounds may be reported / painted only when the reserved monitor column
+ * does not intersect the composer. Measuring a track the composer still crosses
+ * is a FAIL — do not reportPanelHostBounds and do not paint.
+ */
+export function canReportAbacoBrowserHostBounds(
+  monitor: AbacoBrowserRect,
+  composer?: AbacoBrowserRect | null
+): boolean {
+  if (!Number.isFinite(monitor.width) || !Number.isFinite(monitor.height)) return false
+  if (monitor.width < 8 || monitor.height < 8) return false
+  if (!composer || composer.width <= 0 || composer.height <= 0) return true
+  return !abacoBrowserRectsOverlap(monitor, composer)
+}
+
+/** Clamp a preferred panel width into the details-column contract range. */
+export function clampAbacoBrowserPanelWidth(width: number): number {
+  if (!Number.isFinite(width) || width <= 0) return ABACO_BROWSER_PANEL_WIDTH_PX
+  return Math.min(
+    ABACO_BROWSER_PANEL_MAX_WIDTH_PX,
+    Math.max(ABACO_BROWSER_PANEL_MIN_WIDTH_PX, Math.floor(width))
+  )
+}
+
+export interface AbacoBrowserViewBounds {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** Empty / no-mount rect — panel placement MUST NOT pin-derecha without a host. */
+export const ABACO_BROWSER_EMPTY_VIEW_BOUNDS: AbacoBrowserViewBounds = {
+  x: 0,
+  y: 0,
+  width: 0,
+  height: 0
+}
+
+export interface AbacoBrowserSyncBoundsInput {
+  readonly contentWidth: number
+  readonly contentHeight: number
+  readonly placement: AbacoBrowserPlacement
+  readonly hostBounds?: AbacoBrowserPanelHostBounds | null
+  readonly chromeHeight?: number
+}
+
+export interface AbacoBrowserSyncBoundsResult {
+  readonly page: AbacoBrowserViewBounds
+  readonly chrome: AbacoBrowserViewBounds
+}
+
+export interface ClampPanelViewportInput {
+  readonly width: number
+  /** Preferred / available height before CARD height + aspect clamps. */
+  readonly height: number
+  readonly contentHeight: number
+  /** Top inset already consumed (host.y); reduces available height. */
+  readonly y?: number
+  readonly chromeHeight?: number
+}
+
+export interface ClampPanelViewportResult {
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * P1 CARD — clamp page+chrome to a readable window-like rect.
+ *
+ * - width ∈ [420, 560] (default preference 480)
+ * - height ∈ [360, 520], capped by room below `y` — NEVER equals contentHeight
+ *   when the viewport is taller than the card band
+ * - width/height ∈ [0.70, 1.30]
+ * Letterbox OK: reserved host column may stay full-height; this returns CARD size.
+ */
+export function clampPanelViewport(input: ClampPanelViewportInput): ClampPanelViewportResult {
+  const chromeHeight = Math.max(
+    0,
+    Math.floor(input.chromeHeight ?? ABACO_BROWSER_CHROME_HEIGHT)
+  )
+  const y = Math.max(0, Math.floor(input.y ?? 0))
+  const contentHeight = Math.max(0, Math.floor(input.contentHeight))
+  const width = clampAbacoBrowserPanelWidth(input.width)
+  const roomBelowY = Math.max(0, contentHeight - y)
+  const maxHeight = Math.min(roomBelowY, ABACO_BROWSER_PANEL_MAX_HEIGHT_PX)
+  let height = Math.max(0, Math.min(Math.floor(input.height), maxHeight))
+  if (height > 0 && height < chromeHeight && maxHeight >= chromeHeight) {
+    height = chromeHeight
+  }
+  if (height > 0 && maxHeight >= ABACO_BROWSER_PANEL_MIN_HEIGHT_PX) {
+    height = Math.max(height, Math.min(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX, maxHeight))
+  }
+  if (height > 0 && width > 0) {
+    let aspect = width / height
+    if (aspect < ABACO_BROWSER_PANEL_MIN_ASPECT) {
+      height = Math.floor(width / ABACO_BROWSER_PANEL_MIN_ASPECT)
+    } else if (aspect > ABACO_BROWSER_PANEL_MAX_ASPECT) {
+      height = Math.floor(width / ABACO_BROWSER_PANEL_MAX_ASPECT)
+    }
+    height = Math.max(chromeHeight, Math.min(height, maxHeight))
+    if (maxHeight >= ABACO_BROWSER_PANEL_MIN_HEIGHT_PX) {
+      height = Math.max(height, Math.min(ABACO_BROWSER_PANEL_MIN_HEIGHT_PX, maxHeight))
+      aspect = width / height
+      if (aspect < ABACO_BROWSER_PANEL_MIN_ASPECT) {
+        height = Math.min(maxHeight, Math.floor(width / ABACO_BROWSER_PANEL_MIN_ASPECT))
+      } else if (aspect > ABACO_BROWSER_PANEL_MAX_ASPECT) {
+        height = Math.min(maxHeight, Math.max(chromeHeight, Math.floor(width / ABACO_BROWSER_PANEL_MAX_ASPECT)))
+      }
+    }
+  }
+  return { width, height }
+}
+
+/**
+ * Pure geometry for `AbacoBrowserController.syncBounds` (unit-testable).
+ *
+ * - `overlay` — full content rect (F0 behaviour; launcher must NOT open this).
+ * - `panel` + host bounds — CARD top-right of reserved track; width ∈ [420, 560],
+ *   height ∈ [360, 520], aspect ∈ [0.70, 1.30]. Host column may letterbox
+ *   (full-height reserve for chat shrink); page must NOT stretch to contentHeight.
+ * - `panel` without reserved host — empty / no-mount rect. Pin-derecha
+ *   without a host is FAIL / REVOKED; do not paint `x = contentWidth − W`.
+ *
+ * The chrome bar is a thin strip on top of the page (same x/y/width).
+ */
+export function computeAbacoBrowserSyncBounds(
+  input: AbacoBrowserSyncBoundsInput
+): AbacoBrowserSyncBoundsResult {
+  const contentWidth = Math.max(0, Math.floor(input.contentWidth))
+  const contentHeight = Math.max(0, Math.floor(input.contentHeight))
+  const chromeHeight = Math.min(
+    Math.max(0, Math.floor(input.chromeHeight ?? ABACO_BROWSER_CHROME_HEIGHT)),
+    contentHeight
+  )
+
+  if (input.placement === 'overlay') {
+    return {
+      page: { x: 0, y: 0, width: contentWidth, height: contentHeight },
+      chrome: { x: 0, y: 0, width: contentWidth, height: chromeHeight }
+    }
+  }
+
+  if (contentWidth === 0 || contentHeight === 0) {
+    return {
+      page: { ...ABACO_BROWSER_EMPTY_VIEW_BOUNDS },
+      chrome: { ...ABACO_BROWSER_EMPTY_VIEW_BOUNDS }
+    }
+  }
+
+  const host = input.hostBounds
+  if (host && host.width > 0 && host.height > 0) {
+    const hostX = Math.max(0, Math.floor(host.x))
+    const hostW = Math.max(0, Math.floor(host.width))
+    const y = Math.max(0, Math.floor(host.y))
+    const clamped = clampPanelViewport({
+      width: host.width,
+      height: host.height,
+      contentHeight,
+      y,
+      chromeHeight
+    })
+    const width = clamped.width
+    const height = clamped.height
+    // Top-right of reserved track (letterbox below / to the left is OK).
+    const x = Math.max(
+      0,
+      Math.min(hostX + Math.max(0, hostW - width), Math.max(0, contentWidth - width))
+    )
+    return {
+      page: { x, y, width, height },
+      chrome: { x, y, width, height: Math.min(chromeHeight, height) }
+    }
+  }
+
+  // No reserved host → do not mount/paint a right strip over full-width chat.
+  return {
+    page: { ...ABACO_BROWSER_EMPTY_VIEW_BOUNDS },
+    chrome: { ...ABACO_BROWSER_EMPTY_VIEW_BOUNDS }
+  }
+}
+
+/** @deprecated Prefer {@link clampAbacoBrowserPanelWidth} + {@link computeAbacoBrowserSyncBounds}. */
+export function abacoBrowserPanelWidth(contentWidth: number): number {
+  if (!Number.isFinite(contentWidth) || contentWidth <= 0) return 0
+  return Math.min(clampAbacoBrowserPanelWidth(ABACO_BROWSER_PANEL_WIDTH_PX), Math.floor(contentWidth))
+}
+
 /** `ipcMain.handle` channels that drive the overlay. */
 export const abacoBrowserChannels = {
   open: 'abaco:browser:open',
@@ -62,10 +331,10 @@ export const abacoBrowserChannels = {
   mode: 'abaco:browser:mode',
   /**
    * F2 normalizes this one literal to the kebab-case the whole family uses
-   * (F1 shipped `abaco:browser:setMode`). Only the chrome bar invokes it, and
-   * both halves ship in the same bundle, so there is no rolling-upgrade seam to
-   * keep open — see {@link AbacoBrowserMode} for why the *agent* still has no
-   * route to it.
+   * (F1 shipped `abaco:browser:setMode`). The chrome bar invokes it over IPC;
+   * the agent reaches the same `setBrowserMode` through the loopback routes
+   * `grab-control` / `release-control` (not this channel — the Harness page
+   * preload still has no `setMode`, so page script cannot flip ownership).
    */
   setMode: 'abaco:browser:set-mode',
   /** F2 — user-action recording (the raw material of a skill). */
@@ -90,7 +359,19 @@ export const abacoBrowserChannels = {
    * able to mint one. The agent consumes the result — the file — through its
    * own skill catalog, not through a tool.
    */
-  saveSkill: 'abaco:browser:save-skill'
+  saveSkill: 'abaco:browser:save-skill',
+  /** P1 — dock as right panel vs full-window overlay. */
+  setPlacement: 'abaco:browser:set-placement',
+  placement: 'abaco:browser:placement',
+  /**
+   * P1 — renderer reports the details-column host rect so the WebContentsView
+   * can sit on top of that column instead of guessing a fixed right strip.
+   */
+  reportPanelHostBounds: 'abaco:browser:report-panel-host-bounds',
+  /** P1 — pixel screen recording (desktopCapturer), distinct from DOM F2 recorder. */
+  screenRecordStart: 'abaco:browser:screen-record-start',
+  screenRecordStop: 'abaco:browser:screen-record-stop',
+  screenRecordStatus: 'abaco:browser:screen-record-status'
 } as const
 
 /** Main → chrome-bar push of the current navigation state. */
@@ -111,6 +392,23 @@ export const ABACO_BROWSER_THEME_CHANGED_CHANNEL = 'abaco:browser:theme-changed'
  * message that finishes the job on the other side.
  */
 export const ABACO_BROWSER_CHROME_FOCUS_ADDRESS_CHANNEL = 'abaco-browser-chrome:focus-address'
+
+/**
+ * Main → Harness page: the browser just mounted. The client plugin opens the
+ * details column and starts reporting its host rect. Separate from the chrome
+ * state push because the Harness page is a different `webContents`.
+ */
+export const ABACO_BROWSER_OPENED_CHANNEL = 'abaco:browser:opened'
+
+/** Main → Harness page: the browser was unmounted. */
+export const ABACO_BROWSER_CLOSED_CHANNEL = 'abaco:browser:closed'
+
+/**
+ * Main → Harness page: a desktopCapturer recording just finished. The client
+ * plugin submits a user message so the agent is asked to turn the clip into a
+ * skill. Payload is {@link AbacoBrowserScreenRecordingResult}.
+ */
+export const ABACO_BROWSER_SCREEN_RECORDING_STOPPED_CHANNEL = 'abaco:browser:screen-recording-stopped'
 
 /**
  * Shortest gap between two state pushes to the chrome bar.
@@ -150,6 +448,10 @@ export interface AbacoBrowserChromeState {
   hasRecording: boolean
   /** Session id of that saved recording; empty when there is none. */
   lastRecordingId: string
+  /** P1 — true while a desktopCapturer screen recording is running. */
+  screenRecording: boolean
+  /** P1 — `panel` (details column) or full-window `overlay`. */
+  placement: AbacoBrowserPlacement
 }
 
 /** Result shape of every control channel except `isOpen`, which returns a boolean. */
@@ -188,7 +490,7 @@ export const ABACO_BROWSER_DEFAULT_MODE: AbacoBrowserMode = 'agent'
  * same condition at every layer.
  */
 export const ABACO_BROWSER_TAKEOVER_MESSAGE =
-  'The ABACO browser is in manual mode: the user has taken control of the page, so agent browser actions are refused. Ask the user to hand control back (mode: agent) or try again later.'
+  'The ABACO browser is in manual mode: the user has taken control of the page, so agent browser actions are refused. Call abaco_browser_grab_control to take the wheel back (mode: agent), or ask the user to click AGENT on the chrome bar.'
 
 /**
  * Canonical "nothing is mounted yet" refusal. Shared so the controller, the RPC
@@ -218,6 +520,10 @@ export interface AbacoBrowserState {
   loading: boolean
   canGoBack: boolean
   canGoForward: boolean
+  /** P1 — true while a desktopCapturer screen recording is running. */
+  screenRecording: boolean
+  /** Absolute path of the last finished screen recording; empty when none. */
+  lastScreenRecordingPath: string
 }
 
 /** One element the agent acted on, named well enough to be re-targeted. */
@@ -304,9 +610,12 @@ export const ABACO_BROWSER_CTRL_TOKEN_ENV = 'ABACO_BROWSER_CTRL_TOKEN'
 export const ABACO_BROWSER_RPC_MAX_BODY_BYTES = 64 * 1024
 
 /**
- * The RPC surface, one route per agent tool. `/state` is the only read-only
- * route and the only one the takeover gate lets through in manual mode: knowing
- * *why* an action was refused must never require an action.
+ * The RPC surface, one route per agent tool. `/state` is read-only and always
+ * allowed in manual mode so the model can learn *why* an action was refused.
+ * `/grab-control` and `/release-control` also bypass the takeover gate: they
+ * *are* the mode switch (same `setBrowserMode` the chrome bar uses), so the
+ * agent can ask for — or return — the wheel without fighting the gate that
+ * just refused a click.
  */
 export const abacoBrowserRpcRoutes = [
   'navigate',
@@ -315,7 +624,15 @@ export const abacoBrowserRpcRoutes = [
   'read-dom',
   'wait-for',
   'screenshot',
-  'state'
+  'state',
+  /** Hand ownership to the agent (same control plane as chrome `setMode('agent')`). */
+  'grab-control',
+  /** Hand ownership to the user (same control plane as chrome `setMode('manual')`). */
+  'release-control',
+  /** Start a desktopCapturer screen recording of the ABACO window. */
+  'screen-record-start',
+  /** Stop screen recording, persist the file, and notify the agent with the path. */
+  'screen-record-stop'
 ] as const
 
 export type AbacoBrowserRpcRoute = (typeof abacoBrowserRpcRoutes)[number]
@@ -355,6 +672,80 @@ export const ABACO_BROWSER_NAVIGATE_SETTLE_MS = 10000
  * to answer.
  */
 export const ABACO_BROWSER_RPC_GRACE_MS = 2000
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * P1 — desktopCapturer screen recording (pixel capture, distinct from F2 DOM)
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Directory of screen recordings, below the app's `userData`. */
+export const ABACO_BROWSER_SCREEN_RECORDINGS_DIRNAME = 'abaco-browser/screen-recordings'
+
+/** Live status of a screen recording session. */
+export interface AbacoBrowserScreenRecordingStatus {
+  recording: boolean
+  sessionId: string
+  startedAt: string
+  /** Absolute path of the last finished recording; empty while running / none. */
+  lastRecordingPath: string
+  lastError: string
+}
+
+/** Kind of recording that triggered an agent skill handoff. */
+export type AbacoBrowserSkillHandoffKind = 'f2-actions' | 'screen'
+
+/** Result of stopping a screen recording (the agent notification payload). */
+export interface AbacoBrowserScreenRecordingResult {
+  ok: boolean
+  path: string
+  sessionId: string
+  durationMs: number
+  mimeType: 'video/webm' | 'application/json'
+  byteLength: number
+  /** One-line notice the agent should surface ("recording saved at …"). */
+  notice: string
+  frameCount?: number
+  /**
+   * P1 — markdown the Harness client injects into the active turn
+   * (`setDraft` + `submit`). Prefer this over the generic `notice` lines.
+   */
+  skillMarkdown?: string
+  /** Distinguishes F2 DOM-action stop from desktopCapturer screen stop. */
+  kind?: AbacoBrowserSkillHandoffKind
+  /** Absolute path of the written `SKILL.md` when auto-save succeeded. */
+  skillPath?: string
+  skillName?: string
+}
+
+/**
+ * Pure builder for the agent handoff body after a recording stops (P1 D4).
+ * Disk-only is not enough — the client must `setDraft` + `submit` this text.
+ */
+export function buildSkillHandoffMarkdown(input: {
+  title: string
+  actionDescriptions: readonly string[]
+  skillPath: string
+  recordingPath?: string
+}): string {
+  const lines: string[] = [`# ${input.title.trim() || 'Browser skill'}`, '']
+  if (input.actionDescriptions.length > 0) {
+    lines.push('## Acciones grabadas')
+    input.actionDescriptions.forEach((description, index) => {
+      lines.push(`${index + 1}. ${description}`)
+    })
+    lines.push('')
+  }
+  if (input.skillPath.trim().length > 0) {
+    lines.push(`Skill guardado en: ${input.skillPath}`)
+  }
+  if (input.recordingPath && input.recordingPath.trim().length > 0) {
+    lines.push(`Grabación: ${input.recordingPath}`)
+  }
+  lines.push('')
+  lines.push(
+    'Por favor aprende y guarda este skill en tu catálogo activo (no te limites a mirar el archivo en disco).'
+  )
+  return lines.join('\n')
+}
 
 /** True for the only two schemes the overlay is allowed to load. */
 export function isHttpUrl(url: string): boolean {
@@ -878,4 +1269,8 @@ export interface AbacoBrowserSaveSkillResult {
   stepCount: number
   /** Why nothing was written; empty on success. */
   error: string
+  /** Full `SKILL.md` body when ok (optional; P1 handoff). */
+  markdown?: string
+  /** Human one-liners per compiled step (optional; P1 handoff). */
+  actionDescriptions?: string[]
 }
