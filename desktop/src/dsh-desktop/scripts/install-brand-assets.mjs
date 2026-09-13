@@ -6,6 +6,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const source = path.join(projectRoot, 'build', 'icon.png')
 const lightSource = path.join(projectRoot, 'build', 'logo-light.png')
 const darkSource = path.join(projectRoot, 'build', 'logo-dark.png')
+const abacoLogoSource = path.join(projectRoot, 'build', 'abaco-brand', 'abaco-logo-new.png')
 const destinationDirectory = path.join(
   projectRoot,
   'node_modules',
@@ -16,6 +17,7 @@ const destinationDirectory = path.join(
 const destination = path.join(destinationDirectory, 'dsh-desktop-logo.png')
 const lightDestination = path.join(destinationDirectory, 'dsh-desktop-logo-light.png')
 const darkDestination = path.join(destinationDirectory, 'dsh-desktop-logo-dark.png')
+const abacoLogoDestination = path.join(destinationDirectory, 'abaco-logo-new.png')
 const indexPath = path.join(destinationDirectory, 'index.html')
 const manifestPath = path.join(destinationDirectory, 'manifest.webmanifest')
 
@@ -70,6 +72,7 @@ await mkdir(destinationDirectory, { recursive: true })
 await copyFile(source, destination)
 await copyFile(lightSource, lightDestination)
 await copyFile(darkSource, darkDestination)
+await copyFile(abacoLogoSource, abacoLogoDestination)
 
 const index = await readFile(indexPath, 'utf8')
 await writeFile(indexPath, replaceIconLink(index, path.relative(projectRoot, indexPath)))
@@ -83,5 +86,6 @@ await writeFile(
 console.log(`Installed DSH Desktop brand assets: ${[
   destination,
   lightDestination,
-  darkDestination
+  darkDestination,
+  abacoLogoDestination
 ].map((file) => path.relative(projectRoot, file)).join(', ')}`)

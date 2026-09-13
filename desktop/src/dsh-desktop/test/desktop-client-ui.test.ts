@@ -94,12 +94,12 @@ describe('DSH Desktop client slot occupants', () => {
     ])
     expect(appended).toHaveLength(1)
 
-    const markHtml = (name: string, props: Record<string, unknown>): string => {
+    const markImg = (name: string, props: Record<string, unknown>): ElementLike => {
       const element = registrations.find(({ config }) => config.name === name)!.component(
         props
       ) as ElementLike
-      const inner = element.props.dangerouslySetInnerHTML as { __html: string }
-      return inner.__html
+      const children = element.props.children as ElementLike[]
+      return children[0]
     }
 
     const sidebarMark = registrations.find(
@@ -108,8 +108,11 @@ describe('DSH Desktop client slot occupants', () => {
     expect(sidebarMark.type).toBe('span')
     expect(sidebarMark.props.className).toBe('abacoBrandMark')
     expect((sidebarMark.props.style as { width: string; height: string }).height).toBe('24px')
-    expect(markHtml('sidebar.brand.mark', { size: 24 })).toContain('aria-label="ABACO"')
-    expect(markHtml('sidebar.brand.mark', { size: 24 })).toContain('height="24"')
+    const sidebarImg = markImg('sidebar.brand.mark', { size: 24 })
+    expect(sidebarImg.type).toBe('img')
+    expect(sidebarImg.props.src).toBe('/dsh-desktop-logo.png')
+    expect(sidebarImg.props['aria-label']).toBe('ABACO')
+    expect(sidebarImg.props.height).toBe(24)
 
     const sidebarName = registrations.find(
       ({ config }) => config.name === 'sidebar.brand.name'
@@ -124,6 +127,8 @@ describe('DSH Desktop client slot occupants', () => {
     expect(heroMark.type).toBe('span')
     expect(heroMark.props.className).toBe('abacoBrandMark heroFish')
     expect((heroMark.props.style as { width: string; height: string }).height).toBe('48px')
-    expect(markHtml('conversation.hero.brand.mark', { size: 48 })).toContain('height="48"')
+    const heroImg = markImg('conversation.hero.brand.mark', { size: 48, className: 'heroFish' })
+    expect(heroImg.props.height).toBe(48)
+    expect(heroImg.props.src).toBe('/dsh-desktop-logo.png')
   })
 })

@@ -22,9 +22,14 @@ window.__ModuleLoader__.load({
     //   SessionSnapshot.running — the live Agent running-state the Session
     //   controller mirrors (`handleSessionStatus(sessionId, running)`), the
     //   same signal the shipped composer reads via useSession((s) => s.running).
+    // Watermark pulse (0.4.15) hooks the SAME `useSession((s) => s.running)`
+    // bit: idle → low static opacity; running/streaming → opacity pulse ~500ms.
     const SLOT = 'conversation.session.header.actions'
     const OCCUPANT_ID = 'abaco-agent-status'
     const STYLE_ID = 'abaco-agent-status-style'
+    const WATERMARK_ATTR = 'data-abaco-chat-watermark'
+    // Served by scripts/install-brand-assets.mjs into dsh-web-frontend/dist.
+    const WATERMARK_SRC = '/abaco-logo-new.png'
 
     // ── Copy (plain navigator-language sniff; the theme owns no locale seat) ──
     const COPY = {
@@ -37,6 +42,57 @@ window.__ModuleLoader__.load({
         ? String(navigator.language).toLowerCase()
         : ''
       return lang.indexOf('es') === 0 ? COPY.es : COPY.en
+    }
+
+    function findWatermarkHost() {
+      if (typeof document === 'undefined') return null
+      return (
+        document.querySelector('[data-slot="conversation.session"]') ||
+        document.querySelector('._8JRpoa_body') ||
+        document.querySelector('._8JRpoa_root') ||
+        document.querySelector('[class*="_body"]')
+      )
+    }
+
+    function ensureWatermarkElement(host) {
+      if (!host) return null
+      let el = host.querySelector('[' + WATERMARK_ATTR + ']')
+      if (!el) {
+        const style = window.getComputedStyle(host)
+        if (style.position === 'static') {
+          host.style.position = 'relative'
+        }
+        el = document.createElement('div')
+        el.setAttribute(WATERMARK_ATTR, 'idle')
+        el.className = 'abaco-chat-watermark'
+        el.setAttribute('aria-hidden', 'true')
+        host.appendChild(el)
+      }
+      return el
+    }
+
+    // Syncs a large pointer-events:none logo behind the chat/composer area.
+    // Pulses only while SessionSnapshot.running is true (real agent-working
+    // signal — not a free-running timer).
+    function ChatWatermark({ useSession }) {
+      const running = useSession((s) => s.running) ?? false
+      React.useEffect(() => {
+        const host = findWatermarkHost()
+        const el = ensureWatermarkElement(host)
+        if (!el) return undefined
+        el.setAttribute(WATERMARK_ATTR, running ? 'working' : 'idle')
+        el.classList.toggle('is-working', !!running)
+        return undefined
+      }, [running])
+      React.useEffect(() => {
+        return () => {
+          if (typeof document === 'undefined') return
+          document.querySelectorAll('[' + WATERMARK_ATTR + ']').forEach((node) => {
+            node.remove()
+          })
+        }
+      }, [])
+      return null
     }
 
     // ── Pill ────────────────────────────────────────────────────────────────
@@ -68,7 +124,12 @@ window.__ModuleLoader__.load({
     function AgentStatusEntry(props) {
       const useSession = props && props.useSession
       if (typeof useSession !== 'function') return null
-      return h(AgentWorkingPill, { useSession })
+      return h(
+        React.Fragment,
+        null,
+        h(ChatWatermark, { useSession }),
+        h(AgentWorkingPill, { useSession }),
+      )
     }
 
     // ── Style (ABACO navy/cyan tokens from abaco-theme, with fallbacks) ────
@@ -77,46 +138,46 @@ window.__ModuleLoader__.load({
       const s = document.createElement('style')
       s.id = STYLE_ID
       s.dataset.plugin = 'abaco-agent-status'
-      s.textContent = `
-        .abaco-agent-status {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          height: 24px;
-          padding: 0 10px;
-          border-radius: 999px;
-          background: rgba(56, 189, 248, 0.12);
-          border: 1px solid rgba(56, 189, 248, 0.4);
-          color: var(--abaco-accent-1, #38BDF8);
-          font-family: var(--abaco-font-sans, 'SF Pro Text', -apple-system, system-ui, sans-serif);
-          font-size: var(--abaco-fs-xs, 11px);
-          font-weight: 600;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-          white-space: nowrap;
-          user-select: none;
-          animation: abaco-agent-status-pop var(--abaco-dur-state, 200ms) var(--abaco-ease-out, ease-out);
-        }
-        .abaco-agent-status-spinner {
-          flex: none;
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-          border: 2px solid rgba(56, 189, 248, 0.25);
-          border-top-color: var(--abaco-accent-1, #38BDF8);
-          animation: abaco-agent-status-spin 0.9s linear infinite;
-        }
-        .abaco-agent-status-label {
-          line-height: 1;
-        }
-        @keyframes abaco-agent-status-spin {
-          to { transform: rotate(360deg); }
-        }
-        @keyframes abaco-agent-status-pop {
-          from { opacity: 0; transform: translateY(-2px) scale(0.96); }
-          to { opacity: 1; transform: none; }
-        }
-      `
+      s.textContent = [
+        '.abaco-agent-status {',
+        '  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;',
+        '  border-radius: 999px; background: rgba(56, 189, 248, 0.12);',
+        '  border: 1px solid rgba(56, 189, 248, 0.4); color: var(--abaco-accent-1, #38BDF8);',
+        "  font-family: var(--abaco-font-sans, 'SF Pro Text', -apple-system, system-ui, sans-serif);",
+        '  font-size: var(--abaco-fs-xs, 11px); font-weight: 600; letter-spacing: 0.06em;',
+        '  text-transform: uppercase; white-space: nowrap; user-select: none;',
+        '  animation: abaco-agent-status-pop var(--abaco-dur-state, 200ms) var(--abaco-ease-out, ease-out);',
+        '}',
+        '.abaco-agent-status-spinner {',
+        '  flex: none; width: 10px; height: 10px; border-radius: 50%;',
+        '  border: 2px solid rgba(56, 189, 248, 0.25);',
+        '  border-top-color: var(--abaco-accent-1, #38BDF8);',
+        '  animation: abaco-agent-status-spin 0.9s linear infinite;',
+        '}',
+        '.abaco-agent-status-label { line-height: 1; }',
+        '@keyframes abaco-agent-status-spin { to { transform: rotate(360deg); } }',
+        '@keyframes abaco-agent-status-pop {',
+        '  from { opacity: 0; transform: translateY(-2px) scale(0.96); }',
+        '  to { opacity: 1; transform: none; }',
+        '}',
+        '/* Large logo watermark behind chat/composer (pointer-events: none). */',
+        '.abaco-chat-watermark, [' + WATERMARK_ATTR + '] {',
+        '  position: absolute; inset: 0; z-index: 0; pointer-events: none;',
+        '  user-select: none; -webkit-user-drag: none;',
+        "  background-image: url('" + WATERMARK_SRC + "');",
+        '  background-repeat: no-repeat; background-position: center 42%;',
+        '  background-size: min(72%, 720px) auto; opacity: 0.06;',
+        '  filter: saturate(0.85) brightness(1);',
+        '  transition: opacity 180ms ease, filter 180ms ease;',
+        '}',
+        '.abaco-chat-watermark.is-working, [' + WATERMARK_ATTR + '="working"] {',
+        '  animation: abaco-chat-watermark-pulse 500ms ease-in-out infinite;',
+        '}',
+        '@keyframes abaco-chat-watermark-pulse {',
+        '  0%, 100% { opacity: 0.05; filter: saturate(0.8) brightness(0.95); }',
+        '  50% { opacity: 0.16; filter: saturate(1.15) brightness(1.18); }',
+        '}',
+      ].join('\n')
       document.head.appendChild(s)
     }
 
