@@ -81,6 +81,7 @@ import {
   valueToFields
 } from './schema.js'
 import { entryLine } from './render.js'
+import { assertTrust, initialStateFor, isQuarantined, reviewerCanPromote, trustOf } from './quarantine.js'
 
 /** Permission bits: owner-only. A memory document is nobody else's business. */
 const FILE_MODE = 0o600
@@ -483,7 +484,12 @@ export class MemoryStore {
   /**
    * Upsert one facet value.
    *
-   * @param request - `{ path, value, scope?, source, ttlDays?, ambient?, now?, reason? }`.
+   * F2.1: every write resolves a trust tier first. An explicit `request.trust`
+   * wins when it is on-vocabulary; otherwise the tier is derived mechanically
+   * from the provenance. A write with no mappable trust is refused
+   * (fail-closed), journaled, and never touches the document.
+   *
+   * @param request - `{ path, value, scope?, source, trust?, ttlDays?, ambient?, now?, reason? }`.
    * @returns a model-facing summary of what changed.
    */
   async set(request) {
@@ -493,6 +499,33 @@ export class MemoryStore {
     const kind = scope === 'auto' ? spec.scope : scope
     const key = scopeKeyFor(kind, request.ambient ?? {})
     const source = assertSource(request.source)
+    // F2.1: every write resolves a trust tier first. An explicit `request.trust`
+    // wins when it is on-vocabulary; otherwise the tier is derived mechanically
+    // from the provenance. A write with no mappable trust is refused
+    // (fail-closed), journaled, and never touches the document.
+    let trust
+    try {
+      trust = request.trust !== undefined ? assertTrust(request.trust) : trustOf(source)
+      if (trust === undefined) {
+        throw new MemorySchemaError(
+          `memory write refused: no trust tier for source ${JSON.stringify(source)}. Pass an explicit trust, or a source the trust map covers.`,
+          'MEMORY_NO_TRUST'
+        )
+      }
+    } catch (error) {
+      if (error instanceof MemorySchemaError && error.code === 'MEMORY_NO_TRUST') {
+        await this.#audit({
+          op: 'deny',
+          reason: 'MEMORY_NO_TRUST',
+          scope: { kind, key },
+          path: parsed.path,
+          facet: parsed.facet,
+          source,
+          trust: request.trust ?? null
+        })
+      }
+      throw error
+    }
     const now = stamp(request.now)
     const document = await this.ensure(kind, key)
     const before = cloneDocument(document)
@@ -508,10 +541,15 @@ export class MemoryStore {
       const current = previous !== undefined && typeof previous === 'object' && !Array.isArray(previous) ? { ...previous } : {}
       const next = applyRecordPatch(current, parsed, request.value, this.#maxEntryChars)
       if (Object.keys(current).length > 0) action = 'updated'
+      // F2.1: records are single-value slots, not injectable fact streams, so
+      // they are always admitted. The trust tier is still recorded, as the
+      // `_trust` field of the facet, so the journal and the document say who
+      // the value is attributed to.
+      next._trust = trust
       document.facets[facet] = next
     } else {
       const entries = Array.isArray(previous) ? [...previous] : []
-      const outcome = applyCollectionPatch(entries, parsed, request, { now, source, maxEntryChars: this.#maxEntryChars, facet })
+      const outcome = applyCollectionPatch(entries, parsed, request, { now, source, trust, maxEntryChars: this.#maxEntryChars, facet })
       action = outcome.action
       id = outcome.id
       const survivor = outcome.entries
@@ -543,6 +581,11 @@ export class MemoryStore {
     const entry = parsed.kind === 'collection'
       ? document.facets[facet]?.find((candidate) => candidate.id === id)
       : undefined
+    // F2.1: a newly quarantined entry gets its own journal line, so the
+    // quarantine is inspectable without diffing the document.
+    if (action === 'created' && entry !== undefined && isQuarantined(entry)) {
+      await this.#audit({ op: 'quarantine', path: parsed.path, id, trust, source })
+    }
     await this.#audit({
       op: 'set',
       scope: { kind, key },
@@ -551,6 +594,7 @@ export class MemoryStore {
       id,
       action,
       source,
+      trust,
       archived,
       reason: request.reason ?? 'memory_set'
     })
@@ -562,8 +606,89 @@ export class MemoryStore {
       id,
       action,
       archived,
+      trust,
+      state: entry?.state ?? 'admitted',
       bytesRendered: entry === undefined ? undefined : entryLine(facet, entry).length
     }
+  }
+
+  /**
+   * Promote a quarantined collection entry to admitted.
+   *
+   * The decision is mechanical, never model-judged: only a reviewer whose
+   * trust tier is `host` or `user` can promote, and only an entry that exists
+   * and is currently quarantined can be promoted. Anything else is refused
+   * (fail-closed) and journaled. Promotion is journaled too, with the
+   * reviewer's identity.
+   *
+   * @param request - `{ path, reviewer, scope?, ambient?, now?, reason? }`;
+   *   `reviewer` is `{ id: string, trust: string }`.
+   * @returns `{ ok: true, id, state: 'admitted' }`.
+   */
+  async promote(request) {
+    const reviewer = request.reviewer ?? {}
+    const reviewerId = typeof reviewer.id === 'string' ? reviewer.id : undefined
+    if (reviewerId === undefined || reviewerId.trim().length === 0 || !reviewerCanPromote(reviewer)) {
+      await this.#audit({
+        op: 'deny',
+        reason: 'REVIEWER_POLICY',
+        path: request.path,
+        reviewer: { id: reviewerId ?? null, trust: reviewer.trust ?? null }
+      })
+      throw new MemorySchemaError(
+        `memory promote refused: reviewer ${JSON.stringify(reviewerId ?? null)} (trust ${JSON.stringify(reviewer.trust ?? null)}) cannot promote. Only a host or user reviewer can promote a quarantined entry.`,
+        'REVIEWER_POLICY'
+      )
+    }
+    const parsed = parseMemoryPath(request.path)
+    const spec = MEMORY_FACETS[parsed.facet]
+    const scope = canonicalScope(request.scope ?? 'auto')
+    const kind = scope === 'auto' ? spec.scope : scope
+    const key = scopeKeyFor(kind, request.ambient ?? {})
+    const now = stamp(request.now)
+    const document = await this.ensure(kind, key)
+    const facet = parsed.facet
+    const value = document.facets[facet]
+    const entry =
+      parsed.kind === 'collection' && Array.isArray(value)
+        ? value.find((candidate) => candidate.id === parsed.id)
+        : undefined
+    if (entry === undefined || !isQuarantined(entry)) {
+      await this.#audit({
+        op: 'deny',
+        reason: 'STATE_POLICY',
+        scope: { kind, key },
+        path: parsed.path,
+        facet,
+        id: parsed.id
+      })
+      throw new MemorySchemaError(
+        `memory promote refused: "${parsed.path}" is not a quarantined entry. Only quarantined entries can be promoted.`,
+        'STATE_POLICY'
+      )
+    }
+    const before = cloneDocument(document)
+    document.facets[facet] = value.map((candidate) =>
+      candidate.id === entry.id
+        ? { ...candidate, state: 'admitted', promotedBy: reviewer.id, promotedAt: now }
+        : candidate
+    )
+    document.meta = { ...document.meta, lastWriteReason: request.reason ?? 'memory_promote', lastWriteAt: now }
+    try {
+      await this.#commit(kind, key, new Set([facet]))
+    } catch (error) {
+      this.#documents.set(documentKey(kind, key), before)
+      throw error
+    }
+    await this.#audit({
+      op: 'promote',
+      scope: { kind, key },
+      path: parsed.path,
+      facet,
+      id: entry.id,
+      reviewer: { id: reviewer.id, trust: reviewer.trust }
+    })
+    return { ok: true, id: entry.id, state: 'admitted' }
   }
 
   /**
@@ -673,8 +798,8 @@ export class MemoryStore {
           continue
         }
         const selected = target.parsed?.id === undefined
-          ? sortEntries(value)
-          : sortEntries(value.filter((entry) => entry.id === target.parsed.id || normalizeTextKey(entry.text) === normalizeTextKey(target.parsed.id)))
+          ? sortEntries(admittedEntries(value))
+          : sortEntries(admittedEntries(value).filter((entry) => entry.id === target.parsed.id || normalizeTextKey(entry.text) === normalizeTextKey(target.parsed.id)))
         if (selected.length === 0) continue
         entries += selected.length
         for (const entry of selected) if (typeof entry.locator === 'string') locators.push(entry.locator)
@@ -931,6 +1056,18 @@ function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/**
+ * F2.1: the entries a read may see. Quarantined entries never leave the store
+ * through `get()` — a reviewer promotes them with `promote()` first. Entries
+ * written before F2.1 carry no state and stay visible.
+ *
+ * @param value - the facet's entries.
+ * @returns the admitted entries.
+ */
+function admittedEntries(value) {
+  return value.filter((entry) => !isQuarantined(entry))
+}
+
 /** A readable message out of an unknown thrown value. */
 function describe(error) {
   return error instanceof Error ? error.message : String(error)
@@ -995,7 +1132,7 @@ function assertJsonValue(value, label) {
  * @returns the next entries plus what happened.
  */
 function applyCollectionPatch(entries, parsed, request, context) {
-  const { now, source, maxEntryChars, facet } = context
+  const { now, source, trust, maxEntryChars, facet } = context
   const patchFields = {}
   let id = parsed.id
 
@@ -1040,7 +1177,11 @@ function applyCollectionPatch(entries, parsed, request, context) {
     now,
     maxEntryChars,
     ttlDays: request.ttlDays,
-    facet
+    facet,
+    // F2.1: a new entry is born with its trust tier and the tier's initial
+    // state. An update keeps whatever the entry already carried — only
+    // promote() moves an entry out of quarantine.
+    ...(existing === undefined ? { trust, state: initialStateFor(trust) } : {})
   })
   const replaced = existing === undefined ? [...entries, next] : entries.map((entry) => (entry.id === id ? next : entry))
   return { entries: replaced, id, action: existing === undefined ? 'created' : 'updated' }

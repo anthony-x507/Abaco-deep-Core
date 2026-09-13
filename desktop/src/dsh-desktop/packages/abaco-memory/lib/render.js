@@ -74,6 +74,9 @@ export function entryLine(facet, entry) {
 function recordLines(facet, record) {
   const lines = []
   for (const [field, value] of Object.entries(record ?? {})) {
+    // `_`-prefixed fields are store-internal metadata (e.g. `_trust`): they are
+    // provenance for the audit trail, not prompt content.
+    if (field.startsWith('_')) continue
     if (value === null || value === undefined || value === '') continue
     if (typeof value === 'object') continue
     lines.push(`${facet}.${field}: ${String(value)}`)
@@ -83,7 +86,17 @@ function recordLines(facet, record) {
 
 /** Bullet bodies for a facet value, whatever its kind. */
 function facetLines(facet, value) {
-  if (Array.isArray(value)) return value.map((entry) => entryLine(facet, entry))
+  if (Array.isArray(value)) {
+    // Quarantine isolation (F2.1): quarantined entries never reach the prompt.
+    // They are never treated as system/host content; they are readable only
+    // via explicit read with a label (store.get excludes them; this filter is
+    // defense-in-depth on top of that). The check is inline on purpose — the
+    // renderer must not depend on lib/quarantine.js, so a regression in the
+    // quarantine helpers cannot reopen the prompt surface.
+    return value
+      .filter((entry) => entry?.state !== 'quarantined')
+      .map((entry) => entryLine(facet, entry))
+  }
   if (typeof value === 'object' && value !== null) return recordLines(facet, value)
   return []
 }

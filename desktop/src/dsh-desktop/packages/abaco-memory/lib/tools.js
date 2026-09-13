@@ -153,7 +153,13 @@ export function registerMemoryTools(ctx, options) {
         source: {
           type: 'string',
           description:
-            'Provenance: "user" for anything the user said or corrected; otherwise omit it and the agent and turn are recorded.'
+            'Provenance: "user" for anything the user said or corrected; otherwise omit it and the agent and turn are recorded. The trust tier of the write is derived from the source unless "trust" overrides it: "user"/agent sources are admitted, tool/plugin sources are quarantined.'
+        },
+        trust: {
+          type: 'string',
+          enum: ['host', 'user', 'plugin-data', 'untrusted'],
+          description:
+            'Trust tier of the writer: "host" (this agent), "user" (the user), "plugin-data" or "untrusted" (third-party/tool output, quarantined until reviewed). Optional: the store derives it from "source" when omitted.'
         },
         why: {
           type: 'string',
@@ -183,6 +189,16 @@ export function registerMemoryTools(ctx, options) {
             bytesRendered: {
               type: 'integer',
               description: 'Characters this entry will occupy in the injected block.'
+            },
+            trust: {
+              type: 'string',
+              description: 'The trust tier the write was stored with (host, user, plugin-data or untrusted).'
+            },
+            state: {
+              type: 'string',
+              enum: ['admitted', 'quarantined'],
+              description:
+                'For list facets: whether the entry is live in memory ("admitted") or held in quarantine ("quarantined") and excluded from the prompt until reviewed and promoted.'
             }
           }
         },
@@ -192,8 +208,14 @@ export function registerMemoryTools(ctx, options) {
             value.archived > 0
               ? ` ${value.archived} older entr${value.archived === 1 ? 'y was' : 'ies were'} archived to make room.`
               : ''
+          // The model reads this text, not the raw value: it must not believe
+          // a quarantined entry landed in its prompt.
+          const promptNote =
+            value.state === 'quarantined'
+              ? ' It is quarantined: it will not appear in your system prompt until it is reviewed and promoted.'
+              : ' It will be in your system prompt from the next turn on.'
           return textBlock(
-            `Memory ${value.action}: ${value.key} → ${where} in ${value.scope} memory.${archived} It will be in your system prompt from the next turn on.`
+            `Memory ${value.action}: ${value.key} → ${where} in ${value.scope} memory.${archived}${promptNote}`
           )
         }
       },
@@ -209,7 +231,11 @@ export function registerMemoryTools(ctx, options) {
             priority: args.priority,
             rationale: args.why,
             ambient: ambientOf(exec),
-            reason: 'memory_set'
+            reason: 'memory_set',
+            // The store derives trust from the source when the caller says
+            // nothing; an explicit trust is passed through untouched so the
+            // store can validate it (fail-closed: an unknown tier is rejected).
+            ...(args.trust === undefined ? {} : { trust: args.trust })
           })
           return {
             ok: true,
@@ -219,7 +245,13 @@ export function registerMemoryTools(ctx, options) {
             action: outcome.action,
             archived: outcome.archived,
             ...(outcome.id === undefined ? {} : { id: outcome.id }),
-            ...(outcome.bytesRendered === undefined ? {} : { bytesRendered: outcome.bytesRendered })
+            ...(outcome.bytesRendered === undefined ? {} : { bytesRendered: outcome.bytesRendered }),
+            // Mirror the store's decision: the tool never derives trust or
+            // state itself, so there is exactly one place where the tier and
+            // the quarantine decision are computed (lib/quarantine.js, via the
+            // store). Present only when the store reports them.
+            ...(outcome.trust === undefined ? {} : { trust: outcome.trust }),
+            ...(outcome.state === undefined ? {} : { state: outcome.state })
           }
         } catch (error) {
           throw explain(error, 'abaco_memory_set')
