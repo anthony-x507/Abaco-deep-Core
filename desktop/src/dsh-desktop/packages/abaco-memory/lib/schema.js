@@ -194,6 +194,8 @@ export const MEMORY_ENTRY_FIELDS = Object.freeze([
   'priority',
   'pinned',
   'source',
+  'trust',
+  'state',
   'createdAt',
   'updatedAt',
   'expiresAt',
@@ -502,6 +504,15 @@ function assertAuxField(key, value) {
 }
 
 /**
+ * Entry fields the store stamps itself. A caller patch can never set them: a
+ * write carrying `state: 'admitted'` would self-admit and void the quarantine.
+ * `normalizeEntry` drops them from the patch; the store supplies them through
+ * `options.trust` / `options.state`, and `promote()` writes the promotion
+ * metadata directly onto the entry.
+ */
+const STORE_STAMPED_FIELDS = Object.freeze(['trust', 'state', 'promotedBy', 'promotedAt'])
+
+/**
  * Build or update one entry.
  *
  * The rules applied here are the design's conflict and retention rules
@@ -518,11 +529,14 @@ function assertAuxField(key, value) {
  *
  * @param existing - the entry being updated, when there is one.
  * @param patch - the fields the caller supplied.
- * @param options - id, source, timestamps, caps and facet defaults.
+ * @param options - id, source, timestamps, caps and facet defaults; F2.1 adds
+ *   `trust` (already validated) and `state`, which are stamped onto the entry
+ *   when supplied. An update otherwise keeps whatever trust/state the entry
+ *   already carried, so `promote()` is the only path out of quarantine.
  * @returns the next entry.
  */
 export function normalizeEntry(existing, patch, options) {
-  const { id, source, now, maxEntryChars, ttlDays } = options
+  const { id, source, now, maxEntryChars, ttlDays, trust, state } = options
   if (!isPlainObject(patch)) throw new MemorySchemaError('an entry patch must be an object', 'MEMORY_BAD_VALUE')
   const incoming = assertSource(source)
   const inherited = typeof existing?.source === 'string' ? existing.source : undefined
@@ -531,8 +545,10 @@ export function normalizeEntry(existing, patch, options) {
   const next = existing === undefined ? { id, createdAt: now, updatedAt: now } : { ...existing, updatedAt: now }
   for (const [key, value] of Object.entries(patch)) {
     // `id` is the upsert key, never a patchable field: a caller that wants a
-    // different id writes to a different path.
-    if (value === undefined || key === 'id') continue
+    // different id writes to a different path. The quarantine fields are
+    // stamped by the store, never by the caller: a patch carrying
+    // `state: 'admitted'` must not be able to self-admit.
+    if (value === undefined || key === 'id' || STORE_STAMPED_FIELDS.includes(key)) continue
     assertJsonValue(value, `"${key}"`)
     next[key] = key === 'text' ? value : assertAuxField(key, value)
   }
@@ -564,6 +580,11 @@ export function normalizeEntry(existing, patch, options) {
   else if (next.expiresAt === undefined && specTtlDays(options.facet) !== undefined) {
     next.expiresAt = new Date(Date.parse(now) + specTtlDays(options.facet) * 86400000).toISOString()
   }
+  // F2.1 quarantine: the store decides trust and state through `options`, and
+  // an update keeps whatever the entry already carried (via the spread of
+  // `existing` above) unless the options say otherwise.
+  if (trust !== undefined) next.trust = trust
+  if (state !== undefined) next.state = state
   return next
 }
 

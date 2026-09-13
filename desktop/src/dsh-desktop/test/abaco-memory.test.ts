@@ -603,7 +603,7 @@ describe('abaco-memory mounting', () => {
     )
     expect(shape).toEqual({
       abaco_memory_set: {
-        properties: ['key', 'priority', 'scope', 'source', 'ttl', 'value', 'why'],
+        properties: ['key', 'priority', 'scope', 'source', 'trust', 'ttl', 'value', 'why'],
         required: ['key', 'value']
       },
       abaco_memory_get: { properties: ['key', 'scope'], required: [] },

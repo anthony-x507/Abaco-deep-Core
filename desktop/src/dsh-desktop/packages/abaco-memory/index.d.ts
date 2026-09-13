@@ -65,6 +65,19 @@ export interface MemoryPromptContext {
   agent?: { session?: { header?: MemorySessionHeader } }
 }
 
+/** Trust tier of a memory entry: who vouches for the content. */
+export type MemoryTrust = 'host' | 'user' | 'plugin-data' | 'untrusted'
+
+/** Admission state of a collection entry. */
+export type QuarantineState = 'admitted' | 'quarantined'
+
+/**
+ * Note on `lib/quarantine.js`: `index.js` does not re-export its helpers
+ * (`trustOf`, `assertTrust`, `initialStateFor`, `isQuarantined`), so they are
+ * intentionally not declared here. They stay store-internal; the tool layer
+ * mirrors only the store's outcome and never re-derives trust or state itself.
+ */
+
 /** One entry of a list facet. */
 export interface MemoryEntry {
   id: string
@@ -72,6 +85,10 @@ export interface MemoryEntry {
   priority: number
   pinned: boolean
   source: string
+  /** Who vouches for this entry; derived from `source` when the write omits it. */
+  trust?: MemoryTrust
+  /** Quarantined entries never reach the injected prompt block. */
+  state?: QuarantineState
   createdAt: string
   updatedAt: string
   expiresAt?: string
@@ -129,6 +146,10 @@ export interface MemorySetOutcome {
   action: 'created' | 'updated'
   archived: number
   bytesRendered?: number
+  /** The trust tier the write was stored with. */
+  trust?: MemoryTrust
+  /** For list facets: whether the entry is live or held in quarantine. */
+  state?: QuarantineState
 }
 
 /** Result of `MemoryStore.forget`. */
@@ -214,6 +235,8 @@ export declare class MemoryStore {
     value: unknown
     scope?: string
     source: string
+    /** Optional override; the store derives trust from `source` when omitted. */
+    trust?: MemoryTrust
     ttlDays?: number
     priority?: number
     pinned?: boolean
@@ -229,6 +252,17 @@ export declare class MemoryStore {
     ambient?: MemoryAmbient
     reason?: string
   }): Promise<MemoryForgetOutcome>
+  /**
+   * Promote a quarantined collection entry to admitted, after human review.
+   *
+   * Fail-closed: only an entry whose `state` is `'quarantined'` can be
+   * promoted; the reviewer is recorded in the audit journal. Async because it
+   * commits to disk like every other write.
+   */
+  promote(request: {
+    path: string
+    reviewer: { id: string; trust: MemoryTrust }
+  }): Promise<{ ok: true; id: string; state: 'admitted' }>
   /** Read memory back in detail. */
   get(request?: { path?: string; scope?: string; ambient?: MemoryAmbient }): Promise<MemoryGetResult>
   /** List facets and their sizes without returning the values. */
