@@ -5,6 +5,13 @@ All notable changes to ABACO Deep Core are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.18] - 2026-09-16
+
+Hotfix so Leader can cut the Release that 0.4.17 could not package.
+
+### Fixed
+- Regenerated `patches/@deepseek-ai+dsh-client-ui-conversation+0.1.2-rc.1.patch` with `git diff --cached` (the same form `patch-package` writes). The 0.4.17 assemble used GNU `diff` and inserted a blank line between the `client.js` and `slots.d.ts` file diffs; `patch-package` treats that blank line as extra hunk context and throws `hunk header integrity check failed`, so `npm ci` / postinstall died before any apply. Composer cleanup is unchanged: Settings → Analytics, slim composer, model up top.
+
 ## [0.4.17] - 2026-09-16
 
 Composer cleanup so Anthony can cut a GitHub Release and use in-app Update.

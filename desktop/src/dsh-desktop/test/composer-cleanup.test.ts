@@ -1,9 +1,31 @@
+import { createRequire } from 'node:module'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { projectRoot } from './patch-path'
 
+const require = createRequire(import.meta.url)
+
 describe('composer cleanup (Grok-simple layout)', () => {
+  it('keeps the conversation patch parseable by patch-package', async () => {
+    const { parsePatchFile } = require('patch-package/dist/patch/parse') as {
+      parsePatchFile: (file: string) => unknown[]
+    }
+    const patch = await readFile(
+      path.join(projectRoot, 'patches/@deepseek-ai+dsh-client-ui-conversation+0.1.2-rc.1.patch'),
+      'utf8',
+    )
+    expect(patch).toMatch(/^diff --git /)
+    expect(patch).toContain('\nindex ')
+    expect(patch).not.toContain('\n\ndiff --git ')
+    expect(() => parsePatchFile(patch)).not.toThrow()
+    const parsed = parsePatchFile(patch) as Array<{ type: string; path: string }>
+    expect(parsed.map((p) => p.path)).toEqual([
+      'node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js',
+      'node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/types/client/contract/slots.d.ts',
+    ])
+  })
+
   it('moves the model dropdown and access shield out of the composer card', async () => {
     const client = await readFile(
       path.join(projectRoot, 'node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js'),
