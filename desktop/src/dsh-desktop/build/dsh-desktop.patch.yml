@@ -150,6 +150,12 @@
     - id: abaco-observability
       name: abaco-observability
 
+# Session analytics (turns / steps / LLM / tools / TTFT / cache) — Settings page
+# only. The live strip under the composer is hidden; numbers stay available here.
+- insert:
+    - id: abaco-analytics
+      name: abaco-analytics
+
 # Layer 1 of the 3-layer context system: the working window and its summary
 # policy. `compaction-basic` freezes its policy at construction and reads it
 # from its composition row, so the only supported way to change WHEN the agent

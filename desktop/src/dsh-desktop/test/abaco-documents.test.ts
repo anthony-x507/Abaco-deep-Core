@@ -129,5 +129,17 @@ describe('abaco-documents folder picker contract', () => {
     expect(client).toContain('Subir carpeta')
     expect(client).toContain('DOC_NAME_RE')
   })
+
+  it('exposes one unified + attach on the composer left, not separate clip/folder buttons', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const client = await readFile('packages/abaco-documents/client.js', 'utf8')
+    expect(client).toContain("name: 'conversation.input.left'")
+    expect(client).toContain("id: 'abaco-documents-upload'")
+    expect(client).toContain("data-abaco-attach': 'unified'")
+    expect(client).toContain('Adjuntar archivos, fotos o carpeta')
+    expect(client).not.toContain("name: 'conversation.input.right'")
+    expect(client).not.toMatch(/busy \? '…' : '📎'/)
+    expect(client).not.toMatch(/busy \? '…' : '📁'/)
+  })
 })
 

@@ -1,0 +1,27 @@
+{
+  "name": "abaco-analytics",
+  "version": "0.1.0",
+  "description": "Settings → Analytics for ABACO DEEP HARNES. Session turns/steps/LLM/tool/TTFT/cache/input live here instead of under the composer.",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./lib/summary": "./lib/summary.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}
