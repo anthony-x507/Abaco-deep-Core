@@ -151,7 +151,7 @@ export function executeAuthorized(req, opts = {}) {
     child.on('error', (e) => finish(new Error(failClosedHint(e))))
     child.on('exit', (code, signal) => {
       if (!settled) {
-        finish(new Error(failClosedHint(`worker exited (${signal || code ?? 0})`)))
+        finish(new Error(failClosedHint(`worker exited (${signal || (code ?? 0)})`)))
       }
     })
   })

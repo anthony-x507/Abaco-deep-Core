@@ -74,9 +74,10 @@ test('B0 CELL_KIND is strangler-fork — does not fake Electron utilityProcess',
   assert.equal(CELL_KIND, 'strangler-fork')
   const cell = await readFile(join(PKG_DIR, 'CELL.md'), 'utf8')
   const host = await readFile(join(PKG_DIR, 'index.js'), 'utf8')
+  const hostCode = host.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   assert.match(cell, /strangler-fork/)
   assert.match(cell, /Do not treat this file as evidence of that API/)
-  assert.doesNotMatch(host, /utilityProcess\.fork/)
+  assert.doesNotMatch(hostCode, /utilityProcess\.fork/)
   assert.match(host, /inspectGrant/)
 })
 
@@ -257,12 +258,10 @@ test('B8 failClosedHint y fuentes locales no caen a OpenAI', async () => {
   assert.doesNotMatch(worker, /api\.openai\.com/)
   assert.doesNotMatch(ops, /api\.openai\.com/)
   const client = await readFile(join(DESK, 'packages/abaco-voice/client.js'), 'utf8')
-  const transcribeFn = client.slice(
-    client.indexOf('async transcribe(audioBlob, opts)'),
-    client.indexOf('localWhisper.__statusPath'),
-  )
-  assert.doesNotMatch(transcribeFn, /api\.openai\.com/)
-  assert.match(transcribeFn, /LOCAL_TRANSCRIBE_PATH/)
+  const localBlockStart = client.indexOf("id: 'local-whisper-stt'")
+  const localBlock = client.slice(localBlockStart, client.indexOf('localWhisper.__statusPath', localBlockStart))
+  assert.doesNotMatch(localBlock, /api\.openai\.com/)
+  assert.match(localBlock, /LOCAL_TRANSCRIBE_PATH/)
 })
 
 /* ── B9: inspectGrant is not a grantor ────────────────────────────────── */
