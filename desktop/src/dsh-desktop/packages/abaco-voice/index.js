@@ -4,7 +4,8 @@
  * Renderer records with MediaRecorder, POSTs bytes to
  * `/api/abaco-voice.local-transcribe`. This fiber OWNS the routes (identity).
  * Before any proc.spawn, authorize() must allow; execution goes to
- * abaco-mediacion-pilot worker cell. Direct spawn here = LEGACY_UNMEDIATED.
+ * abaco-mediacion-pilot strangler cell. Direct spawn here = LEGACY_UNMEDIATED.
+ * Cell crash/timeout/deny → fail-closed hint (no silent OpenAI/cloud fallback).
  * Janice = runtime; cero Atena (asesor) en authorize.
  *
  * @module abaco-voice
@@ -14,9 +15,9 @@ import {
   authorize,
   hashArgs,
   markLegacyUnmediated,
-} from 'abaco-effect-broker'
-import { executeAuthorized } from 'abaco-mediacion-pilot'
-import { resolveLocalWhisperTools } from 'abaco-mediacion-pilot/ops'
+} from '../abaco-effect-broker/index.js'
+import { executeAuthorized, failClosedHint } from '../abaco-mediacion-pilot/index.js'
+import { resolveLocalWhisperTools } from '../abaco-mediacion-pilot/ops.js'
 import {
   DEFAULT_LOCAL_MODEL,
   listCachedLocalWhisperModels,
@@ -39,9 +40,9 @@ function failure(message, status = 422) {
 }
 
 function toolsMissingMessage() {
-  return (
+  return failClosedHint(
     'Whisper local no disponible (binario o ffmpeg ausente, o sin modelos en cache HF). ' +
-    'No es un problema de API key (modo local).'
+    'No es un problema de API key (modo local).',
   )
 }
 
@@ -112,7 +113,9 @@ export function apply(ctx) {
       model = resolveLocalWhisperModel(model)
       if (!picked) {
         return failure(
-          'Whisper local: no hay modelos en cache HF (small-mlx/base-mlx/tiny-mlx/tiny). No es API key.',
+          failClosedHint(
+            'Whisper local: no hay modelos en cache HF (small-mlx/base-mlx/tiny-mlx/tiny). No es API key.',
+          ),
           503,
         )
       }
@@ -146,7 +149,7 @@ export function apply(ctx) {
         trust_in: 'user',
       })
       if (fetchDecision.decision !== 'allow') {
-        return failure(`mediación deny: ${fetchDecision.reason}`, 403)
+        return failure(failClosedHint(`mediación deny: ${fetchDecision.reason}`), 403)
       }
 
       // 2) Authorize proc.spawn BEFORE any child process (suite: direct spawn = red).
@@ -167,7 +170,7 @@ export function apply(ctx) {
         trust_in: 'user',
       })
       if (spawnDecision.decision !== 'allow') {
-        return failure(`mediación deny spawn: ${spawnDecision.reason}`, 403)
+        return failure(failClosedHint(`mediación deny spawn: ${spawnDecision.reason}`), 403)
       }
 
       // Also authorize ffmpeg spawn when conversion needed.
@@ -183,7 +186,7 @@ export function apply(ctx) {
         trust_in: 'user',
       })
       if (ffmpegDecision.decision !== 'allow') {
-        return failure(`mediación deny ffmpeg: ${ffmpegDecision.reason}`, 403)
+        return failure(failClosedHint(`mediación deny ffmpeg: ${ffmpegDecision.reason}`), 403)
       }
 
       try {
@@ -208,7 +211,7 @@ export function apply(ctx) {
           },
         }, { headers: { 'cache-control': 'no-store' } })
       } catch (error) {
-        return failure(error instanceof Error ? error.message : 'Whisper local falló.', 422)
+        return failure(failClosedHint(error instanceof Error ? error.message : 'Whisper local falló.'), 422)
       }
     },
   })

@@ -10,7 +10,7 @@
     "./ops": "./ops.js",
     "./package.json": "./package.json"
   },
-  "description": "F1 mediation pilot \u2014 authorized executor cell (not a grantor).",
+  "description": "F1/F2.1-B mediation pilot — strangler executor cell (not a grantor; not Electron utilityProcess).",
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"

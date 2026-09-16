@@ -490,6 +490,39 @@ export function revokeGrant(grantId) {
   return !!g
 }
 
+/**
+ * Read-only grant inspection for the control-2 cell (Pack B).
+ * Does not authorize, issue, revoke, or spend budget. Atena never lives here.
+ * @param {string} grantId
+ * @returns {{ live: boolean, reason: string, grant: object | null }}
+ */
+export function inspectGrant(grantId) {
+  if (!grantId || typeof grantId !== 'string') {
+    return { live: false, reason: 'missing-grant', grant: null }
+  }
+  const g = grants.get(grantId)
+  if (!g) return { live: false, reason: 'unknown-grant', grant: null }
+  const snap = Object.freeze({
+    grant_id: g.grant_id,
+    plugin_id: g.plugin_id,
+    task_id: g.task_id,
+    effects: Object.freeze([...(g.effects || [])]),
+    resources: Object.freeze([...(g.resources || [])]),
+    revoked: !!g.revoked,
+    issued_at: g.issued_at,
+    ttl_ms: g.ttl_ms,
+    trust_ceiling: g.trust_ceiling,
+  })
+  if (g.revoked) return { live: false, reason: 'grant-revoked', grant: snap }
+  if (Date.now() - g.issued_at > g.ttl_ms) {
+    return { live: false, reason: 'ttl-expired', grant: snap }
+  }
+  if (!delegationValid(g)) {
+    return { live: false, reason: 'delegation-invalid', grant: snap }
+  }
+  return { live: true, reason: 'ok', grant: snap }
+}
+
 function findActiveGrant(pluginId, taskId) {
   for (const g of grants.values()) {
     if (g.revoked) continue
