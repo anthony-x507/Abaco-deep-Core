@@ -165,7 +165,7 @@ describe('F2.1-C STT Mac contract (G1–G7)', () => {
     const helper = await readFile('packages/abaco-voice/lib/stt-mac-contract.js', 'utf8')
     const worker = await readFile('packages/abaco-mediacion-pilot/worker.js', 'utf8')
     const contract = await readFile(
-      resolve('../../docs/contracts/CONTRACT-F2.1-C-STT-MAC.md'),
+      resolve('../../../docs/contracts/CONTRACT-F2.1-C-STT-MAC.md'),
       'utf8',
     )
     expect(contract).toContain('Janice = runtime')
