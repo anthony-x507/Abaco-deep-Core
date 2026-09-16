@@ -82,26 +82,58 @@ window.__ModuleLoader__.load({
         .abaco-doc-action:hover { color: var(--abaco-fg-0, #F1F5F9); border-color: var(--abaco-border-strong, #334155); }
         .abaco-doc-action:disabled { opacity: 0.5; cursor: default; }
         .abaco-doc-upload-btn {
-          width: 32px; height: 32px;
-          border-radius: var(--abaco-radius, 8px);
-          background: var(--abaco-bg-2, #1A2238);
-          border: 1px solid var(--abaco-border, #1E293B);
-          color: var(--abaco-fg-1, #94A3B8);
+          width: 28px; height: 28px;
+          border-radius: 999px;
+          background: var(--dsw-specific-selector, var(--abaco-bg-2, #1A2238));
+          border: none;
+          color: var(--dsw-alias-label-primary, var(--abaco-fg-0, #F1F5F9));
           cursor: pointer;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          font-size: 14px;
-          transition: all var(--abaco-dur-hover, 150ms) var(--abaco-ease-out, ease-out);
+          font-size: 16px;
+          line-height: 1;
+          font-weight: 500;
+          transition: background-color var(--abaco-dur-hover, 150ms) var(--abaco-ease-out, ease-out);
         }
-        .abaco-doc-upload-btn:hover {
-          background: var(--abaco-bg-3, #232E4A);
-          color: var(--abaco-fg-0, #F1F5F9);
-          border-color: var(--abaco-border-strong, #334155);
+        .abaco-doc-upload-btn:hover:not(:disabled) {
+          background: var(--dsw-alias-interactive-bg-hover-solid, var(--abaco-bg-3, #232E4A));
         }
-        .abaco-doc-upload-btn.abaco-doc-busy {
+        .abaco-doc-upload-btn.abaco-doc-busy,
+        .abaco-doc-upload-btn:disabled {
           pointer-events: none;
-          opacity: 0.6;
+          opacity: 0.5;
+        }
+        .abaco-doc-attach {
+          position: relative;
+          display: inline-flex;
+        }
+        .abaco-doc-menu {
+          position: absolute;
+          left: 0;
+          bottom: calc(100% + 6px);
+          min-width: 196px;
+          padding: 6px;
+          background: var(--dsw-specific-menu, var(--abaco-bg-1, #111729));
+          border: 1px solid var(--abaco-border, #1E293B);
+          border-radius: 10px;
+          box-shadow: 0 8px 24px rgba(0,0,0,.28);
+          z-index: 20;
+        }
+        .abaco-doc-menu button {
+          display: block;
+          width: 100%;
+          text-align: left;
+          padding: 8px 10px;
+          border: none;
+          border-radius: 8px;
+          background: transparent;
+          color: var(--abaco-fg-0, #F1F5F9);
+          font-size: 13px;
+          cursor: pointer;
+        }
+        .abaco-doc-menu button:hover {
+          background: var(--dsw-alias-interactive-bg-hover, var(--abaco-bg-2, #1A2238));
         }
       `
       document.head.appendChild(s)
@@ -163,7 +195,9 @@ window.__ModuleLoader__.load({
     function UploadButton({ store }) {
       const inputRef = React.useRef(null)
       const folderRef = React.useRef(null)
+      const rootRef = React.useRef(null)
       const [busy, setBusy] = React.useState(false)
+      const [menuOpen, setMenuOpen] = React.useState(false)
 
       const ingestFiles = async (fileList) => {
         const files = Array.from(fileList || [])
@@ -217,22 +251,55 @@ window.__ModuleLoader__.load({
         await ingestFiles(filtered)
       }
 
+      React.useEffect(() => {
+        if (!menuOpen) return undefined
+        const onDoc = (event) => {
+          if (rootRef.current && !rootRef.current.contains(event.target)) setMenuOpen(false)
+        }
+        document.addEventListener('mousedown', onDoc)
+        return () => document.removeEventListener('mousedown', onDoc)
+      }, [menuOpen])
+
+      const openFiles = () => {
+        setMenuOpen(false)
+        if (inputRef.current) inputRef.current.click()
+      }
+      const openFolder = () => {
+        setMenuOpen(false)
+        if (folderRef.current) folderRef.current.click()
+      }
+
       return h(
-        React.Fragment, null,
+        'div',
+        { className: 'abaco-doc-attach', ref: rootRef, 'data-abaco-attach': 'unified' },
         h('button', {
           type: 'button',
-          'aria-label': 'Subir documento o foto',
-          title: 'Subir documento o foto (PDF, DOCX, TXT, MD, CSV, JSON, YAML, PNG, JPEG, GIF, WEBP, HEIC)',
+          'aria-label': 'Adjuntar archivos, fotos o carpeta',
+          'aria-haspopup': 'menu',
+          'aria-expanded': menuOpen,
+          title: 'Adjuntar (archivos, fotos o carpeta)',
           className: `abaco-doc-upload-btn${busy ? ' abaco-doc-busy' : ''}`,
-          onClick: () => inputRef.current && inputRef.current.click(),
-        }, busy ? '…' : '📎'),
-        h('button', {
-          type: 'button',
-          'aria-label': 'Subir carpeta de documentos',
-          title: 'Subir carpeta (filtra tipos soportados)',
-          className: `abaco-doc-upload-btn${busy ? ' abaco-doc-busy' : ''}`,
-          onClick: () => folderRef.current && folderRef.current.click(),
-        }, busy ? '…' : '📁'),
+          disabled: busy,
+          onClick: () => setMenuOpen((open) => !open),
+        }, busy ? '…' : '+'),
+        menuOpen && h(
+          'div',
+          { className: 'abaco-doc-menu', role: 'menu' },
+          h('button', {
+            type: 'button',
+            role: 'menuitem',
+            'aria-label': 'Subir documento o foto',
+            title: 'Subir documento o foto (PDF, DOCX, TXT, MD, CSV, JSON, YAML, PNG, JPEG, GIF, WEBP, HEIC)',
+            onClick: openFiles,
+          }, 'Archivos y fotos'),
+          h('button', {
+            type: 'button',
+            role: 'menuitem',
+            'aria-label': 'Subir carpeta de documentos',
+            title: 'Subir carpeta (filtra tipos soportados)',
+            onClick: openFolder,
+          }, 'Subir carpeta'),
+        ),
         h('input', {
           ref: inputRef,
           type: 'file',
@@ -414,10 +481,10 @@ window.__ModuleLoader__.load({
       // undeclared ctx properties ("cannot get property 'abaco' without
       // inject"). The store is captured by closure and passed to components.
 
-      // Upload button → right accessory of the composer tool row
-      ctx.slots.inject('conversation.input.right', () =>
+      // Unified + attach → left of the composer tool row (replaces pin/clip/folder clutter)
+      ctx.slots.inject('conversation.input.left', () =>
         ctx.slots.register(
-          { name: 'conversation.input.right', id: 'abaco-documents-upload', order: 20 },
+          { name: 'conversation.input.left', id: 'abaco-documents-upload', order: -20 },
           function AbacoUploadButton() {
             return h(UploadButton, { store })
           },

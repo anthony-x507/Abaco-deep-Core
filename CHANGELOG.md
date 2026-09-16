@@ -5,6 +5,16 @@ All notable changes to ABACO Deep Core are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.17] - 2026-09-16
+
+Composer cleanup so Anthony can cut a GitHub Release and use in-app Update.
+
+### Changed
+- Composer box keeps one **+** attach control, a compact **mic**, and **Send**.
+- Model dropdown moved out of the box into the chrome row above the composer (still a clickable catalog).
+- Full-access / permission shield stays available in that same chrome row and is documented under Settings → Analytics.
+- Session analytics strip (turns / steps / LLM / tools / TTFT / cache / input) no longer sits under the composer; it lives in **Settings → Analytics**.
+
 ## [0.4.0] - 2026-09-09
 
 The first release that is a product rather than a rebrand: the desktop shell

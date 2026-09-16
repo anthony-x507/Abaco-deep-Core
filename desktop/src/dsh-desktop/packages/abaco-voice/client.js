@@ -1429,28 +1429,35 @@ window.__ModuleLoader__.load({
         : state === 'error' ? '⚠'
         : '🎙'
 
+      const micName = lastMicDeviceLabel || micChip || 'Micrófono'
+      const ariaLabel = state === 'recording'
+        ? 'Detener grabación'
+        : micChip
+          ? `${micChip}: transcribir voz`
+          : 'Transcribir voz'
+
       return h(
         'div',
-        { style: { display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', maxWidth: 280 } },
+        {
+          className: 'abaco-mic',
+          style: { display: 'inline-flex', alignItems: 'center', gap: 4, position: 'relative' },
+        },
         h('button', {
           type: 'button',
-          'aria-label': state === 'recording' ? 'Detener grabación' : 'Transcribir voz',
-          title: error || (state === 'recording' ? 'Detener' : 'Micrófono'),
+          className: 'abaco-mic-btn',
+          'aria-label': ariaLabel,
+          title: error || (state === 'recording' ? 'Detener' : micName),
           onClick,
           style: {
-            width: 32, height: 32, borderRadius: 8, cursor: 'pointer',
+            width: 32, height: 32, borderRadius: 999, cursor: 'pointer',
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 14, fontWeight: 500, ...styles[state],
           },
         }, label),
         micChip && h('span', {
           'data-abaco-mic-chip': 'mac',
+          className: 'abaco-mic-chip-sr',
           title: lastMicDeviceLabel || micChip,
-          style: {
-            fontSize: 10, lineHeight: 1.2, padding: '2px 6px', borderRadius: 999,
-            background: 'var(--abaco-bg-2)', color: 'var(--abaco-fg-2)',
-            border: '1px solid var(--abaco-border)', whiteSpace: 'nowrap',
-          },
         }, micChip),
         state === 'recording' && h('button', {
           type: 'button',
@@ -1826,10 +1833,10 @@ window.__ModuleLoader__.load({
         resolveStore()
       }
 
-      // Mic button → conversation.input.left (list / session)
-      ctx.slots.inject('conversation.input.left', () =>
+      // Mic button → immediately left of Send (composer trailing / right)
+      ctx.slots.inject('conversation.input.right', () =>
         ctx.slots.register(
-          { name: 'conversation.input.left', id: 'abaco-voice-mic', order: 10 },
+          { name: 'conversation.input.right', id: 'abaco-voice-mic', order: 80 },
           AbacoMicButton,
         ),
       )
@@ -1859,6 +1866,17 @@ window.__ModuleLoader__.load({
           @keyframes abaco-pulse {
             0%, 100% { opacity: 1; transform: scale(1); }
             50% { opacity: .8; transform: scale(1.05); }
+          }
+          .abaco-mic-chip-sr {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
           }
         `
         document.head.appendChild(s)
