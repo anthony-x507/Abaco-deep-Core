@@ -102,7 +102,7 @@ test('G4 host cablea admisión + authorize; worker exige grantId', async () => {
   assert.ok(host.includes('executeAuthorized'))
   assert.ok(!/\bspawn\s*\(/.test(host))
   assert.ok(worker.includes('missing grantId'))
-  assert.ok(worker.includes('NEVER calls broker.grant'))
+  assert.ok(worker.includes('NEVER issues grants'))
   assert.ok(broker.includes("if (channel.path && String(channel.path).startsWith('/api/abaco-voice.')) return 'abaco-voice'"))
   assert.ok(broker.includes('Auto-issue ephemeral task grant for host.fetch voice routes'))
 })

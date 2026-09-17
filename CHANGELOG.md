@@ -19,6 +19,7 @@ Release prep: F2.1 Packs A+B+C plus composer cleanup, already on `main`.
 
 ### Fixed
 - Regenerated the three remaining GNU `diff -Naur` patches (`dsh-client-ui-chat`, `dsh-client-ui-layout`, `dsh-client-ui-settings-models`) with `git diff --cached`, same form as the 0.4.18 conversation hotfix. `patch-package` could not parse those files, so `npm ci` / postinstall skipped them — including the layout title `ABACO DEEP HARNES` and WelcomeNotice suppression. Conversation patch from 0.4.18 is unchanged.
+- Pack C G4 now asserts the Pack B worker wording (`NEVER issues grants`) so the merged tip does not fail its own STT contract.
 
 ## [0.4.18] - 2026-09-16
 
