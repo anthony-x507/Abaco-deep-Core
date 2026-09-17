@@ -24,6 +24,7 @@ Bienvenido a la documentación de **abaco-deep-core**, la shell de escritorio qu
 | Documento | Para qué sirve |
 |---|---|
 | [CONTRACT-F1-ADMISSION-IMMUTABLE.md](contracts/CONTRACT-F1-ADMISSION-IMMUTABLE.md) | F1 control-3: session admission graph sealed; skills/docs/memory/tool-results cannot enter, activate preload, or add patch.yml rows |
+| [CONTRACT-F1.5-MEMORY-PACKAGER.md](contracts/CONTRACT-F1.5-MEMORY-PACKAGER.md) | F1.5: procedencia fail-closed del packager de memoria 3 fases (profile/log/note); Pack A quarantine intacta |
 | [CONTRACT-F2.1-C-STT-MAC.md](contracts/CONTRACT-F2.1-C-STT-MAC.md) | Pack C: STT Mac-only, Whisper local, cero fallback cloud silencioso. Linux §15/16 = hint fail-closed |
 
 ## Decisiones arquitectónicas
