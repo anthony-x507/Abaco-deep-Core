@@ -90,7 +90,7 @@ describe('F2.1-C STT Mac contract (G1–G7)', () => {
     expect(host).toContain('executeAuthorized')
     expect(host).not.toMatch(/\bspawn\s*\(/)
     expect(worker).toContain('missing grantId')
-    expect(worker).toContain('NEVER calls broker.grant')
+    expect(worker).toContain('NEVER issues grants')
     expect(broker).toContain("if (channel.path && String(channel.path).startsWith('/api/abaco-voice.')) return 'abaco-voice'")
     expect(broker).toContain('Auto-issue ephemeral task grant for host.fetch voice routes')
   })
