@@ -17,6 +17,9 @@ Release prep: F2.1 Packs A+B+C plus composer cleanup, already on `main`.
 ### Changed
 - Composer cleanup from 0.4.17/0.4.18 stays in this ship: slim composer (+ / mic / Send), model + access in chrome, session analytics in Settings → Analytics.
 
+### Fixed
+- Regenerated the three remaining GNU `diff -Naur` patches (`dsh-client-ui-chat`, `dsh-client-ui-layout`, `dsh-client-ui-settings-models`) with `git diff --cached`, same form as the 0.4.18 conversation hotfix. `patch-package` could not parse those files, so `npm ci` / postinstall skipped them — including the layout title `ABACO DEEP HARNES` and WelcomeNotice suppression. Conversation patch from 0.4.18 is unchanged.
+
 ## [0.4.18] - 2026-09-16
 
 Hotfix so Leader can cut the Release that 0.4.17 could not package.
