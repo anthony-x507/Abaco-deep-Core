@@ -5,6 +5,18 @@ All notable changes to ABACO Deep Core are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.19] - 2026-09-17
+
+Release prep: F2.1 Packs A+B+C plus composer cleanup, already on `main`.
+
+### Added
+- **Pack A — MemoryStore quarantine** (PR #7): durable memory writes carry a trust tier and quarantine state; untrusted/plugin provenance stays invisible until a trusted reviewer promotes it.
+- **Pack B — strangler-fork cell** (PR #9 / `0f507b1`): mediación piloto forks `worker.js` only after `authorize()` + `inspectGrant()` (honest `strangler-fork`, not a fake Electron `utilityProcess`).
+- **Pack C — STT Mac-only** (PR #8 / `7fe9add`): product STT is local Whisper on Mac; non-Mac is fail-closed with a Linux §15/16 hint. No silent cloud fallback.
+
+### Changed
+- Composer cleanup from 0.4.17/0.4.18 stays in this ship: slim composer (+ / mic / Send), model + access in chrome, session analytics in Settings → Analytics.
+
 ## [0.4.18] - 2026-09-16
 
 Hotfix so Leader can cut the Release that 0.4.17 could not package.
