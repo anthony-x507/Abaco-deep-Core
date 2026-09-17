@@ -34,8 +34,22 @@ import {
   getCascadeAudit,
   resetCascadeForTests,
 } from './cascade.js'
+import { sealLiveAdmission } from './admission.js'
 
 export { resetAuditForTests as resetProvenanceAuditForTests }
+export {
+  buildAdmissionGraph,
+  proposeAdmissionChange,
+  proposeLiveAdmissionChange,
+  getAdmissionGraph,
+  getAdmissionChangeLog,
+  resetAdmissionForTests,
+  NON_CONTROL_SOURCES,
+  CONTROL_SOURCES,
+  SEALED_PRELOAD_KEYS,
+  ADMISSION_ROLES,
+  ADMISSION_ACTIONS,
+} from './admission.js'
 
 /** @typedef {'host'|'user'|'plugin-data'|'untrusted'} TrustLabel */
 /** @typedef {'ui.slot'|'host.fetch'|'tool.call'|'tool.register'|'ipc.invoke'|'fs.read'|'fs.write'|'net.fetch'|'proc.spawn'|'grant.mutate'|'compose.mutate'} EffectKind */
@@ -211,6 +225,17 @@ export function getAdmissionStatus() {
     pinned: { ...PINNED_MANIFEST_DIGEST },
   }
 }
+
+// Control-3: seal the session admission graph from verified caps + existing
+// patch.yml / preload snapshots. Additive — authorize() is unchanged.
+sealLiveAdmission({
+  caps: MANIFEST_CAPS,
+  pinned: PINNED_MANIFEST_DIGEST,
+  ok: admissionFailure === null,
+  failure: admissionFailure,
+  patchEnabled: PATCH_ENABLED,
+  disabled: DISABLED_PLUGINS,
+})
 
 /** @type {Map<string, any>} */
 const grants = new Map()

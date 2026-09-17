@@ -19,10 +19,11 @@ Bienvenido a la documentación de **abaco-deep-core**, la shell de escritorio qu
 | [COMPACTION.md](COMPACTION.md) | Compactación automática del contexto |
 | [SECURITY.md](SECURITY.md) | Modelo de seguridad actual |
 
-## Contratos F2.1 (merge HOLD hasta Leader)
+## Contratos F1 / F2.1
 
 | Documento | Para qué sirve |
 |---|---|
+| [CONTRACT-F1-ADMISSION-IMMUTABLE.md](contracts/CONTRACT-F1-ADMISSION-IMMUTABLE.md) | F1 control-3: session admission graph sealed; skills/docs/memory/tool-results cannot enter, activate preload, or add patch.yml rows |
 | [CONTRACT-F2.1-C-STT-MAC.md](contracts/CONTRACT-F2.1-C-STT-MAC.md) | Pack C: STT Mac-only, Whisper local, cero fallback cloud silencioso. Linux §15/16 = hint fail-closed |
 
 ## Decisiones arquitectónicas
