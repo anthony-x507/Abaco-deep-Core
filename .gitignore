@@ -45,8 +45,9 @@ desktop/dist/
 *.swp
 *.swo
 
-# Runtime state (local user data)
-runtime/
+# Runtime state (local user data). Path-scoped so it does not hide
+# desktop/src/dsh-desktop/src/main/runtime/ (harness launch sources).
+/runtime/
 logs/
 *.log
 
