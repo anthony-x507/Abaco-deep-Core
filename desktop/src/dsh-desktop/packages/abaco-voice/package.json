@@ -9,7 +9,8 @@
     ".": "./index.js",
     "./client": "./client.js",
     "./package.json": "./package.json",
-    "./lib/composer-mic": "./lib/composer-mic.js"
+    "./lib/composer-mic": "./lib/composer-mic.js",
+    "./lib/stt-mac-contract": "./lib/stt-mac-contract.js"
   },
   "dsh": {
     "client": {

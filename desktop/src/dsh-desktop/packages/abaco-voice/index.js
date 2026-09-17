@@ -1,6 +1,9 @@
 /**
  * Host half for abaco-voice — local Whisper STT mediated by F1 broker.
  *
+ * F2.1-C: product STT is Mac-only local Whisper. Linux §15/16 is a
+ * fail-closed hint, not a stack and not a silent OpenAI fallback.
+ *
  * Renderer records with MediaRecorder, POSTs bytes to
  * `/api/abaco-voice.local-transcribe`. This fiber OWNS the routes (identity).
  * Before any proc.spawn, authorize() must allow; execution goes to
@@ -24,6 +27,13 @@ import {
   pickCachedModel,
   resolveLocalWhisperModel,
 } from './lib/normalize-config.js'
+import {
+  LINUX_STT_HINT_15_16,
+  denySilentCloudSttFallback,
+  isMacLocalSttPlatform,
+  macLocalSttAdmission,
+  sttPlatformHint,
+} from './lib/stt-mac-contract.js'
 
 export const name = 'abaco-voice'
 
@@ -31,6 +41,14 @@ export const inject = ['connection']
 
 export const LOCAL_TRANSCRIBE_PATH = '/api/abaco-voice.local-transcribe'
 export const LOCAL_STATUS_PATH = '/api/abaco-voice.local-status'
+
+export {
+  LINUX_STT_HINT_15_16,
+  denySilentCloudSttFallback,
+  isMacLocalSttPlatform,
+  macLocalSttAdmission,
+  sttPlatformHint,
+}
 
 const MAX_BYTES = 25 * 1024 * 1024
 const DEFAULT_MODEL = DEFAULT_LOCAL_MODEL
@@ -83,17 +101,21 @@ export function apply(ctx) {
       const tools = await resolveLocalWhisperTools()
       const cached_models = await listCachedLocalWhisperModels()
       const picked_model = pickCachedModel(cached_models)
+      // F2.1-C: darwin keeps hint: null; non-Mac surfaces §15/16 fail-closed.
+      const admission = macLocalSttAdmission(process.platform)
+      const hint = sttPlatformHint(process.platform)
       return Response.json({
         ok: true,
-        available: tools.available && !!picked_model,
+        available: admission.ok && tools.available && !!picked_model,
         engine: tools.engine,
         hasFfmpeg: !!tools.ffmpeg,
         hasWhisper: !!tools.bin,
         cached_models,
         picked_model,
-        hint: null,
+        hint,
         mediated: true,
         grant_id: decision.grant.grant_id,
+        mac_only: true,
       }, { headers: { 'cache-control': 'no-store' } })
     },
   })
@@ -102,6 +124,12 @@ export function apply(ctx) {
     path: LOCAL_TRANSCRIBE_PATH,
     methods: ['POST'],
     fetch: async (request) => {
+      // F2.1-C: non-Mac transcribe is fail-closed (no spawn, no cloud).
+      const admission = macLocalSttAdmission(process.platform)
+      if (!admission.ok) {
+        return failure(admission.error || LINUX_STT_HINT_15_16, 503)
+      }
+
       const url = new URL(request.url)
       const filename = url.searchParams.get('filename') || 'audio.webm'
       // 0.4.7 FORCE: sticky tiny -> small-mlx before authorize (args_hash = small-mlx).

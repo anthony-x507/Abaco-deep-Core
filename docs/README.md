@@ -19,6 +19,12 @@ Bienvenido a la documentación de **abaco-deep-core**, la shell de escritorio qu
 | [COMPACTION.md](COMPACTION.md) | Compactación automática del contexto |
 | [SECURITY.md](SECURITY.md) | Modelo de seguridad actual |
 
+## Contratos F2.1 (merge HOLD hasta Leader)
+
+| Documento | Para qué sirve |
+|---|---|
+| [CONTRACT-F2.1-C-STT-MAC.md](contracts/CONTRACT-F2.1-C-STT-MAC.md) | Pack C: STT Mac-only, Whisper local, cero fallback cloud silencioso. Linux §15/16 = hint fail-closed |
+
 ## Decisiones arquitectónicas
 
 | ADR | Tema |
