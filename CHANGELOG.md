@@ -5,6 +5,15 @@ All notable changes to ABACO Deep Core are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.21] - 2026-09-17
+
+Release prep: F1 admission immutable plus F1.5 MCP schema pin and memory packager provenance, already on `main`.
+
+### Added
+- **F1 — admission immutable** (PR #15 / `cb125df`): sealed session admission graph from the control plane only (`host` + pinned manifests + existing `patch.yml` snapshot). Skills, docs, memory, and tool-results cannot mutate admission, preload, or `patch.yml`. Runtime `proposeAdmissionChange` is deny-by-default and never writes.
+- **F1.5 — MCP schema pin/witness** (PR #16 / `be6e784`): fail-closed register wrap for `mcp__*` tools. Canonical sha256 of each advertised `parameters` / `inputSchema` is attested by `host` or `user` only. Shipped pin set is empty (no third-party MCP schemas). Un-witnessed / drifted / expanded schemas deny with 0 registry write.
+- **F1.5 — memory 3-phase packager provenance** (PR #17 / `f80a321`): profile / log / note packaging with fail-closed escalation and control rules (`effective = min(claim, channel)`). Untrusted / plugin-data stay quarantined. Memory cannot enter admission, preload, or `patch.yml`. Pack A MemoryStore quarantine is unchanged.
+
 ## [0.4.20] - 2026-09-17
 
 Release prep: track `main`/runtime (PR #13) after 0.4.19.
