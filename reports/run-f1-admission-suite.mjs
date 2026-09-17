@@ -17,17 +17,26 @@ import { dirname, join } from 'node:path'
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const DESK = join(ROOT, 'desktop/src/dsh-desktop')
 const PILOT = join(DESK, 'packages/abaco-mediacion-pilot')
-const VITEST = join(DESK, 'node_modules/.bin/vitest')
+const VITEST =
+  process.env.VITEST_BIN ||
+  (existsSync(join(DESK, 'node_modules/.bin/vitest'))
+    ? join(DESK, 'node_modules/.bin/vitest')
+    : '')
+const VITEST_CONFIG = process.env.VITEST_CONFIG || ''
 
 const SUITES = [
-  existsSync(VITEST)
+  VITEST
     ? {
         name: 'F1 histórica (vitest)',
         cmd: VITEST,
-        args: ['run', 'test/abaco-f1-mediacion-broker.test.ts'],
+        args: [
+          'run',
+          ...(VITEST_CONFIG ? ['--config', VITEST_CONFIG] : []),
+          'test/abaco-f1-mediacion-broker.test.ts',
+        ],
         cwd: DESK,
       }
-    : { name: 'F1 histórica (vitest)', skip: 'no desktop/node_modules vitest' },
+    : { name: 'F1 histórica (vitest)', skip: 'no vitest (set VITEST_BIN to run)' },
   { name: 'F2-W1 cascada', cmd: 'node', args: ['--test', 'packages/abaco-effect-broker/tests/cascade.test.mjs'], cwd: DESK },
   { name: 'F2-W2 breakers', cmd: 'node', args: ['--test', 'packages/abaco-effect-broker/tests/breakers.test.mjs'], cwd: DESK },
   { name: 'F2-W3 provenance', cmd: 'node', args: ['--test', 'packages/abaco-effect-broker/tests/provenance.test.mjs'], cwd: DESK },
