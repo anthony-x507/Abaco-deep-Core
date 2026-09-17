@@ -53,6 +53,19 @@
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { MemoryRenderer } from './lib/render.js'
+import {
+  MEMORY_PHASES,
+  PHASE_OF_SCOPE,
+  FACET_PHASE,
+  PACKAGER_ROLES,
+  advancePhase,
+  channelFromSource,
+  effectiveTier,
+  packageMemory,
+  phaseOf,
+  proposeControl,
+  verifyPackage
+} from './lib/packager.js'
 import { MEMORY_FACETS, MEMORY_MAX_ENTRY_CHARS, MEMORY_MAX_RENDER_CHARS, MEMORY_SCOPE_BUDGETS, MEMORY_SECTION_NAME, MEMORY_SECTION_ORDER } from './lib/schema.js'
 import { MemoryStore } from './lib/store.js'
 import { registerMemoryTools } from './lib/tools.js'
@@ -312,9 +325,20 @@ export {
   name,
   MEMORY_DIR_NAME,
   MEMORY_FACETS,
+  MEMORY_PHASES,
   MEMORY_SECTION_NAME,
   MEMORY_SECTION_ORDER,
+  PHASE_OF_SCOPE,
+  FACET_PHASE,
+  PACKAGER_ROLES,
   MemoryRenderer,
   MemoryStore,
-  registerMemoryTools
+  advancePhase,
+  channelFromSource,
+  effectiveTier,
+  packageMemory,
+  phaseOf,
+  proposeControl,
+  registerMemoryTools,
+  verifyPackage
 }

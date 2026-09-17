@@ -82,6 +82,7 @@ import {
 } from './schema.js'
 import { entryLine } from './render.js'
 import { assertTrust, initialStateFor, isQuarantined, reviewerCanPromote, trustOf } from './quarantine.js'
+import { packageMemory, phaseOf, RUNTIME_GRANT_DENY } from './packager.js'
 
 /** Permission bits: owner-only. A memory document is nobody else's business. */
 const FILE_MODE = 0o600
@@ -212,6 +213,32 @@ function cloneDocument(value) {
 /** The document key used in the in-memory map. */
 function documentKey(kind, key) {
   return `${kind}:${key}`
+}
+
+/** Map a packager deny reason to a MemorySchemaError code. Names stay mechanical. */
+function packagerErrorCode(reason) {
+  switch (reason) {
+    case 'phase-masquerade':
+      return 'PHASE_MASQUERADE'
+    case 'phase-mismatch':
+      return 'PHASE_MISMATCH'
+    case 'phase-unknown':
+      return 'PHASE_UNKNOWN'
+    case 'phase-escalation':
+      return 'PHASE_ESCALATION'
+    case 'atena-cannot-grant':
+      return 'ADVISOR_CANNOT_GRANT'
+    case RUNTIME_GRANT_DENY:
+      return 'RUNTIME_CANNOT_GRANT'
+    case 'memory-cannot-enter-control':
+      return 'MEMORY_CANNOT_ENTER_CONTROL'
+    case 'reviewer-policy':
+      return 'REVIEWER_POLICY'
+    case 'no-identity':
+      return 'MEMORY_NO_SOURCE'
+    default:
+      return 'PROVENANCE_POLICY'
+  }
 }
 
 /** ISO timestamp, or the caller's fixed clock (tests pass an explicit `now`). */
@@ -610,6 +637,56 @@ export class MemoryStore {
       state: entry?.state ?? 'admitted',
       bytesRendered: entry === undefined ? undefined : entryLine(facet, entry).length
     }
+  }
+
+  /**
+   * F1.5: package a write through 3-phase provenance, then commit via {@link set}.
+   *
+   * Additive. `set` / `promote` are unchanged — this is the packager door.
+   * A deny is journaled and never touches the document (fail-closed). On
+   * allow, `trust` is the Pack A mapping of `effective = min(claim, channel)`
+   * and `set` still assigns `state` with {@link initialStateFor}, so
+   * plugin-data / untrusted stay quarantined.
+   *
+   * @param request - `set` fields plus `{ phase?, claim?, channel?, attestor?, admit? }`.
+   */
+  async package(request = {}) {
+    const parsed = parseMemoryPath(request.path)
+    const spec = MEMORY_FACETS[parsed.facet]
+    const scope = canonicalScope(request.scope ?? 'auto')
+    const kind = scope === 'auto' ? spec.scope : scope
+    const sealed = packageMemory({
+      content: typeof request.value === 'string' ? request.value : request.value?.text,
+      value: request.value,
+      source: request.source,
+      claim: request.claim,
+      channel: request.channel,
+      phase: request.phase ?? phaseOf(parsed.facet) ?? phaseOf(kind),
+      facet: parsed.facet,
+      trust: request.trust,
+      attestor: request.attestor,
+      admit: request.admit === true,
+      target: request.target
+    })
+    if (sealed.decision === 'deny') {
+      await this.#audit({
+        op: 'deny',
+        reason: sealed.reason,
+        path: parsed.path,
+        facet: parsed.facet,
+        phase: request.phase ?? phaseOf(parsed.facet) ?? null,
+        packager: true,
+        source: request.source ?? null,
+        claim: request.claim ?? null,
+        channel: request.channel ?? null
+      })
+      throw new MemorySchemaError(`memory package refused: ${sealed.reason}.`, packagerErrorCode(sealed.reason))
+    }
+    return this.set({
+      ...request,
+      trust: sealed.trust,
+      reason: request.reason ?? 'memory_package'
+    })
   }
 
   /**

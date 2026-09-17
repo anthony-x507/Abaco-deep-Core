@@ -68,6 +68,9 @@ export interface MemoryPromptContext {
 /** Trust tier of a memory entry: who vouches for the content. */
 export type MemoryTrust = 'host' | 'user' | 'plugin-data' | 'untrusted'
 
+/** The three durable-memory write/aging phases (F1.5 packager). */
+export type MemoryPhase = 'profile' | 'log' | 'note'
+
 /** Admission state of a collection entry. */
 export type QuarantineState = 'admitted' | 'quarantined'
 
@@ -253,6 +256,30 @@ export declare class MemoryStore {
     reason?: string
   }): Promise<MemoryForgetOutcome>
   /**
+   * F1.5: package a write through 3-phase provenance, then commit via `set`.
+   * Additive — `set` / `promote` stay the Pack A lock.
+   */
+  package(request: {
+    path: string
+    value: unknown
+    scope?: string
+    source: string
+    trust?: MemoryTrust
+    phase?: MemoryPhase
+    claim?: string
+    channel?: string
+    attestor?: string | { id?: string; trust?: MemoryTrust; role?: string }
+    admit?: boolean
+    target?: string
+    ttlDays?: number
+    priority?: number
+    pinned?: boolean
+    rationale?: string
+    ambient?: MemoryAmbient
+    reason?: string
+    now?: string
+  }): Promise<MemorySetOutcome>
+  /**
    * Promote a quarantined collection entry to admitted, after human review.
    *
    * Fail-closed: only an entry whose `state` is `'quarantined'` can be
@@ -286,6 +313,57 @@ export declare class MemoryRenderer {
   invalidate(sessionId: string): void
   /** Drop every frozen block. */
   clear(): void
+}
+
+/** The three durable-memory phases. */
+export declare const MEMORY_PHASES: readonly MemoryPhase[]
+
+/** Scope → phase map. */
+export declare const PHASE_OF_SCOPE: Readonly<Record<string, MemoryPhase>>
+
+/** Facet → phase map. */
+export declare const FACET_PHASE: Readonly<Record<string, MemoryPhase>>
+
+/** Janice = runtime; Atena never grants. */
+export declare const PACKAGER_ROLES: Readonly<{ janice: 'runtime'; atena: 'advisor-never-grants' }>
+
+/** Phase of a scope kind or facet name. Unknown → undefined. */
+export declare function phaseOf(scopeOrFacet: string): MemoryPhase | undefined
+
+/** Verified F2 channel from a Pack A source. */
+export declare function channelFromSource(source: string): string | undefined
+
+/** effective = min(claim, channel) on the F2 ordinal. */
+export declare function effectiveTier(claim: string, channel: string): string | undefined
+
+/** Seal a fact into one phase. Deny-by-default. */
+export declare function packageMemory(input?: Record<string, unknown>): {
+  decision: 'allow' | 'deny'
+  reason: string | null
+  side_effect: false
+  control: false
+  hash?: string
+  phase?: MemoryPhase
+  trust?: MemoryTrust
+  state?: QuarantineState
+  [field: string]: unknown
+}
+
+/** Recompute the integrity hash. Tamper → false. */
+export declare function verifyPackage(pkg: object): boolean
+
+/** Move a sealed package between phases. Escalation requires host|user. */
+export declare function advancePhase(
+  pkg: object,
+  request?: { toPhase?: string; attestor?: unknown; admit?: boolean }
+): ReturnType<typeof packageMemory>
+
+/** Memory packages must never enter the admission graph. Always deny. */
+export declare function proposeControl(pkg?: object, action?: string): {
+  decision: 'deny'
+  reason: 'memory-cannot-enter-control'
+  side_effect: false
+  control: false
 }
 
 /** Register `abaco_memory_set/get/forget/list` in the calling scope. */
