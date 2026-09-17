@@ -355,7 +355,7 @@ test('G9 disabled plugins stay disabled; patch has no mcp-client; compact lock i
   assert.doesNotMatch(patch, /serverName:/)
   assert.match(patch, /TEMPORARILY DISABLED/)
   const pkg = await readFile(join(DESK, 'package.json'), 'utf8')
-  assert.doesNotMatch(pkg, /"version": "0\.4\.21"/)
+  assert.match(pkg, /"version": "0\.4\.21"/)
 
   const preset = await readFile(
     join(DESK, 'packages/abaco-context/presets/abaco/agent.cordis.yml'),
