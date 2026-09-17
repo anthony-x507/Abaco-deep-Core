@@ -1,0 +1,14 @@
+{
+  "name": "abaco-mcp-schema-pin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./atena-advise": "./atena-advise.js",
+    "./package.json": "./package.json"
+  },
+  "description": "F1.5 MCP schema pin/witness — fail-closed; Janice = runtime. Atena is advisory-only and is not imported by the pin hot-path.",
+  "license": "MIT"
+}

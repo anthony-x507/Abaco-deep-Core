@@ -40,6 +40,7 @@ Electron main
 | Fail-closed | Crash / timeout / missing tools → error + hint. **No silent OpenAI/cloud fallback.** |
 | Compact lock | Untouched: 0.90 / 0.12 / 8192. |
 | Plugins | `provide`/`inject`/`patch.yml` only. Disabled brand/onboarding/sync/device/experimental stay disabled. |
+| MCP schema pin (F1.5) | `inject: ['tools']`. `apply(ctx)` wraps shared `ctx.tools.register`. `mcp__*` un-witnessed/mutated schemas fail closed. Not a grantor. |
 
 ## Promotion path (not this PR)
 
@@ -50,5 +51,5 @@ later slice. Until then, `CELL_KIND === 'strangler-fork'`.
 
 ## Janice / Atena
 
-Janice = plugin runtime (this fiber). Atena = advisory SLM, **never** in
-`authorize()` or in this cell.
+Janice = plugin runtime (this fiber + F1.5 register wrap). Atena = advisory SLM, **never** in
+`authorize()`, never in the schema-pin verify/wrap, and never in this cell.
