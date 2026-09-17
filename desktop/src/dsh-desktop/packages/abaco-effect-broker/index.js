@@ -35,6 +35,10 @@ import {
   resetCascadeForTests,
 } from './cascade.js'
 import { sealLiveAdmission } from './admission.js'
+import {
+  isMcpPublicName,
+  verifyMcpToolSchema,
+} from '../abaco-mcp-schema-pin/index.js'
 
 export { resetAuditForTests as resetProvenanceAuditForTests }
 export {
@@ -345,6 +349,12 @@ const DENY_SIGNAL_SEVERITY = {
   'breaker-quarantine': 2,
   'breaker-kill': 3,
   'breaker-blocklisted': 3,
+  'schema-unwitnessed': 3,
+  'schema-drift': 3,
+  'schema-authority-expansion': 3,
+  'schema-pin-unattested': 3,
+  'schema-pin-locked': 3,
+  'schema-missing': 3,
 }
 
 /** Último seq del audit de cascada ya reenviado a provenance (idempotencia). */
@@ -765,6 +775,33 @@ export function authorize(req) {
         {},
         trustCtx,
       )
+    }
+
+    // F1.5: MCP schema pin/witness. Fail-closed. Advisory SLM is never consulted.
+    // Only mcp__* names; first-party tools are unchanged. Un-witnessed or
+    // drifted schemas cannot expand authority through authorize().
+    if (
+      (effect.kind === 'tool.register' || effect.kind === 'tool.call') &&
+      isMcpPublicName(effect.resource)
+    ) {
+      const pinVerdict = verifyMcpToolSchema({
+        publicName: effect.resource,
+        schema: effect.schema,
+        schemaHash: effect.schema_hash,
+      })
+      if (!pinVerdict.ok) {
+        return deny(
+          pinVerdict.reason,
+          pluginId,
+          req.task_id || null,
+          effect,
+          null,
+          started,
+          monotonic,
+          {},
+          trustCtx,
+        )
+      }
     }
     if (
       (effect.kind === 'compose.mutate' || effect.kind === 'grant.mutate') &&

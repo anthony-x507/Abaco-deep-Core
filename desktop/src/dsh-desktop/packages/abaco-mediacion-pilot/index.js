@@ -15,11 +15,15 @@ import { fork } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { inspectGrant } from '../abaco-effect-broker/index.js'
+import { installMcpRegisterWitness } from '../abaco-mcp-schema-pin/index.js'
 
 export const name = 'abaco-mediacion-pilot'
 
-/** No connection inject — executor only; voice owns fetch routes. */
-export const inject = []
+/**
+ * Tools inject so F1.5 can wrap the shared `ctx.tools.register` (MCP
+ * schema pin). Still not a grantor. Voice still owns fetch routes.
+ */
+export const inject = ['tools']
 
 /** Honest cell kind — strangler-fork, not a pretend Electron utilityProcess. */
 export const CELL_KIND = 'strangler-fork'
@@ -157,5 +161,11 @@ export function executeAuthorized(req, opts = {}) {
   })
 }
 
-/** Host apply — no routes, no grants. Presence in patch.yml only. */
-export function apply() {}
+/**
+ * Host apply — no routes, no grants. Installs the F1.5 MCP register witness
+ * on the shared tools service so later mcp-client `ctx.tools.register`
+ * calls fail closed unless the schema is pinned. Janice = runtime.
+ */
+export function apply(ctx) {
+  installMcpRegisterWitness(ctx)
+}
