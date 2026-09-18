@@ -17,7 +17,7 @@ const sampleScriptError =
   'client-modules: bundle script /plugins/custom-plugin/client.js failed to load'
 
 const sampleModuleTableMiss =
-  'failed to import loader entry 8009188ec (abaco-analytics): client-modules: require("./lib/summary.js") missed the module table – not a platform seed word, not a materialized module, and no registered package factory (a build-time externals drift, or a dynamic dependency that did not arrive)'
+  'failed to import loader entry 8009188ec (abaco-analytics): client-modules: require("./lib/summary.js") missed the module table — not a platform seed word, not a materialized module, and no registered package factory (a build-time externals drift, or a dynamic dependency that did not arrive)'
 
 describe('plugin load error detection and extraction', () => {
   it('detects bundle script and loader entry failure errors', () => {

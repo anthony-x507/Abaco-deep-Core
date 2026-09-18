@@ -16,7 +16,7 @@ import { projectRoot } from './patch-path'
 
 const SIBLING_IMPORT = /from\s+['"]\.\.\/([a-z0-9-]+)(?:\/[^'"]+)?['"]/gu
 const ANALYTICS_BOOT_ERROR =
-  'failed to import loader entry 8009188ec (abaco-analytics): client-modules: require("./lib/summary.js") missed the module table – not a platform seed word, not a materialized module, and no registered package factory (a build-time externals drift, or a dynamic dependency that did not arrive)'
+  'failed to import loader entry 8009188ec (abaco-analytics): client-modules: require("./lib/summary.js") missed the module table — not a platform seed word, not a materialized module, and no registered package factory (a build-time externals drift, or a dynamic dependency that did not arrive)'
 
 const SKIP_DIR = new Set(['tests', 'test', 'node_modules', 'dist', 'site'])
 
@@ -118,7 +118,20 @@ describe('client module table vs 0.4.22 disk pin', () => {
 
     // This is the installed-.app situation: bytes are present, the table is not.
     expect(() => seedOnlyRequire('./lib/summary.js')).toThrowError(moduleTableMiss('./lib/summary.js'))
-    expect(moduleTableMiss('./lib/summary.js')).toContain(ANALYTICS_BOOT_ERROR.slice(ANALYTICS_BOOT_ERROR.indexOf('client-modules:')))
+    expect(moduleTableMiss('./lib/summary.js')).toBe(
+      ANALYTICS_BOOT_ERROR.slice(ANALYTICS_BOOT_ERROR.indexOf('client-modules:'))
+    )
+
+    const loader = await readFile(
+      path.join(projectRoot, 'node_modules/@deepseek-ai/dsh-client-modules/lib/client.js'),
+      'utf8'
+    )
+    expect(loader).toContain(
+      'client-modules: require("${spec}") missed the module table — not a platform seed word, not a materialized module, and no registered package factory'
+    )
+    expect(loader).toContain('if (this.seed.has(spec)) return this.seed.get(spec)')
+    expect(loader).toContain('if (this.factories.has(id)) return this.materialize(id).exports')
+    expect(loader).not.toContain('createRequire')
   })
 
   it('materializing the relative require is what would have caught 0.4.22-style disk-only packaging', async () => {
@@ -199,7 +212,7 @@ describe('packaged client factories stay on the module table', () => {
     const manifest = JSON.parse(manifestRaw) as Manifest
     const patch = await readFile(path.join(projectRoot, 'build/dsh-desktop.patch.yml'), 'utf8')
 
-    expect(client).not.toMatch(/require\s*\(\s*['"]\.\/lib\/summary\.js['"]\s*\)/u)
+    expect(remainingRelativeRequires(client)).toEqual([])
     expect(summary).toContain('Do not list this path as a seed or')
     expect(packager).toContain('Listing `lib/*.js` as seeds or bundler externals is the wrong fix')
     expect(manifest.build?.asar).toBe(false)

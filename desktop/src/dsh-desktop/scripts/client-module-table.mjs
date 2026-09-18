@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url'
 export const PLATFORM_SEED_IDS = new Set(['react', 'react/jsx-runtime', 'react-dom'])
 
 export const MODULE_TABLE_MISS_SUFFIX =
-  'missed the module table – not a platform seed word, not a materialized module, and no registered package factory (a build-time externals drift, or a dynamic dependency that did not arrive)'
+  'missed the module table — not a platform seed word, not a materialized module, and no registered package factory (a build-time externals drift, or a dynamic dependency that did not arrive)'
 
 const REQUIRE_CALL = /require\s*\(\s*(['"])([^'"]+)\1\s*\)/gu
 const RELATIVE_ASSIGN =

@@ -23,17 +23,23 @@ window.__ModuleLoader__.load({
 `./lib/summary.js` is:
 
 - not a platform seed (`react` / `react/jsx-runtime` / `react-dom` / `@deepseek-ai/*`)
-- not a materialized module (not inlined into this factory)
+- not a materialized module (not in `loadCache`; not inlined into this factory)
 - not a registered package factory (only `client.js` is the loader entry)
 
-So the table miss is **not** `MODULE_NOT_FOUND` and **not** an asar unpack hole. `asar` is already `false`. Safe Mode / re-enabling disabled plugins / Atena-on-authorize cannot put a specifier into that table.
+The throw is exact, from `@deepseek-ai/dsh-client-modules/lib/client.js` `makeRequire`:
+
+```js
+throw new Error(`client-modules: require("${spec}") missed the module table — not a platform seed word, not a materialized module, and no registered package factory (a build-time externals drift, or a dynamic dependency that did not arrive)`);
+```
+
+Resolution order is seed → memoized record → registered factory. Disk is never consulted. `asar` is already `false`. Safe Mode / re-enabling disabled plugins / Atena-on-authorize cannot put a specifier into that table.
 
 ## Must `lib/*.js` be listed as seeds or externals?
 
 **No. That is the wrong fix.**
 
 - **Seeds** are host-frozen platform ids. Adding `./lib/summary.js` there is not how the table is built, and it would not match how other plugins (`abaco-voice`, `dshmarket` tsdown `CLIENT_EXTERNALS`) work.
-- **Bundler `external`** means “do not inline; resolve from the table at runtime”. That is the failure mode (`build-time externals drift` in the loader error). `dshmarket/tsdown.config.ts` already states: anything **not** in the table must be `noExternal` / inlined.
+- **Bundler `external` / `dsh.client.external`** means “do not inline; resolve from the table at runtime”. That is the failure mode named in the throw (`build-time externals drift`). `dshmarket/tsdown.config.ts` already states: anything **not** in the table must be `noExternal` / inlined. A relative path is not a dynamic package row that `dsh.client.external` can name.
 
 Correct packager rule (same as voice + preload `isolatedEntries`): **materialize local `require('./lib/…')` into the factory**. Keep `lib/summary.js` on disk for Node tests; do not expect the renderer to Node-require it.
 

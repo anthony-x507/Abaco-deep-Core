@@ -9,8 +9,8 @@ window.__ModuleLoader__.load({
     const h = React.createElement
 
     // The web module table only seeds platform ids (react, @deepseek-ai/*).
-    // A require('./lib/summary.js') misses the table even when that file
-    // exists under Resources/app/node_modules (asar:false copies bytes;
+    // A relative specifier ./lib/summary.js misses the table even when that
+    // file exists under Resources/app/node_modules (asar:false copies bytes;
     // it does not register a factory). Bindings below are materialized
     // from lib/summary.js — not listed as seeds or externals.
     // Materialized from ./lib/summary.js — not a module-table seed or external.
