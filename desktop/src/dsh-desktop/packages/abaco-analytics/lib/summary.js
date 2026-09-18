@@ -1,6 +1,11 @@
 /**
- * Pure session-analytics helpers. Kept out of client.js so tests can import
- * them without the Cordis module loader.
+ * Pure session-analytics helpers for Node tests.
+ *
+ * The browser factory cannot `require()` this file. client-modules
+ * `makeRequire` only answers platform seed words, materialized graph ids, and
+ * registered package factories. It never consults `package.json` `exports`
+ * (`"./lib/summary"` → `./lib/summary.js`) or relative `.js` paths. The same
+ * helpers are inlined in `client.js`.
  */
 
 /** A composer-dock / footer strip that belongs in Settings, not under the box. */

@@ -79,4 +79,14 @@ describe('abaco-analytics plugin wiring', () => {
     expect(patch).not.toMatch(/id: abaco-brand\n  disabled: false/u)
     expect(patch).toContain('abaco-brand, abaco-device-identity, abaco-cloud-sync, abaco-onboarding')
   })
+
+  it('does not require a relative or package-export specifier the module table cannot answer', async () => {
+    const client = await readFile(path.join(projectRoot, 'packages/abaco-analytics/client.js'), 'utf8')
+    expect(client).not.toMatch(/require\(\s*['"]\.\.?\/[^'"]+['"]\s*\)/u)
+    expect(client).not.toContain("require('abaco-analytics/lib/summary")
+    expect(client).not.toContain('require("abaco-analytics/lib/summary')
+    expect(client).toContain('function summarizeChatNodes(')
+    expect(client).toContain('function isAnalyticsStripText(')
+    expect(client).toContain('function formatDuration(')
+  })
 })
