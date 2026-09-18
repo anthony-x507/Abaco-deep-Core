@@ -47,7 +47,10 @@ async function pluginClientBundles(): Promise<string[]> {
 }
 
 function factoryRequireSpecs(source: string): string[] {
-  return [...source.matchAll(FACTORY_REQUIRE)].map((match) => match[2] ?? '')
+  const stripped = source
+    .replace(/\/\*[\s\S]*?\*\//gu, '')
+    .replace(/^\s*\/\/.*$/gmu, '')
+  return [...stripped.matchAll(FACTORY_REQUIRE)].map((match) => match[2] ?? '')
 }
 
 describe('client-modules factory require vs package exports', () => {
@@ -100,9 +103,30 @@ describe('client-modules factory require vs package exports', () => {
     const exported = registration!.factory(requireSpec) as {
       apply?: unknown
       inject?: unknown
+      __test__?: {
+        collectFromProps: (props: { useChat: (fn: (chat: unknown) => unknown) => unknown }) => {
+          turns: number
+          steps: number
+          requestCount: number
+        }
+      }
     }
     expect(typeof exported.apply).toBe('function')
-    expect(exported.inject).toEqual(['slots'])
+    expect(Array.from(exported.inject as string[])).toEqual(['slots'])
+    const collected = exported.__test__!.collectFromProps({
+      useChat: (fn) => fn({
+        nodes: [{
+          kind: 'assistant',
+          turn: 2,
+          step: 5,
+          timing: { stepStartTime: 0, firstTokenTime: 400, completedTime: 1400 },
+          usage: { prompt_tokens: 10, completion_tokens: 4 },
+        }],
+      }),
+    })
+    expect(collected.turns).toBe(2)
+    expect(collected.steps).toBe(5)
+    expect(collected.requestCount).toBe(1)
   })
 
   it('hand-written plugin client factories only require module-table seed words', async () => {
