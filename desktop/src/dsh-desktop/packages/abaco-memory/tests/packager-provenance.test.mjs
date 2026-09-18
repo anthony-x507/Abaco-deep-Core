@@ -445,7 +445,7 @@ test('G9.3 stay out of MCP pin wiring, patch.yml, and compact preset', () => {
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
-  // 0.4.21 release may align the F1.5 version assert + contract G9 row.
+  // 0.4.22 release may align the F1.5 version assert + contract G9 row.
   const versionAlign = new Set([
     'desktop/src/dsh-desktop/packages/abaco-mcp-schema-pin/tests/schema-pin.test.mjs',
     'docs/contracts/CONTRACT-F1.5-MCP-SCHEMA-PIN.md',
