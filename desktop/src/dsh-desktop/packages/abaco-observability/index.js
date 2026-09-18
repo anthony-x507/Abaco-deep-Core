@@ -518,37 +518,50 @@ export function apply(ctx, config) {
   // resolution is done here — no sink is constructed and no file is touched
   // until the services exist, so a disabled row creates nothing at all and an
   // enabled one builds exactly one runtime.
-  const resolved = resolveObservabilityConfig(config)
-  if (resolved.enabled === false) {
-    logger.info('abaco-observability: disabled by config; no telemetry is written')
-    return
-  }
-  for (const reason of resolved.reasons) logger.warn(`abaco-observability: ${reason}`)
-
-  // `ctx.inject` runs the callback once every declared service is published and
-  // hands back that fiber as the plugin's disposal handle. The callback keeps a
-  // block body and returns nothing, so no promise and no object can escape as
-  // this plugin's effect.
-  ctx.inject(inject, (scoped) => {
-    let service
-    try {
-      service = createObservability({ ctx: scoped, config, logger })
-      scoped.on('session/event', function (session, event) {
-        service.onSessionEvent(session, event)
-      })
-      scoped.on('agent/status', function (payload) {
-        service.onAgentStatus(payload, this)
-      })
-      scoped.on('agent/request-error', function (payload) {
-        service.onRequestError(payload, this)
-      })
-      service.selfCheck()
-      service.startSelfCheck()
-      logger.info(`abaco-observability: telemetry appending to ${service.resolved.logPath}`)
-    } catch (error) {
-      logger.warn(`abaco-observability: telemetry could not start: ${describeError(error)}`)
+  //
+  // Isolation: `ctx.inject` missing, or inject itself throwing (`Invalid
+  // effect` / uninjected `ctx.*`), must warn and skip — never take the tree
+  // to Safe Mode. Happy path is unchanged.
+  try {
+    const resolved = resolveObservabilityConfig(config)
+    if (resolved.enabled === false) {
+      logger.info('abaco-observability: disabled by config; no telemetry is written')
+      return
     }
-  })
+    for (const reason of resolved.reasons) logger.warn(`abaco-observability: ${reason}`)
+
+    if (typeof ctx?.inject !== 'function') {
+      logger.warn('abaco-observability: ctx.inject is unavailable; telemetry skipped')
+      return
+    }
+
+    // `ctx.inject` runs the callback once every declared service is published and
+    // hands back that fiber as the plugin's disposal handle. The callback keeps a
+    // block body and returns nothing, so no promise and no object can escape as
+    // this plugin's effect.
+    ctx.inject(inject, (scoped) => {
+      let service
+      try {
+        service = createObservability({ ctx: scoped, config, logger })
+        scoped.on('session/event', function (session, event) {
+          service.onSessionEvent(session, event)
+        })
+        scoped.on('agent/status', function (payload) {
+          service.onAgentStatus(payload, this)
+        })
+        scoped.on('agent/request-error', function (payload) {
+          service.onRequestError(payload, this)
+        })
+        service.selfCheck()
+        service.startSelfCheck()
+        logger.info(`abaco-observability: telemetry appending to ${service.resolved.logPath}`)
+      } catch (error) {
+        logger.warn(`abaco-observability: telemetry could not start: ${describeError(error)}`)
+      }
+    })
+  } catch (error) {
+    logger.warn(`abaco-observability: telemetry could not start: ${describeError(error)}`)
+  }
 }
 
 /** A logger that cannot throw, whatever the engine hands us. */

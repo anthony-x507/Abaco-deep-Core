@@ -1,0 +1,80 @@
+# Repo-root CI for the Electron tree.
+# GitHub Actions only loads workflows from this path (`.github/workflows/` at
+# the repository root). Nested `desktop/src/dsh-desktop/.github/workflows/`
+# files never run. This job adapts the install + test + typecheck steps from
+# that nested release.yml — no package / Release / notarize.
+name: Desktop CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: desktop/src/dsh-desktop
+
+jobs:
+  test:
+    name: Install + unit/contract tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/src/dsh-desktop/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Contract tests
+        run: |
+          node --test \
+            packages/abaco-effect-broker/tests/admission-immutable.test.mjs \
+            packages/abaco-effect-broker/tests/cascade.test.mjs \
+            packages/abaco-effect-broker/tests/breakers.test.mjs \
+            packages/abaco-effect-broker/tests/provenance.test.mjs \
+            packages/abaco-effect-broker/tests/tiers.test.mjs \
+            packages/abaco-effect-broker/tests/f2-integration.test.mjs \
+            packages/abaco-mcp-schema-pin/tests/schema-pin.test.mjs \
+            packages/abaco-memory/tests/quarantine.test.mjs \
+            packages/abaco-memory/tests/packager-provenance.test.mjs \
+            packages/abaco-voice/tests/stt-mac-contract.test.mjs \
+            packages/abaco-voice/tests/apply-degrade.test.mjs \
+            packages/abaco-mediacion-pilot/tests/utility-cell.test.mjs
+
+      - name: Pin package is a root file: dependency
+        run: |
+          node --input-type=module -e "
+          import { existsSync, readFileSync } from 'node:fs'
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+          const pin = pkg.dependencies['abaco-mcp-schema-pin']
+          if (pin !== 'file:packages/abaco-mcp-schema-pin') {
+            console.error('abaco-mcp-schema-pin must be a root file: dep, got:', pin)
+            process.exit(1)
+          }
+          if (!existsSync('packages/abaco-mcp-schema-pin/index.js')) {
+            console.error('packages/abaco-mcp-schema-pin/index.js is missing')
+            process.exit(1)
+          }
+          console.log('abaco-mcp-schema-pin file: dep present')
+          "

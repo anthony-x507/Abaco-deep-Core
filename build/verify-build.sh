@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# verify-build.sh — sanity-check the freshly packed ABACO Deep Core.app
+# verify-build.sh — sanity-check the freshly packed ABACO DEEP HARNES.app
 #                    produced by make.sh.
 #
 # For each ZIP under artifacts/:
@@ -18,7 +18,7 @@ set -euo pipefail
 # Resolve paths relative to this script, not the caller's CWD.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARTIFACTS_DIR="${SCRIPT_DIR}/artifacts"
-APP_DISPLAY_NAME="ABACO Deep Core"
+APP_DISPLAY_NAME="ABACO DEEP HARNES"
 APP_BUNDLE_ID="io.abaco.deepcore"
 SMOKE_TIMEOUT_SECONDS=8
 
@@ -37,11 +37,11 @@ trap cleanup EXIT
 
 # Pick zips matching the artifactName pattern (mac, not win/linux).
 shopt -s nullglob
-ZIPS=( "${ARTIFACTS_DIR}"/abaco-deep-core-mac-*.zip )
+ZIPS=( "${ARTIFACTS_DIR}"/abaco-deep-harnes-*.zip )
 shopt -u nullglob
 
 if [[ ${#ZIPS[@]} -eq 0 ]]; then
-    fail "no ABACO Deep Core macOS zips found in ${ARTIFACTS_DIR}"
+    fail "no ABACO DEEP HARNES macOS zips found in ${ARTIFACTS_DIR}"
 fi
 
 log "found ${#ZIPS[@]} zip(s) to verify"

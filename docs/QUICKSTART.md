@@ -2,10 +2,12 @@
 
 ## 1. Descargar
 
-Ve a [Releases](https://github.com/anthony-x507/Abaco-deep-Core/releases) y descarga el `.zip` que coincida con tu Mac:
+Ve a [Releases](https://github.com/anthony-x507/Abaco-deep-Core/releases) y descarga el instalador 0.4.x que coincida con tu Mac:
 
-- `abaco-deep-core-mac-arm64-0.1.0.zip` — Apple Silicon (M1/M2/M3/M4)
-- `abaco-deep-core-mac-x64-0.1.0.zip` — Intel
+- `abaco-deep-harnes-mac-arm64.dmg` — Apple Silicon (M1/M2/M3/M4)
+- `abaco-deep-harnes-mac-x64.dmg` — Intel
+
+La app dentro es `ABACO DEEP HARNES.app`. Bundle ID: `io.abaco.deepcore`.
 
 ## 2. Instalar Tailscale
 
@@ -26,16 +28,24 @@ Debes ver tu Mac listada.
 
 Ver [INSTALL.md](INSTALL.md) en detalle. Resumen:
 
+Abre `abaco-deep-harnes-mac-arm64.dmg` desde Finder y arrastra `ABACO DEEP HARNES.app` a `/Applications`. Si Gatekeeper bloquea:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/ABACO DEEP HARNES.app"
+```
+
+Si descargaste el ZIP en lugar del DMG:
+
 ```bash
 cd ~/Downloads
-unzip abaco-deep-core-mac-arm64-0.1.0.zip
-mv "ABACO Deep Core.app" /Applications/
-xattr -dr com.apple.quarantine "/Applications/ABACO Deep Core.app"
+unzip abaco-deep-harnes-mac-arm64.zip
+mv "ABACO DEEP HARNES.app" /Applications/
+xattr -dr com.apple.quarantine "/Applications/ABACO DEEP HARNES.app"
 ```
 
 ## 4. Lanzar
 
-Abre `ABACO Deep Core` desde Spotlight o Aplicaciones.
+Abre `ABACO DEEP HARNES` desde Spotlight o Aplicaciones.
 
 ## 5. Verificar sync
 

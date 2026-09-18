@@ -1,6 +1,6 @@
-# INSTALL — Instalar abaco-deep-core en una Mac nueva
+# INSTALL — Instalar ABACO DEEP HARNES en una Mac nueva
 
-Esta guía asume que descargaste el archivo `abaco-deep-core-mac-<arch>-<version>.zip` desde GitHub Releases.
+Esta guía asume que descargaste `abaco-deep-harnes-mac-arm64.dmg` (o el ZIP del mismo stem) desde GitHub Releases. La app visible es **ABACO DEEP HARNES.app**. Bundle ID: `io.abaco.deepcore`. La línea actual es **0.4.x**.
 
 ## Requisitos
 
@@ -10,25 +10,27 @@ Esta guía asume que descargaste el archivo `abaco-deep-core-mac-<arch>-<version
 | Tailscale | cualquier versión reciente (obligatorio para sync entre Macs) |
 | Espacio en disco | 500 MB libres |
 
-## Paso 1 — Descomprimir
+## Paso 1 — Abrir el DMG
 
 1. Abre Finder y ve a Descargas.
-2. Haz doble clic sobre `abaco-deep-core-mac-arm64-0.1.0.zip`.
-3. Obtendrás `ABACO Deep Core.app`.
+2. Haz doble clic sobre `abaco-deep-harnes-mac-arm64.dmg` (Apple Silicon). Intel: `abaco-deep-harnes-mac-x64.dmg`.
+3. Obtendrás `ABACO DEEP HARNES.app`.
+
+Si en su lugar tienes un ZIP (`abaco-deep-harnes-mac-arm64.zip`), descomprímelo: el bundle dentro también se llama `ABACO DEEP HARNES.app`.
 
 ## Paso 2 — Mover a Aplicaciones
 
-Arrastra `ABACO Deep Core.app` a la carpeta `/Applications`.
+Arrastra `ABACO DEEP HARNES.app` a la carpeta `/Applications`.
 
-## Paso 3 — Quitar la cuarentena de macOS
+## Paso 3 — Quitar la cuarentena de macOS (si Gatekeeper bloquea)
 
-Como la app **no está firmada** (Apple Developer pendiente), macOS la bloquea por seguridad. Hay dos formas de desbloquearla.
+Las builds 0.4.x se publican como DMG. Si macOS aún bloquea el primer lanzamiento, hay dos formas de desbloquearla.
 
 ### Opción A — Click derecho
 
 1. Abre Finder.
 2. Ve a `/Applications`.
-3. Click derecho sobre `ABACO Deep Core.app`.
+3. Click derecho sobre `ABACO DEEP HARNES.app`.
 4. Selecciona **Abrir**.
 5. Confirma con **Abrir** en el diálogo.
 6. Solo necesitas hacerlo la primera vez.
@@ -36,15 +38,15 @@ Como la app **no está firmada** (Apple Developer pendiente), macOS la bloquea p
 ### Opción B — Terminal
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/ABACO Deep Core.app"
+xattr -dr com.apple.quarantine "/Applications/ABACO DEEP HARNES.app"
 ```
 
 Esto limpia el atributo de cuarentena recursivamente.
 
 ## Paso 4 — Primer lanzamiento
 
-1. Abre `ABACO Deep Core` desde Aplicaciones o Spotlight.
-2. La primera vez se generará una identidad de nodo única en `~/.abaco-deep-core/node.json`.
+1. Abre `ABACO DEEP HARNES` desde Aplicaciones o Spotlight.
+2. Los datos de usuario viven en `~/Library/Application Support/abaco-deep-core/` (ese nombre de carpeta no es el nombre del producto).
 3. Verás la ventana principal.
 
 ## Paso 5 — Activar sync
@@ -62,24 +64,25 @@ La app incluye `electron-updater`. Cuando publiques una nueva release en GitHub:
 2. Te pregunta si quieres descargar e instalar.
 3. Reinicia para aplicar.
 
-**Limitación actual**: como la app no está firmada, Gatekeeper bloqueará la actualización descargada. Aplica `xattr -dr com.apple.quarantine` sobre el nuevo bundle, o desinstala y vuelve a instalar manualmente.
+Si Gatekeeper bloquea una actualización descargada, aplica `xattr -dr com.apple.quarantine` sobre el nuevo bundle, o desinstala y vuelve a instalar el DMG.
 
 ## Verificación
 
 Para confirmar que la instalación fue correcta:
 
 ```bash
-ls -la "/Applications/ABACO Deep Core.app"
-xattr "/Applications/ABACO Deep Core.app"
+ls -la "/Applications/ABACO DEEP HARNES.app"
+/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "/Applications/ABACO DEEP HARNES.app/Contents/Info.plist"
+xattr "/Applications/ABACO DEEP HARNES.app"
 ```
 
-El segundo comando no debe mostrar `com.apple.quarantine`.
+El Bundle ID debe ser `io.abaco.deepcore`. El segundo comando `xattr` no debe mostrar `com.apple.quarantine`.
 
 ## Desinstalación
 
 ```bash
-rm -rf "/Applications/ABACO Deep Core.app"
-rm -rf ~/.abaco-deep-core
+rm -rf "/Applications/ABACO DEEP HARNES.app"
+rm -rf ~/Library/Application\ Support/abaco-deep-core
 ```
 
-Esto borra la app y los datos locales de identidad y eventos.
+Esto borra la app y los datos locales. No toques `~/Library/Application Support/dsh-desktop` (perfil de otra app).

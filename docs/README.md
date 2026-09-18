@@ -1,12 +1,12 @@
 # Índice de documentación
 
-Bienvenido a la documentación de **abaco-deep-core**, la shell de escritorio que sincroniza tu trabajo entre Macs.
+Bienvenido a la documentación de **ABACO DEEP HARNES** (`appId` `io.abaco.deepcore`), la shell de escritorio 0.4.x.
 
 ## Inicio rápido
 
 | Documento | Para qué sirve |
 |---|---|
-| [INSTALL.md](INSTALL.md) | Instalar el `.zip` descargado en una Mac nueva |
+| [INSTALL.md](INSTALL.md) | Instalar `abaco-deep-harnes-mac-arm64.dmg` → `ABACO DEEP HARNES.app` |
 | [QUICKSTART.md](QUICKSTART.md) | Arrancar la app en 5 minutos |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Soluciones a problemas comunes |
 

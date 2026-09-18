@@ -243,15 +243,42 @@ async function extractImage(bytes, contentType, name) {
   }
 }
 
+function warnApply(ctx, message) {
+  try {
+    ctx?.logger?.warn?.(`abaco-documents: ${message}`)
+  } catch {
+    /* a logger that throws must not fail boot */
+  }
+}
+
 /**
  * Register the extraction route on the shared API channel.
+ *
+ * Missing `connection.fetch` (or a later register failure) degrades to a
+ * warning and skips the route — it must not throw into Cordis and take the
+ * plugin tree to Startup recovery / Safe Mode.
  *
  * @param ctx - Host context carrying the connection service.
  */
 export function apply(ctx) {
-  const connection = Reflect.get(ctx, 'connection')
+  try {
+    startDocuments(ctx)
+  } catch (error) {
+    warnApply(
+      ctx,
+      `failed to start; extraction route is off: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+/**
+ * @param ctx - Host context carrying the connection service.
+ */
+function startDocuments(ctx) {
+  const connection = ctx == null ? undefined : Reflect.get(ctx, 'connection')
   if (connection?.fetch?.register === void 0) {
-    throw new Error('abaco-documents: connection.fetch registry is unavailable — cannot publish the extraction route')
+    warnApply(ctx, 'connection.fetch registry is unavailable — extraction route skipped')
+    return
   }
 
   connection.fetch.register({
