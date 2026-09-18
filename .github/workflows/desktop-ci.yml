@@ -1,8 +1,9 @@
 # Repo-root CI for the Electron tree.
 # GitHub Actions only loads workflows from this path (`.github/workflows/` at
 # the repository root). Nested `desktop/src/dsh-desktop/.github/workflows/`
-# files never run. This job adapts the install + test + typecheck steps from
-# that nested release.yml — no package / Release / notarize.
+# files never run. This job adapts the nested release.yml install + test
+# steps (plus fetch of origin/main so stay-out contract diffs resolve).
+# No package / Release / notarize.
 name: Desktop CI
 
 on:
@@ -30,6 +31,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch origin/main for stay-out contract diffs
+        working-directory: .
+        run: git fetch origin main --no-tags
 
       - uses: actions/setup-node@v4
         with:
