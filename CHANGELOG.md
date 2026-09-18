@@ -5,6 +5,13 @@ All notable changes to ABACO Deep Core are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.22] - 2026-09-18
+
+Release prep: packaging fix so F1/#15–#17 features actually ship in the binary.
+
+### Fixed
+- Include `abaco-mcp-schema-pin` in app `node_modules` (PR #19 / `5debd6c`). 0.4.21 failed at Startup recovery with `MODULE_NOT_FOUND` because the pin package was not a root `file:` dep, so electron-builder never packed it beside `abaco-effect-broker`. F1 admission + F1.5 MCP schema pin and memory packager provenance now actually ship in the binary.
+
 ## [0.4.21] - 2026-09-17
 
 Release prep: F1 admission immutable plus F1.5 MCP schema pin and memory packager provenance, already on `main`.
