@@ -81,6 +81,11 @@ describe('packaged local package closure', () => {
 
     expect(required.has('abaco-mcp-schema-pin')).toBe(true)
     expect(required.has('abaco-effect-broker')).toBe(true)
+    // 0.4.22 pin: sibling `from '../pkg'` only. A client-factory
+    // require('./lib/summary.js') is not a sibling package name, so this
+    // scanner cannot catch the analytics module-table miss.
+    expect(required.has('lib')).toBe(false)
+    expect(required.has('summary.js')).toBe(false)
 
     for (const name of [...required].sort()) {
       expect(

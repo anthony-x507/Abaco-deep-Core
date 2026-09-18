@@ -1,6 +1,12 @@
 /**
- * Pure session-analytics helpers. Kept out of client.js so tests can import
- * them without the Cordis module loader.
+ * Pure session-analytics helpers. Node tests import this file directly.
+ *
+ * The renderer `__ModuleLoader__` factory cannot `require('./lib/summary.js')`:
+ * that specifier is not a platform seed, and electron-builder copying this
+ * file into `Resources/app/node_modules` (asar:false) does not register it
+ * on the client module table. Materialize these bindings into `client.js`
+ * (`scripts/client-module-table.mjs`). Do not list this path as a seed or
+ * bundler external.
  */
 
 /** A composer-dock / footer strip that belongs in Settings, not under the box. */
