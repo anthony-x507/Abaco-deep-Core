@@ -1,0 +1,76 @@
+# Repo-root CI for the Electron tree.
+# GitHub Actions only loads workflows from this path (`.github/workflows/` at
+# the repository root). Nested `desktop/src/dsh-desktop/.github/workflows/`
+# files never run. This job adapts the nested release.yml install + test
+# steps (plus fetch of origin/main so stay-out contract diffs resolve).
+# No package / Release / notarize.
+name: Desktop CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: desktop/src/dsh-desktop
+
+jobs:
+  test:
+    name: Install + unit/contract tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch origin/main for stay-out contract diffs
+        working-directory: .
+        run: git fetch origin main --no-tags
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/src/dsh-desktop/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      # `npm run typecheck` is already red on main (pre-existing tsc errors in
+      # voice/observability/browser tests). Do not gate this new root CI on it.
+
+      - name: Contract tests
+        run: |
+          node --test \
+            packages/abaco-effect-broker/tests/admission-immutable.test.mjs \
+            packages/abaco-effect-broker/tests/cascade.test.mjs \
+            packages/abaco-effect-broker/tests/breakers.test.mjs \
+            packages/abaco-effect-broker/tests/provenance.test.mjs \
+            packages/abaco-effect-broker/tests/tiers.test.mjs \
+            packages/abaco-effect-broker/tests/f2-integration.test.mjs \
+            packages/abaco-mcp-schema-pin/tests/schema-pin.test.mjs \
+            packages/abaco-memory/tests/quarantine.test.mjs \
+            packages/abaco-memory/tests/packager-provenance.test.mjs \
+            packages/abaco-voice/tests/stt-mac-contract.test.mjs \
+            packages/abaco-voice/tests/apply-degrade.test.mjs \
+            packages/abaco-mediacion-pilot/tests/utility-cell.test.mjs
+
+      - name: Pin package is a root file dependency
+        run: |
+          grep -F '"abaco-mcp-schema-pin": "file:packages/abaco-mcp-schema-pin"' package.json
+          test -f packages/abaco-mcp-schema-pin/index.js
+          echo "abaco-mcp-schema-pin file: dep present"

@@ -7,7 +7,7 @@
 **Solución**:
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/ABACO Deep Core.app"
+xattr -dr com.apple.quarantine "/Applications/ABACO DEEP HARNES.app"
 ```
 
 O click derecho sobre el `.app` → Abrir → confirmar Abrir.
@@ -79,7 +79,7 @@ curl -I https://github.com/anthony-x507/Abaco-deep-Core/releases/latest/download
 Revisa la consola de la app: si ves "code signature invalid", aplica:
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/ABACO Deep Core.app"
+xattr -dr com.apple.quarantine "/Applications/ABACO DEEP HARNES.app"
 ```
 
 Si persiste, desinstala manualmente y vuelve a instalar.
@@ -127,7 +127,7 @@ Para volver a un estado limpio:
 ```bash
 # Cerrar la app primero
 rm -rf ~/.abaco-deep-core
-rm -rf "/Applications/ABACO Deep Core.app"
+rm -rf "/Applications/ABACO DEEP HARNES.app"
 ```
 
 Reinstalar desde cero.

@@ -67,13 +67,40 @@ function toolsMissingMessage() {
 /** Re-export for tests that still probe tools without spawn. */
 export { resolveLocalWhisperTools }
 
+function warnApply(ctx, message) {
+  try {
+    ctx?.logger?.warn?.(`abaco-voice: ${message}`)
+  } catch {
+    /* a logger that throws must not fail boot */
+  }
+}
+
 /**
+ * Host apply. Missing `connection.fetch` (or a later register failure) degrades
+ * to a warning and skips local STT routes — it must not throw into Cordis and
+ * take the plugin tree to Startup recovery / Safe Mode.
+ *
  * @param {any} ctx
  */
 export function apply(ctx) {
-  const connection = Reflect.get(ctx, 'connection')
+  try {
+    startVoice(ctx)
+  } catch (error) {
+    warnApply(
+      ctx,
+      `failed to start; local STT routes are off: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+/**
+ * @param {any} ctx
+ */
+function startVoice(ctx) {
+  const connection = ctx == null ? undefined : Reflect.get(ctx, 'connection')
   if (connection?.fetch?.register === void 0) {
-    throw new Error('abaco-voice: connection.fetch registry is unavailable — cannot publish local STT routes')
+    warnApply(ctx, 'connection.fetch registry is unavailable — local STT routes skipped')
+    return
   }
 
   connection.fetch.register({

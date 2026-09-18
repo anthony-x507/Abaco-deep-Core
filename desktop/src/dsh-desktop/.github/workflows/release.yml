@@ -1,3 +1,8 @@
+# NOTE: GitHub Actions only loads workflows from the repository-root
+# `.github/workflows/` directory. This nested file does not run on
+# anthony-x507/Abaco-deep-Core. PR/push CI is
+# `/.github/workflows/desktop-ci.yml` (install + unit/contract tests only).
+# Do not enable this release/notarize pipeline from the root as-is.
 name: Release desktop installers
 
 on:
