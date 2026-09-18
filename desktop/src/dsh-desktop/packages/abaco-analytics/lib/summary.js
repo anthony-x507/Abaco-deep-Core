@@ -1,6 +1,9 @@
 /**
- * Pure session-analytics helpers. Kept out of client.js so tests can import
- * them without the Cordis module loader.
+ * Pure session-analytics helpers. Node tests import this file directly.
+ *
+ * The renderer client MUST NOT import this path: the web module table only
+ * seeds `react` / `@deepseek-ai/*`. Keep `client.js` inlined; a relative
+ * import is the packaging bug that escalated 0.4.22+ to Startup recovery.
  */
 
 /** A composer-dock / footer strip that belongs in Settings, not under the box. */

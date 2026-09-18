@@ -375,6 +375,14 @@ describe('harness failure cause extraction', () => {
 })
 
 describe('offending plugin extraction', () => {
+  it('extracts abaco-analytics from a client module-table miss', () => {
+    const logs = [
+      '[stderr] Failed to load plugins\nfailed to import loader entry 8009188ec (abaco-analytics): client-modules: require("./lib/summary.js") missed the module table – not a platform seed word, not a materialized module, and no registered package factory (a build-time external\'s drift, or a dynamic dependency that did not arrive)'
+    ]
+    expect(extractPluginFailureReferences(logs)).toEqual(['abaco-analytics'])
+    expect(extractOffendingPlugins(logs)).toEqual(['abaco-analytics'])
+  })
+
   it('extracts plugin name from loader entry failure in stderr', () => {
     const logs = [
       '[stderr] [harness-node] DSH entry failed: Error: dsh: plugin tree failed to load: failed to apply loader entry web-ui-better-sidebar (dsh-better-sidebar): webserver: duplicate prefix route "/sidebar/api"',

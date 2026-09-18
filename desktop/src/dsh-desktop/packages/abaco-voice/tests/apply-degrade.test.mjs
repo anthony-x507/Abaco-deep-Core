@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import { apply as applyVoice, LOCAL_STATUS_PATH, LOCAL_TRANSCRIBE_PATH } from '../index.js'
 import { apply as applyDocuments, EXTRACT_PATH } from '../../abaco-documents/index.js'
 import { apply as applyObservability } from '../../abaco-observability/index.js'
+import { apply as applyAnalytics } from '../../abaco-analytics/index.js'
 
 function capturingLogger() {
   const warnings = []
@@ -63,6 +64,12 @@ test('abaco-documents apply() still registers the extract route on the happy pat
     },
   })
   assert.ok(registry.some((entry) => entry.path === EXTRACT_PATH))
+})
+
+test('abaco-analytics apply() never throws (host half is a no-op)', () => {
+  const logger = capturingLogger()
+  assert.doesNotThrow(() => applyAnalytics({ logger }))
+  assert.doesNotThrow(() => applyAnalytics(null))
 })
 
 test('abaco-observability apply() skips when inject is missing or throws (no throw)', () => {

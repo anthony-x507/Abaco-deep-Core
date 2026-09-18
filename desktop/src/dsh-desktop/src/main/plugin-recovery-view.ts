@@ -60,6 +60,42 @@ function latestAttemptText(logs: readonly string[]): string {
   return logs.slice(startIndex + 1).join('\n')
 }
 
+const LOADER_ENTRY_FAILURE =
+  /failed to (?:apply|import) loader entry [^\s]+ \((@[^)]+|[^)]+)\)/gi
+
+/**
+ * Names printed in a loader import/apply failure. First-party patch rows
+ * (abaco-analytics, …) show up here even though they are not removable
+ * profile plugins — recovery must name them instead of claiming the
+ * failure is unidentified.
+ */
+export function extractNamedLoaderFailures(logs: readonly string[]): string[] {
+  const names = new Set<string>()
+  const text = latestAttemptText(logs)
+  for (const match of text.matchAll(LOADER_ENTRY_FAILURE)) {
+    const name = match[1]?.trim()
+    if (!name || name.includes(':')) continue
+    names.add(name)
+  }
+  return [...names]
+}
+
+function unnamedRecoverySummary(
+  locale: PluginRecoveryLocale,
+  namedFailures: readonly string[]
+): string {
+  if (namedFailures.length === 0) {
+    return locale === 'zh'
+      ? '暂时无法定位到具体插件。你可以进入安全模式，停用所有第三方插件并继续使用 Agent。'
+      : 'No specific plugin could be identified. Enter Safe Mode to disable all third-party plugins and keep using the Agent.'
+  }
+
+  const listed = namedFailures.join(', ')
+  return locale === 'zh'
+    ? `${listed} 已在启动日志中定位，但它不是可卸载的 Profile 插件（例如桌面补丁里的一等插件）。进入安全模式可跳过可选附加项并继续使用 Agent。已停用的插件不会被重新启用。`
+    : `${listed} is named in the startup log, but it is not a removable profile plugin (for example a first-party desktop patch row). Enter Safe Mode to skip optional extras and keep using the Agent. Disabled plugins stay disabled.`
+}
+
 export function describePluginFailure(
   logs: readonly string[],
   locale: PluginRecoveryLocale
@@ -130,15 +166,27 @@ export function describePluginFailure(
   }
 
   if (/failed to import loader entry/i.test(text)) {
-    return locale === 'zh'
-      ? {
-          title: '插件代码加载失败',
-          detail: '插件文件可能损坏、缺少依赖，或与当前 Harness 版本不兼容。'
-        }
-      : {
-          title: 'The plugin code could not be loaded',
-          detail: 'Its files may be damaged, missing a dependency, or incompatible with this Harness version.'
-        }
+    const named = text.match(/failed to import loader entry [^\s]+ \((@[^)]+|[^)]+)\)/i)?.[1]?.trim()
+    const moduleTableMiss = /missed the module table/i.test(text)
+    const required = text.match(/require\((["'][^"']+["'])\)\s+missed the module table/i)?.[1]
+    if (locale === 'zh') {
+      return {
+        title: '插件代码加载失败',
+        detail: named
+          ? moduleTableMiss
+            ? `${named} 无法导入：${required ? `require(${required})` : '相对 require'} 不在客户端 module table（不是平台种子、也不是已物化模块）。这是打包缺陷，不是第三方安装损坏。`
+            : `${named} 的客户端代码无法加载。文件可能损坏、缺少依赖，或与当前 Harness 版本不兼容。`
+          : '插件文件可能损坏、缺少依赖，或与当前 Harness 版本不兼容。'
+      }
+    }
+    return {
+      title: 'The plugin code could not be loaded',
+      detail: named
+        ? moduleTableMiss
+          ? `${named} failed to import: ${required ? `require(${required})` : 'a relative require'} missed the client module table (not a platform seed, not a materialized module). That is a packaging bug, not a damaged third-party install.`
+          : `${named} could not be loaded. Its files may be damaged, missing a dependency, or incompatible with this Harness version.`
+        : 'Its files may be damaged, missing a dependency, or incompatible with this Harness version.'
+    }
   }
 
   return locale === 'zh'
@@ -167,6 +215,19 @@ export function buildPluginRecoveryViewModel(options: {
   const canUninstall = plugins.length > 0
   const description = describePluginFailure(snapshot.logs, locale)
   const multiple = plugins.length > 1
+  const namedFailures = extractNamedLoaderFailures(snapshot.logs)
+  const unnamedHeading = namedFailures.length > 0
+    ? namedFailures.length > 1
+      ? locale === 'zh'
+        ? `发现 ${namedFailures.length} 个无法卸载的失败插件`
+        : `${namedFailures.length} plugins failed to load`
+      : locale === 'zh'
+        ? '发现无法卸载的失败插件'
+        : 'A plugin failed to load'
+    : locale === 'zh'
+      ? 'Harness 暂时无法启动'
+      : 'Harness could not start'
+  const unnamedSummary = unnamedRecoverySummary(locale, namedFailures)
 
   if (locale === 'zh') {
     return {
@@ -175,10 +236,10 @@ export function buildPluginRecoveryViewModel(options: {
       badge: '启动修复',
       heading: canUninstall
         ? multiple ? `发现 ${plugins.length} 个导致启动失败的插件` : '发现导致启动失败的插件'
-        : 'Harness 暂时无法启动',
+        : unnamedHeading,
       summary: canUninstall
         ? ''
-        : '暂时无法定位到具体插件。你可以进入安全模式，停用所有第三方插件并继续使用 Agent。',
+        : unnamedSummary,
       reasonTitle: description.title,
       reasonDetail: description.detail,
       plugins,
@@ -219,10 +280,10 @@ export function buildPluginRecoveryViewModel(options: {
     badge: 'Startup recovery',
     heading: canUninstall
       ? multiple ? `${plugins.length} plugins are preventing startup` : 'A plugin is preventing startup'
-      : 'Harness could not start',
+      : unnamedHeading,
     summary: canUninstall
       ? ''
-      : 'No specific plugin could be identified. Enter Safe Mode to disable all third-party plugins and keep using the Agent.',
+      : unnamedSummary,
     reasonTitle: description.title,
     reasonDetail: description.detail,
     plugins,

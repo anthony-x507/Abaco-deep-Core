@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { createContext, runInContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
+import { apply as applyAnalytics } from '../packages/abaco-analytics/index.js'
 import { patchPath, projectRoot } from './patch-path'
 import {
   formatDuration,
@@ -9,6 +11,92 @@ import {
   isAnalyticsStripText,
   summarizeChatNodes,
 } from '../packages/abaco-analytics/lib/summary.js'
+
+const ANALYTICS_STRIP =
+  '18 turns · 163 steps | LLM 27m6s · Tool call 42m23s | TTFT avg 4.7 | Cache hit 95% | Input 22.8M tok'
+
+const SUMMARY_FIXTURE = [
+  {
+    kind: 'assistant',
+    turn: 2,
+    step: 5,
+    timing: { stepStartTime: 0, firstTokenTime: 400, completedTime: 1400 },
+    usage: { prompt_tokens: 100, prompt_cache_hit_tokens: 80, completion_tokens: 20 },
+  },
+  {
+    kind: 'assistant',
+    turn: 3,
+    step: 8,
+    timing: { stepStartTime: 2000, firstTokenTime: 2600, completedTime: 3600 },
+    usage: { inputTokens: 50, cacheReadTokens: 10, outputTokens: 15 },
+  },
+  { kind: 'user', turn: 3 },
+]
+
+function loadAnalyticsClientFactory() {
+  return readFile(path.join(projectRoot, 'packages/abaco-analytics/client.js'), 'utf8').then((source) => {
+    const recorded: string[] = []
+    const warnings: string[] = []
+    const sandbox: {
+      window: {
+        __ModuleLoader__: {
+          load: (entry: { factory: (require: (id: string) => unknown) => unknown }) => void
+        }
+      }
+      console: Pick<Console, 'warn'>
+      exports?: {
+        apply: (ctx: unknown) => void
+        __test__: {
+          summarizeChatNodes: typeof summarizeChatNodes
+          isAnalyticsStripText: typeof isAnalyticsStripText
+          formatDuration: typeof formatDuration
+          formatTokens: typeof formatTokens
+          formatPercent: typeof formatPercent
+        }
+      }
+    } = {
+      Object,
+      Array,
+      Number,
+      Math,
+      Set,
+      Date,
+      String,
+      Boolean,
+      JSON,
+      Error,
+      Symbol,
+      Map,
+      RegExp,
+      window: {
+        __ModuleLoader__: {
+          load(entry) {
+            sandbox.exports = entry.factory((id) => {
+              recorded.push(id)
+              if (id === 'react') {
+                return {
+                  createElement: () => null,
+                  useEffect: () => {},
+                  useState: (value: unknown) => [value, () => {}],
+                }
+              }
+              throw new Error(
+                `client-modules: require(${JSON.stringify(id)}) missed the module table – not a platform seed word, not a materialized module, and no registered package factory (a build-time external's drift, or a dynamic dependency that did not arrive)`,
+              )
+            }) as typeof sandbox.exports
+          },
+        },
+      },
+      console: {
+        warn: (message?: unknown) => {
+          warnings.push(String(message))
+        },
+      },
+    }
+    runInContext(source, createContext(sandbox))
+    return { exports: sandbox.exports, recorded, warnings }
+  })
+}
 
 describe('abaco-analytics summary', () => {
   it('detects the composer analytics strip and ignores short chrome', () => {
@@ -64,6 +152,39 @@ describe('abaco-analytics plugin wiring', () => {
     expect(client).toContain('data-abaco-hidden-analytics')
     expect(client).toContain('isAnalyticsStripText')
     expect(client).toContain("name: 'conversation.session.header.utilities'")
+  })
+
+  it('does not relative-require off the client module table', async () => {
+    const client = await readFile(path.join(projectRoot, 'packages/abaco-analytics/client.js'), 'utf8')
+    const executable = client
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    expect(executable).not.toMatch(/require\(\s*['"]\.\.?[\\/]/)
+    const loaded = await loadAnalyticsClientFactory()
+    expect(loaded.recorded).toEqual(['react'])
+    expect(loaded.exports?.__test__.isAnalyticsStripText(ANALYTICS_STRIP)).toBe(true)
+    expect(loaded.exports?.__test__.summarizeChatNodes(SUMMARY_FIXTURE)).toEqual(
+      summarizeChatNodes(SUMMARY_FIXTURE),
+    )
+  })
+
+  it('host apply() degrades and never throws', () => {
+    expect(() => applyAnalytics(null)).not.toThrow()
+    expect(() => applyAnalytics({ logger: { warn: () => { throw new Error('log boom') } } })).not.toThrow()
+  })
+
+  it('client apply() degrades a slot throw instead of failing the loader', async () => {
+    const loaded = await loadAnalyticsClientFactory()
+    expect(() =>
+      loaded.exports?.apply({
+        slots: {
+          inject: () => {
+            throw new Error('Invalid effect')
+          },
+        },
+      }),
+    ).not.toThrow()
+    expect(loaded.warnings.some((line) => line.includes('Settings → Analytics is off'))).toBe(true)
   })
 
   it('is mounted through the three plugin-safe sites', async () => {

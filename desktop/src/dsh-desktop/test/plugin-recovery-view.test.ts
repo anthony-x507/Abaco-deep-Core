@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { RuntimeSnapshot } from '../src/shared/contracts'
 import {
   buildPluginRecoveryViewModel,
-  describePluginFailure
+  describePluginFailure,
+  extractNamedLoaderFailures
 } from '../src/main/plugin-recovery-view'
 
 function failedSnapshot(logs: string[] = []): RuntimeSnapshot {
@@ -83,6 +84,33 @@ describe('plugin recovery view model', () => {
     })
     expect(model.plugins).toEqual(['dsh-tui'])
     expect(model.canUninstall).toBe(true)
+  })
+
+  it('names a first-party loader miss without offering uninstall', () => {
+    const analyticsLog =
+      '[stderr] Failed to load plugins\n' +
+      'failed to import loader entry 8009188ec (abaco-analytics): client-modules: require("./lib/summary.js") missed the module table – not a platform seed word, not a materialized module, and no registered package factory (a build-time external\'s drift, or a dynamic dependency that did not arrive)'
+    expect(extractNamedLoaderFailures([analyticsLog])).toEqual(['abaco-analytics'])
+
+    const description = describePluginFailure([analyticsLog], 'en')
+    expect(description.title).toBe('The plugin code could not be loaded')
+    expect(description.detail).toContain('abaco-analytics')
+    expect(description.detail).toContain('missed the client module table')
+    expect(description.detail).toContain('packaging bug')
+
+    const model = buildPluginRecoveryViewModel({
+      snapshot: failedSnapshot([analyticsLog]),
+      plugins: [],
+      removedPlugins: [],
+      locale: 'en'
+    })
+    expect(model.canUninstall).toBe(false)
+    expect(model.heading).toBe('A plugin failed to load')
+    expect(model.summary).toContain('abaco-analytics')
+    expect(model.summary).not.toContain('No specific plugin could be identified')
+    expect(model.summary).toContain('Disabled plugins stay disabled')
+    expect(model.primaryLabel).toBe('Enter Safe Mode')
+    expect(model.plugins).toEqual([])
   })
 
   it('offers Safe Mode when no plugin can be identified', () => {

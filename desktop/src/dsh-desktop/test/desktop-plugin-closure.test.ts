@@ -48,6 +48,29 @@ describe('desktop plugin closure', () => {
     }
   })
 
+  it('keeps every mounted client factory on the module table', async () => {
+    const profilePatch = await readProfilePatch()
+    const mounted = profilePatch
+      .flatMap((row) => row.insert ?? [])
+      .map((entry) => entry.name)
+      .filter((name): name is string => typeof name === 'string')
+
+    for (const name of mounted) {
+      const clientPath = path.join(projectRoot, 'packages', name, 'client.js')
+      try {
+        const client = await readFile(clientPath, 'utf8')
+        const executable = client
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .replace(/(^|[^:])\/\/.*$/gm, '$1')
+        expect(executable, `${name} client.js must not relative-require`).not.toMatch(
+          /require\(\s*['"]\.\.?[\\/]/
+        )
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
+  })
+
   it('declares every profile-mounted package as a local production dependency', async () => {
     const profilePatch = await readProfilePatch()
 
