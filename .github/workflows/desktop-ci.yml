@@ -62,19 +62,8 @@ jobs:
             packages/abaco-voice/tests/apply-degrade.test.mjs \
             packages/abaco-mediacion-pilot/tests/utility-cell.test.mjs
 
-      - name: Pin package is a root file: dependency
+      - name: Pin package is a root file dependency
         run: |
-          node --input-type=module -e "
-          import { existsSync, readFileSync } from 'node:fs'
-          const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
-          const pin = pkg.dependencies['abaco-mcp-schema-pin']
-          if (pin !== 'file:packages/abaco-mcp-schema-pin') {
-            console.error('abaco-mcp-schema-pin must be a root file: dep, got:', pin)
-            process.exit(1)
-          }
-          if (!existsSync('packages/abaco-mcp-schema-pin/index.js')) {
-            console.error('packages/abaco-mcp-schema-pin/index.js is missing')
-            process.exit(1)
-          }
-          console.log('abaco-mcp-schema-pin file: dep present')
-          "
+          grep -F '"abaco-mcp-schema-pin": "file:packages/abaco-mcp-schema-pin"' package.json
+          test -f packages/abaco-mcp-schema-pin/index.js
+          echo "abaco-mcp-schema-pin file: dep present"
