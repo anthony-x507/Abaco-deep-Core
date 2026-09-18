@@ -66,6 +66,15 @@ describe('abaco-analytics plugin wiring', () => {
     expect(client).toContain("name: 'conversation.session.header.utilities'")
   })
 
+  it('does not relative-require from the loader factory', async () => {
+    const client = await readFile(path.join(projectRoot, 'packages/abaco-analytics/client.js'), 'utf8')
+    const code = client.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(code).not.toMatch(/require\(\s*['"]\.\//u)
+    expect(client).toContain('function summarizeChatNodes')
+    expect(client).toContain('function isAnalyticsStripText')
+    expect(client).toContain('missed the module table')
+  })
+
   it('is mounted through the three plugin-safe sites', async () => {
     const patch = await readFile(path.join(projectRoot, 'build/dsh-desktop.patch.yml'), 'utf8')
     const dsh = await readFile(patchPath('@deepseek-ai/dsh'), 'utf8')

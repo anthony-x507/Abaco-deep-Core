@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
@@ -59,5 +59,25 @@ describe('desktop plugin closure', () => {
       if (typeof row.name !== 'string') continue
       expect(manifest.dependencies[row.name]).toMatch(/^file:packages\//u)
     }
+  })
+
+  it('keeps every abaco client factory free of relative requires', async () => {
+    const packagesDir = path.join(projectRoot, 'packages')
+    const entries = await readdir(packagesDir, { withFileTypes: true })
+    const clients: string[] = []
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith('abaco-')) continue
+      const clientPath = path.join(packagesDir, entry.name, 'client.js')
+      try {
+        const source = await readFile(clientPath, 'utf8')
+        const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+        clients.push(entry.name)
+        expect(code, `${entry.name}/client.js`).not.toMatch(/require\(\s*['"]\.\//u)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
+    expect(clients).toContain('abaco-analytics')
+    expect(clients.length).toBeGreaterThan(0)
   })
 })

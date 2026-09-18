@@ -1,6 +1,11 @@
 /**
- * Pure session-analytics helpers. Kept out of client.js so tests can import
- * them without the Cordis module loader.
+ * Pure session-analytics helpers for Node tests.
+ *
+ * Do not `require()` this file from `client.js`. The web module table only
+ * seeds platform ids (`react`, `@deepseek-ai/*`); a relative require throws
+ * `client-modules: require("./lib/summary.js") missed the module table` and
+ * takes the plugin tree to Startup recovery. The factory must keep an inlined
+ * copy of these helpers (same pattern as `abaco-voice`).
  */
 
 /** A composer-dock / footer strip that belongs in Settings, not under the box. */
