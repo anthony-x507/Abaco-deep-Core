@@ -281,6 +281,7 @@
     "abaco-voice": "file:packages/abaco-voice",
     "abaco-effect-broker": "file:packages/abaco-effect-broker",
     "abaco-mediacion-pilot": "file:packages/abaco-mediacion-pilot",
+    "abaco-mcp-schema-pin": "file:packages/abaco-mcp-schema-pin",
     "abaco-documents": "file:packages/abaco-documents",
     "abaco-agent-status": "file:packages/abaco-agent-status",
     "abaco-browser": "file:packages/abaco-browser",

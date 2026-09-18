@@ -978,6 +978,7 @@ describe('ABACO browser P1 DoD (panel UX)', () => {
     const pkg = await readFile('package.json', 'utf8')
     expect(pkg).toContain('"abaco-effect-broker": "file:packages/abaco-effect-broker"')
     expect(pkg).toContain('"abaco-mediacion-pilot": "file:packages/abaco-mediacion-pilot"')
+    expect(pkg).toContain('"abaco-mcp-schema-pin": "file:packages/abaco-mcp-schema-pin"')
     expect(pkg).toContain('"abaco-voice": "file:packages/abaco-voice"')
   })
 })
