@@ -1,6 +1,10 @@
 /**
- * Pure session-analytics helpers. Kept out of client.js so tests can import
- * them without the Cordis module loader.
+ * Pure session-analytics helpers for Node tests.
+ *
+ * Do NOT `require()` this file from client.js. The web factory require is the
+ * frozen platform module table (react / @deepseek-ai/* only). A relative
+ * specifier misses that table at boot even when this file is on disk — see
+ * docs/rca-0.4.22-abaco-analytics-module-table.md. Keep the client copy inlined.
  */
 
 /** A composer-dock / footer strip that belongs in Settings, not under the box. */

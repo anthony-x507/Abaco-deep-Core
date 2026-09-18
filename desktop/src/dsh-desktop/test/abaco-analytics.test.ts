@@ -63,7 +63,10 @@ describe('abaco-analytics plugin wiring', () => {
     expect(client).toContain('data-abaco-analytics')
     expect(client).toContain('data-abaco-hidden-analytics')
     expect(client).toContain('isAnalyticsStripText')
+    expect(client).toContain('function summarizeChatNodes')
     expect(client).toContain("name: 'conversation.session.header.utilities'")
+    expect(client.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/(^|[^:])\/\/[^\n]*/gu, '$1'))
+      .not.toMatch(/require\(\s*['"]\.\//u)
   })
 
   it('is mounted through the three plugin-safe sites', async () => {
