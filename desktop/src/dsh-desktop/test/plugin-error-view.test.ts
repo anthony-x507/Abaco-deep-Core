@@ -16,12 +16,17 @@ const sampleLoaderError =
 const sampleScriptError =
   'client-modules: bundle script /plugins/custom-plugin/client.js failed to load'
 
+const sampleModuleTableMiss =
+  'failed to import loader entry 8009188ec (abaco-analytics): client-modules: require("./lib/summary.js") missed the module table — not a platform seed word, not a materialized module, and no registered package factory (a build-time externals drift, or a dynamic dependency that did not arrive)'
+
 describe('plugin load error detection and extraction', () => {
   it('detects bundle script and loader entry failure errors', () => {
     expect(isPluginLoadError(new Error(sampleLoaderError))).toBe(true)
     expect(isPluginLoadError(sampleLoaderError)).toBe(true)
     expect(isPluginLoadError({ message: sampleScriptError })).toBe(true)
     expect(isPluginLoadError({ reason: sampleLoaderError })).toBe(true)
+    expect(isPluginLoadError(new Error(sampleModuleTableMiss))).toBe(true)
+    expect(isPluginLoadError(sampleModuleTableMiss)).toBe(true)
     expect(isPluginLoadError(new Error('SyntaxError: Unexpected token'))).toBe(false)
     expect(isPluginLoadError(undefined)).toBe(false)
     expect(isPluginLoadError(null)).toBe(false)
@@ -30,6 +35,7 @@ describe('plugin load error detection and extraction', () => {
   it('extracts plugin name from error messages', () => {
     expect(extractPluginName(sampleLoaderError)).toBe('@linxin666/dsh-client-ui-web-ui-settings')
     expect(extractPluginName(sampleScriptError)).toBe('custom-plugin')
+    expect(extractPluginName(sampleModuleTableMiss)).toBe('abaco-analytics')
     expect(extractPluginName('some generic error')).toBeUndefined()
   })
 
