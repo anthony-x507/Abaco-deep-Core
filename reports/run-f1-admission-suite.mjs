@@ -61,6 +61,7 @@ const SUITES = [
     args: ['--test', 'packages/abaco-effect-broker/tests/f1-day14-retire-contain.test.mjs'],
     cwd: DESK,
   },
+  { name: 'F1 Control-1 closeout', cmd: 'node', args: ['--test', 'packages/abaco-effect-broker/tests/f1-mediacion-closeout.test.mjs'], cwd: DESK },
   { name: 'F2-W1 cascada', cmd: 'node', args: ['--test', 'packages/abaco-effect-broker/tests/cascade.test.mjs'], cwd: DESK },
   { name: 'F2-W2 breakers', cmd: 'node', args: ['--test', 'packages/abaco-effect-broker/tests/breakers.test.mjs'], cwd: DESK },
   { name: 'F2-W3 provenance', cmd: 'node', args: ['--test', 'packages/abaco-effect-broker/tests/provenance.test.mjs'], cwd: DESK },

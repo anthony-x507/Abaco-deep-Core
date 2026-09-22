@@ -59,6 +59,7 @@ jobs:
             packages/abaco-effect-broker/tests/admission-immutable.test.mjs \
             packages/abaco-effect-broker/tests/f1-day14-fail-closed.test.mjs \
             packages/abaco-effect-broker/tests/f1-day14-retire-contain.test.mjs \
+            packages/abaco-effect-broker/tests/f1-mediacion-closeout.test.mjs \
             packages/abaco-effect-broker/tests/cascade.test.mjs \
             packages/abaco-effect-broker/tests/breakers.test.mjs \
             packages/abaco-effect-broker/tests/provenance.test.mjs \
@@ -71,6 +72,10 @@ jobs:
             packages/abaco-voice/tests/stt-mac-contract.test.mjs \
             packages/abaco-voice/tests/apply-degrade.test.mjs \
             packages/abaco-mediacion-pilot/tests/utility-cell.test.mjs
+
+      - name: F1 Python contract mirror
+        working-directory: .
+        run: python3 -m unittest core.f1.tests.test_effect_broker_contract
 
       - name: Pin package is a root file dependency
         run: |

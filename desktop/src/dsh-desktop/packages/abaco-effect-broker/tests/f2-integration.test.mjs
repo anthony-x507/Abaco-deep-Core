@@ -40,7 +40,7 @@ import {
 
 const STATUS_PATH = '/api/abaco-voice.local-status'
 
-/** Mirrors the F1 M10 happy path: host.fetch voice status, trust_in 'user'. */
+/** Mirrors the F1 M-happy path: host.fetch voice status, trust_in 'user'. */
 function voiceStatusReq(extra = {}) {
   return {
     channel: { kind: 'host.fetch', path: STATUS_PATH },
