@@ -1,0 +1,27 @@
+{
+  "format": "abaco-admission-sbom-v1",
+  "plugin_id": "abaco-mediacion-pilot",
+  "producer": "abaco-deep-core",
+  "hash_algorithm": "sha256",
+  "component_hash": "c860d1f1787ddeb87567f5238b98bb784c7b21c42c00341a5cd561cc09468120",
+  "dependencies": [
+    {
+      "name": "@deepseek-ai/cordis",
+      "scope": "host-peer",
+      "relationship": "peer"
+    },
+    {
+      "name": "abaco-effect-broker",
+      "scope": "host-tcb",
+      "relationship": "direct"
+    },
+    {
+      "name": "abaco-mcp-schema-pin",
+      "scope": "host-tcb",
+      "relationship": "direct"
+    }
+  ],
+  "generation_context": "first-party-admission-review",
+  "timestamp": "2026-09-22T19:45:00Z",
+  "author_signature": "4c8446c5e269507b060dc9890a7a06f283c37d3d242243a7dc5986ca937b0736"
+}

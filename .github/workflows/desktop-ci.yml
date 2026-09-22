@@ -77,6 +77,13 @@ jobs:
         working-directory: .
         run: python3 -m unittest core.f1.tests.test_effect_broker_contract
 
+      - name: Sweet-spot stress C (digest pin + SBOM) and A broker cross-check
+        working-directory: .
+        run: |
+          node --test \
+            tests/stress/sweet_spot_c/admission.test.mjs \
+            tests/stress/sweet_spot_c/a-broker-crosscheck.test.mjs
+
       - name: Pin package is a root file dependency
         run: |
           grep -F '"abaco-mcp-schema-pin": "file:packages/abaco-mcp-schema-pin"' package.json

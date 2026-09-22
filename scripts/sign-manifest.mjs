@@ -18,6 +18,10 @@
  *   5. Commit via normal code review — changing the pin IS the trust decision
  *      (the broker source is the TCB; the pin change is visible in review).
  *
+ * Also prints PINNED_ARTIFACT digests (subject bytes in ARTIFACT_FILES) and
+ * the author_signature binding for sbom.admission.json. A version string
+ * match is not a substitute for that digest. The binding is not Sigstore.
+ *
  * Security note: this script only COMPUTES digests. Trust comes from the pin
  * living in reviewed source code, never from this script's output alone.
  */
@@ -29,6 +33,11 @@ import {
   canonicalManifestJson,
   manifestDigest,
 } from '../desktop/src/dsh-desktop/packages/abaco-effect-broker/manifest-verify.mjs'
+import {
+  ARTIFACT_FILES,
+  authorBinding,
+  hashArtifactFiles,
+} from '../desktop/src/dsh-desktop/packages/abaco-effect-broker/supply-chain-admission.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const pkgDir = join(here, '..', 'desktop', 'src', 'dsh-desktop', 'packages')
@@ -55,5 +64,14 @@ console.log('\n// Paste into packages/abaco-effect-broker/index.js:')
 console.log('const PINNED_MANIFEST_DIGEST = {')
 for (const id of PLUGINS) {
   console.log(`  '${id}': '${pins[id]}',`)
+}
+console.log('}')
+
+console.log('\nconst PINNED_ARTIFACT = {')
+for (const id of PLUGINS) {
+  const digest = hashArtifactFiles(join(pkgDir, id), ARTIFACT_FILES[id])
+  const binding = authorBinding('abaco-deep-core', id, digest)
+  console.log(`  '${id}': { version: '0.1.0', digest: '${digest}' },`)
+  console.log(`  // ${id} author_signature ${binding}`)
 }
 console.log('}')

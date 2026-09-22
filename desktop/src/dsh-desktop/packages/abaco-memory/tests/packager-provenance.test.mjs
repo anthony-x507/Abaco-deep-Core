@@ -439,6 +439,20 @@ test('G9.2 disabled plugins stay disabled; no rehab insert after TEMPORARILY DIS
   }
 })
 
+/**
+ * Admission metadata only. Basename must be exactly `sbom.admission.json`.
+ * Applies to the piloto and to voice so both SBOMs are the same class of file.
+ * Any other path under abaco-mediacion-pilot stays forbidden (PR #16).
+ */
+function isAdmissionSbom(file) {
+  const norm = String(file).replace(/\\/g, '/')
+  return norm === 'sbom.admission.json' || norm.endsWith('/sbom.admission.json')
+}
+
+function pilotoStayOutViolation(file) {
+  return file.includes('abaco-mediacion-pilot') && !isAdmissionSbom(file)
+}
+
 test('G9.3 stay out of MCP pin wiring, patch.yml, and compact preset', () => {
   const out = execFileSync('git', ['-C', REPO, 'diff', '--name-only', 'origin/main'], { encoding: 'utf8' })
   const changed = out
@@ -457,7 +471,21 @@ test('G9.3 stay out of MCP pin wiring, patch.yml, and compact preset', () => {
     assert.ok(!file.includes('CONTRACT-F1.5-MCP-SCHEMA-PIN'), `MCP contract stay-out: ${file}`)
     assert.ok(!file.includes('dsh-desktop.patch.yml'), `patch.yml stay-out: ${file}`)
     assert.ok(!file.includes('agent.cordis.yml'), `compact preset stay-out: ${file}`)
-    assert.ok(!file.includes('abaco-mediacion-pilot'), `piloto stay-out (PR #16): ${file}`)
+    assert.ok(!pilotoStayOutViolation(file), `piloto stay-out (PR #16): ${file}`)
     assert.ok(!/Application Support\/dsh-desktop/.test(file), `dsh-desktop profile stay-out: ${file}`)
   }
+
+  const pilotSbom = 'desktop/src/dsh-desktop/packages/abaco-mediacion-pilot/sbom.admission.json'
+  const voiceSbom = 'desktop/src/dsh-desktop/packages/abaco-voice/sbom.admission.json'
+  assert.equal(isAdmissionSbom(pilotSbom), true)
+  assert.equal(isAdmissionSbom(voiceSbom), true)
+  assert.equal(pilotoStayOutViolation(pilotSbom), false)
+  assert.equal(pilotoStayOutViolation(voiceSbom), false)
+  assert.equal(pilotoStayOutViolation('desktop/src/dsh-desktop/packages/abaco-mediacion-pilot/index.js'), true)
+  assert.equal(pilotoStayOutViolation('desktop/src/dsh-desktop/packages/abaco-mediacion-pilot/worker.js'), true)
+  assert.equal(pilotoStayOutViolation('desktop/src/dsh-desktop/packages/abaco-mediacion-pilot/ops.js'), true)
+  assert.equal(
+    pilotoStayOutViolation('desktop/src/dsh-desktop/packages/abaco-mediacion-pilot/sbom.admission.json.md'),
+    true,
+  )
 })
