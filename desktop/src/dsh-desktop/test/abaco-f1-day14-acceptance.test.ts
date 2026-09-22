@@ -177,6 +177,36 @@ describe('F1 day-14 recorrido TS (Janice / desktop)', () => {
     expect(main).toContain("app.setPath('userData', join(app.getPath('appData'), 'abaco-deep-core'))")
   })
 
+  it('D14-7 evolution: unauthorized deny does not stop a new grant on admitted voice', () => {
+    const blocked = authorize({
+      channel: { kind: 'cordis.host', pluginId: 'abaco-brand' },
+      task_id: null,
+      effect: { kind: 'host.fetch', resource: '/x', args_hash: 'x' },
+      trust_in: 'user',
+    })
+    assertDenyFour(blocked)
+    expect(blocked.reason).toBe('plugin-disabled')
+
+    const g = issueTaskGrant({
+      pluginId: 'abaco-voice',
+      effects: ['host.fetch'],
+      resources: [STATUS_PATH],
+    })
+    const happy = authorize({
+      channel: { kind: 'host.fetch', path: STATUS_PATH },
+      task_id: g.task_id,
+      grant_id: g.grant_id,
+      effect: {
+        kind: 'host.fetch',
+        resource: STATUS_PATH,
+        args_hash: hashArgs({ method: 'GET' }),
+      },
+      trust_in: 'user',
+    })
+    expect(happy.decision).toBe('allow')
+    expect(getBrokerStats().allowCount).toBeGreaterThan(0)
+  })
+
   it('D14-6 patch.yml lists the piloto and does not rehab disabled plugins', async () => {
     const patch = await readFile(join(DESK, 'build/dsh-desktop.patch.yml'), 'utf8')
     expect(patch).toContain('id: abaco-mediacion-pilot')

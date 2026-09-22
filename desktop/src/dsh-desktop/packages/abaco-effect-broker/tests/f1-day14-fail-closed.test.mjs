@@ -357,6 +357,55 @@ test('D14-S F1 package sources do not target the DeepSeek dsh-desktop profile', 
 
 /* ── D14-P: Python core/voice is not the same F1 effect ───────────────── */
 
+/* ── D14-E: admitted plugins still evolve / ship (doctrine delta) ─────── */
+
+test('D14-E1 deny of unauthorized effect does not freeze admitted voice', () => {
+  const blocked = authorize({
+    channel: { kind: 'cordis.host', pluginId: 'abaco-brand' },
+    task_id: null,
+    effect: { kind: 'host.fetch', resource: '/x', args_hash: 'x' },
+    trust_in: 'user',
+  })
+  assertDenyQuartet(blocked, 'plugin-disabled')
+
+  const happy = authorize(voiceStatusReq())
+  assert.equal(happy.decision, 'allow')
+  assert.equal(happy.grant.plugin_id, 'abaco-voice')
+  assert.ok(happy.grant.grant_id)
+})
+
+test('D14-E2 after revoke, a new grant on the same admitted plugin still allows', () => {
+  const old = voiceGrant()
+  assert.equal(revokeGrant(old.grant_id), true)
+  const fresh = voiceGrant()
+  assert.notEqual(fresh.grant_id, old.grant_id)
+  const d = authorize({
+    channel: { kind: 'host.fetch', path: STATUS_PATH },
+    task_id: fresh.task_id,
+    grant_id: fresh.grant_id,
+    effect: {
+      kind: 'host.fetch',
+      resource: STATUS_PATH,
+      args_hash: hashArgs({ method: 'GET' }),
+    },
+    trust_in: 'user',
+  })
+  assert.equal(d.decision, 'allow')
+  assert.equal(inspectGrant(old.grant_id).live, false)
+  assert.equal(inspectGrant(fresh.grant_id).live, true)
+})
+
+test('D14-E3 pin rotation is review-time (sign-manifest), not a runtime lockout API', async () => {
+  const broker = await readFile(join(PKG_DIR, 'index.js'), 'utf8')
+  assert.match(broker, /PINNED_MANIFEST_DIGEST/)
+  assert.match(broker, /sign-manifest\.mjs/)
+  const signer = await readFile(join(REPO, 'scripts/sign-manifest.mjs'), 'utf8')
+  assert.match(signer, /ROTATION PROCEDURE/)
+  assert.match(signer, /code review/)
+  assert.doesNotMatch(broker, /export function rotatePin/)
+  assert.doesNotMatch(broker, /export function rotateManifest/)
+})
+
 test('D14-P Python core/voice is not the F1 authorize path (no silent side-channel)', async () => {
   const voiceDir = join(REPO, 'core/voice')
   const names = (await readdir(voiceDir)).filter((n) => n.endsWith('.py'))

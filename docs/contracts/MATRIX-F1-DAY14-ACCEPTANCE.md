@@ -38,6 +38,7 @@ Verdicts are **PASS / PARTIAL / FAIL / N-A** on the product tip. Evidence paths 
 | C2 | Janice = runtime | **PASS** | `ADMISSION_ROLES.janice = runtime`. Piloto is executor cell only (`manifest.f1.yml` inject `[]`, no grants). **D14-C**, **D14-T3**, historical “pilot is executor not grantor”. |
 | C3 | No rehab of disabled plugins | **PASS** | `DISABLED_PLUGINS` = brand / device-identity / cloud-sync / onboarding / experimental. Patch after `TEMPORARILY DISABLED` has no brand insert. **D14-C**, **D14-6**, **B11**, **G-plugin**. |
 | C4 | No `dsh-desktop` profile writes | **PASS** | Same as **A5**. |
+| C5 | Doctrine delta: unauthorized blocked **and** admitted plugins still evolve/ship | **PASS** (automated) | Deny of brand/untrusted does not freeze voice. After revoke, a **new** grant on `abaco-voice` still allows. Pin rotation is review-time (`scripts/sign-manifest.mjs`), not a runtime lockout API. **D14-E1…E3**, vitest **D14-7**, admission **G7.4** (note-only edit keeps digest). Live ship (DMG / Update) is **LIVE smoke L2/L6**. |
 
 ## Controles 1–3 (already on main — regression lock)
 
