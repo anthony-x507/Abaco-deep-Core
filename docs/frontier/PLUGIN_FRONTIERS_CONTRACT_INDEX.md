@@ -119,6 +119,8 @@ Checklist de compañía (extraído de F1/F1.5 + curso + defaults Integrador). Al
 | [`SECURITY.md`](../SECURITY.md) | Modelo seguridad app unsigned actual |
 | Mind: plugin = contrato; curso 10 vs Cordis; catorce defaults; frontier dónde estamos | Contexto Leader / rediseño plan |
 | [`PORTABLE_RULES_FOR_PYTHON_CORE.md`](PORTABLE_RULES_FOR_PYTHON_CORE.md) | Qué hereda el hub Python |
+| [`JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md`](JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md) | G47 pulse PILOT (PR #36): CODE-first, Jev gray-band, platform+adapters |
+| [`JEV_PLUGIN_VS_TRADITIONAL_SECURITY_G47.md`](JEV_PLUGIN_VS_TRADITIONAL_SECURITY_G47.md) | G47 compare: plugin-unique attack surface vs monolith; Jev easier/harder on Janice |
 
 ## Política de este pack
 
