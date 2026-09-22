@@ -15,6 +15,9 @@ desaparece (`null`). En sesiones hijas (subagente) el texto cambia a
 - **Estado:** `useSession((s) => s.running)` — `SessionSnapshot.running` es el
   estado "live" del agente que mantiene el Session controller; es el mismo
   bit que lee el composer del propio harness.
+- **Watermark:** el logo oficial ABACO HARNESS se pinta detrás del composer
+  (`[data-composer-card]`), al **70%** de esa superficie, `pointer-events:
+  none`. Idle = opacidad baja y estática; `running` = pulso de **2000ms**.
 - **Estilo:** variables `--abaco-*` de `abaco-theme` (fallbacks inline), con
   una hoja `<style>` propia inyectada por el plugin (`abaco-agent-status-style`).
 
