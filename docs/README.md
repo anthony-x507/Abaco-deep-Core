@@ -23,10 +23,13 @@ Bienvenido a la documentación de **ABACO DEEP HARNES** (`appId` `io.abaco.deepc
 
 | Documento | Para qué sirve |
 |---|---|
+| [frontier/README.md](frontier/README.md) | Índice frontier — paper G47, naming, contratos, research |
+| [PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md](frontier/PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md) | **PAPER unificado G47**: plugins vs tradicional + Jev pulse (síntesis A+B+C; piloto Anthony 2026-09-22) |
 | [JANICE_ATENA_NAMING_LAW.md](frontier/JANICE_ATENA_NAMING_LAW.md) | Lock FINAL: Janice = runtime; Atena = advisory; connectors HOLD; código vs producto vs docs |
 | [PLUGIN_FRONTIERS_CONTRACT_INDEX.md](frontier/PLUGIN_FRONTIERS_CONTRACT_INDEX.md) | Índice F1 / F1.5 / F2.1 — qué es ley vs teatro; checklist al pluginizar |
 | [PORTABLE_RULES_FOR_PYTHON_CORE.md](frontier/PORTABLE_RULES_FOR_PYTHON_CORE.md) | Qué hereda el hub Python; qué no mezclar de Cordis/DSH |
 | [JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md](frontier/JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md) | G47 docs-only: Jev Security Pulse feasibility (PILOT; never grants; CODE-first) |
+| [frontier/research/README.md](frontier/research/README.md) | Research A/B/C — fuentes del paper unificado |
 
 ## Contratos F1 / F2.1
 
