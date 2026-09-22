@@ -167,7 +167,7 @@ describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R4 BT vs built-in + chip', () =>
 describe('CONTRACT-P0-MIC-BUILTIN-SILENCE-048 T-R5 keep 0.4.7 + version 0.4.11', () => {
   it('T-R5 sticky tiny→small-mlx; OFFLINE; Update; F1; 0 new IPC; version 0.4.11', async () => {
     const pkg = JSON.parse(await readFile('package.json', 'utf8'))
-    expect(pkg.version).toBe('0.4.25')
+    expect(pkg.version).toBe('0.4.26')
 
     const client = await readFile('packages/abaco-voice/client.js', 'utf8')
     const host = await readFile('packages/abaco-voice/index.js', 'utf8')
@@ -341,7 +341,7 @@ describe('CONTRACT-P0-MIC-NO-SILENCE-GATE-0410 T-N1–T-N5', () => {
 
   it('T-N5 keep sticky tiny→small-mlx, F1, Settings Update, R1, R2; version 0.4.11; plugin-safe', async () => {
     const pkg = JSON.parse(await readFile('package.json', 'utf8'))
-    expect(pkg.version).toBe('0.4.25')
+    expect(pkg.version).toBe('0.4.26')
     const client = await readFile('packages/abaco-voice/client.js', 'utf8')
     const host = await readFile('packages/abaco-voice/index.js', 'utf8')
     const preload = await readFile('src/preload/index.ts', 'utf8')
@@ -488,9 +488,9 @@ describe('CONTRACT-P0-MIC-CAPTURE-HALLUCINATION-0411 T-C4 mlx flags', () => {
 })
 
 describe('CONTRACT-P0-MIC-CAPTURE-HALLUCINATION-0411 T-C5 version + debug-last-mic', () => {
-  it('T-C5 package version is 0.4.25', async () => {
+  it('T-C5 package version is 0.4.26', async () => {
     const pkg = JSON.parse(await readFile('package.json', 'utf8'))
-    expect(pkg.version).toBe('0.4.25')
+    expect(pkg.version).toBe('0.4.26')
   })
 
   it('C5 writeDebugLastMic overwrites a single pair; skips without DSH_HOME', async () => {

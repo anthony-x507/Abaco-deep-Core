@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.26] - 2026-09-22
+
+Release prep: F1 Control 1 broker grants mediación from PR #33 so a tagged Release / updater can ship it in the installer.
+
 ### Added
 - **F1 Control 1 closeout — broker grants mediación**: complete M1–M10 fail-closed suite, session unload of the pilot (no `patch.yml` write), own-id `ui.slot` happy path, Python contract mirror, checked-in F1 contracts. Doctrine delta: unauthorized deny + explicit ContractEvolution/HITL for admitted plugins (no silent authority growth, no rehab).
+
+Broker closeout is on `main` after #33 (`ab8d205`). Latest Release v0.4.25 was tagged from older tip `a612c92` (logo + day-14 only). This version bump is what electron-builder / the updater need so a tagged Release actually ships broker-in-installer. Notarize is a follow-up (nested `release.yml` on tag).
 
 ## [0.4.25] - 2026-09-22
 
