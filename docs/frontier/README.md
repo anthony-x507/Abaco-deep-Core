@@ -30,6 +30,7 @@
 | Doc | Rol |
 |-----|-----|
 | [`PORTABLE_RULES_FOR_PYTHON_CORE.md`](PORTABLE_RULES_FOR_PYTHON_CORE.md) | Qué hereda el hub Python; Bind deny-by-default |
+| [`FRONTIER-CLEAN-PLUGIN-HOST-ARCHITECTURE-2026.md`](FRONTIER-CLEAN-PLUGIN-HOST-ARCHITECTURE-2026.md) | Clean architecture for plugin hosts (catalog, Bind, FacePlugin, sandbox). Docs only. **Not** G47 research C |
 
 ## Research drafts (fuentes — no reescribir desde el paper)
 
