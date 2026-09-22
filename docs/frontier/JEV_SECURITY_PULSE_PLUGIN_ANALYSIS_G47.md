@@ -337,6 +337,7 @@ Si falla gates → **stop**; no “subir frecuencia”.
 
 - [`JANICE_ATENA_NAMING_LAW.md`](JANICE_ATENA_NAMING_LAW.md)  
 - [`PLUGIN_FRONTIERS_CONTRACT_INDEX.md`](PLUGIN_FRONTIERS_CONTRACT_INDEX.md)  
+- [`JEV_PLUGIN_VS_TRADITIONAL_SECURITY_G47.md`](JEV_PLUGIN_VS_TRADITIONAL_SECURITY_G47.md) — deep compare: plugin-unique surfaces vs monolith; why platform+adapters fits Janice seams (extends this PILOT)  
 - [`STATUS-F1-MEDIACION.md`](../STATUS-F1-MEDIACION.md)  
 - [`CONTRACT-F1-MEDIACION-DEEP.md`](../contracts/CONTRACT-F1-MEDIACION-DEEP.md)  
 - Adjunto análisis: `jev-decision-desk/PLAN.md`, `decide_tech.py`; PIONERO §6–7 (LLM guardian trap / defense funnel); DEEPSEEK-PLUGIN-CYBERSECURITY; mind-plugin-system-v2  
