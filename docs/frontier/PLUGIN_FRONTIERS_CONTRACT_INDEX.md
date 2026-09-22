@@ -126,6 +126,7 @@ Checklist de compañía (extraído de F1/F1.5 + curso + defaults Integrador). Al
 | [`FRONTIER-CLEAN-PLUGIN-HOST-ARCHITECTURE-2026.md`](FRONTIER-CLEAN-PLUGIN-HOST-ARCHITECTURE-2026.md) | Ports, FacePlugin/catalog hygiene, fitness, top 5 `docs/contracts` refactors. No runtime |
 | [`JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md`](JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md) | G47 pulse PILOT (PR #36): CODE-first, Jev gray-band, platform+adapters |
 | [`JEV_PLUGIN_VS_TRADITIONAL_SECURITY_G47.md`](JEV_PLUGIN_VS_TRADITIONAL_SECURITY_G47.md) | G47 compare: plugin-unique attack surface vs monolith; Jev easier/harder on Janice |
+| [`FRONTIER-JEV-ADVANCED-INTEGRATION-2026.md`](FRONTIER-JEV-ADVANCED-INTEGRATION-2026.md) | Wire audit: System One advanced structure vs decision desk. Docs only. Jev stays outside `authorize()` and Bind |
 | [`research/README.md`](research/README.md) | Serie research A/B/C (fuentes del paper; drafts no reescritos) |
 
 ## Política de este pack
