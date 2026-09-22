@@ -324,7 +324,7 @@ test('G-broker non-control channels cannot authorize protected effects', () => {
   }
 })
 
-test('G-broker voice status happy path still allows (F1 M10 intact)', () => {
+test('G-broker voice status happy path still allows (F1 M-happy intact)', () => {
   const d = authorize({
     channel: { kind: 'host.fetch', path: STATUS_PATH },
     task_id: null,

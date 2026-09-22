@@ -5,6 +5,11 @@ All notable changes to ABACO Deep Core are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **F1 Control 1 closeout — broker grants mediación**: complete M1–M10 fail-closed suite, session unload of the pilot (no `patch.yml` write), own-id `ui.slot` happy path, Python contract mirror, checked-in F1 contracts. Doctrine delta: unauthorized deny + explicit ContractEvolution/HITL for admitted plugins (no silent authority growth, no rehab).
+
 ## [0.4.25] - 2026-09-22
 
 Release prep: official ABACO HARNESS dock icon + composer watermark from PR #30.

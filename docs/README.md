@@ -23,6 +23,9 @@ Bienvenido a la documentación de **ABACO DEEP HARNES** (`appId` `io.abaco.deepc
 
 | Documento | Para qué sirve |
 |---|---|
+| [CONTRACT-F1-MEDIACION-DEEP.md](contracts/CONTRACT-F1-MEDIACION-DEEP.md) | F1 day-14: mediación demostrable (broker grants + fail-closed suite) |
+| [CONTRACT-F1-BROKER-GRANTS-ADMISSION-DEEP.md](contracts/CONTRACT-F1-BROKER-GRANTS-ADMISSION-DEEP.md) | F1 slice: authorize(), A_efectiva, M1–M10 |
+| [STATUS-F1-MEDIACION.md](STATUS-F1-MEDIACION.md) | How to prove mediación (deny / audit / 0 side-effect) |
 | [CONTRACT-F1-ADMISSION-IMMUTABLE.md](contracts/CONTRACT-F1-ADMISSION-IMMUTABLE.md) | F1 control-3: session admission graph sealed; skills/docs/memory/tool-results cannot enter, activate preload, or add patch.yml rows |
 | [CONTRACT-F1.5-MCP-SCHEMA-PIN.md](contracts/CONTRACT-F1.5-MCP-SCHEMA-PIN.md) | F1.5: fail-closed pin/witness for `mcp__*` tool schemas |
 | [CONTRACT-F1.5-MEMORY-PACKAGER.md](contracts/CONTRACT-F1.5-MEMORY-PACKAGER.md) | F1.5: procedencia fail-closed del packager de memoria 3 fases (profile/log/note); Pack A quarantine intacta |

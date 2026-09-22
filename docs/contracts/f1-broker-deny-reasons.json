@@ -1,0 +1,39 @@
+{
+  "contract": "CONTRACT-F1-BROKER-GRANTS-ADMISSION-DEEP",
+  "four_asserts": [
+    "decision === deny",
+    "side_effect === false",
+    "AuditEvent emitted",
+    "denyCount incremented"
+  ],
+  "deny_reasons": [
+    "no-identity",
+    "plugin-disabled",
+    "inject-undeclared",
+    "preload-not-allowlisted",
+    "effect-not-in-grant",
+    "resource-not-in-grant",
+    "trust-ceiling",
+    "ttl-expired",
+    "budget-exceeded",
+    "grant-revoked",
+    "skill-cannot-register-tool",
+    "compose-mutate-forbidden",
+    "data-as-control",
+    "policy"
+  ],
+  "trust_labels": ["untrusted", "plugin-data", "user", "host"],
+  "effect_kinds": [
+    "ui.slot",
+    "host.fetch",
+    "tool.call",
+    "tool.register",
+    "ipc.invoke",
+    "fs.read",
+    "fs.write",
+    "net.fetch",
+    "proc.spawn",
+    "grant.mutate",
+    "compose.mutate"
+  ]
+}

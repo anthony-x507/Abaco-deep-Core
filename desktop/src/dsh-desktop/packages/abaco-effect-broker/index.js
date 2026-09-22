@@ -34,7 +34,7 @@ import {
   getCascadeAudit,
   resetCascadeForTests,
 } from './cascade.js'
-import { sealLiveAdmission } from './admission.js'
+import { sealLiveAdmission, getAdmissionGraph, SEALED_PRELOAD_KEYS } from './admission.js'
 import {
   isMcpPublicName,
   verifyMcpToolSchema,
@@ -53,6 +53,7 @@ export {
   SEALED_PRELOAD_KEYS,
   ADMISSION_ROLES,
   ADMISSION_ACTIONS,
+  parsePatchInsertIds,
 } from './admission.js'
 
 /** @typedef {'host'|'user'|'plugin-data'|'untrusted'} TrustLabel */
@@ -280,6 +281,13 @@ function denyDelegOk(grantId) {
   const stored = grantId ? grants.get(grantId) : null
   return stored ? delegationValid(stored) : false
 }
+/** Session-only unload overlay. Does not write patch.yml or a profile. */
+const sessionUnloaded = new Set()
+/** Session-only evolved caps (ContractEvolution + HITL). Never mutates pins. */
+const sessionCaps = new Map()
+/** @type {Map<string, object>} */
+const contractProposals = new Map()
+
 /** @type {any[]} */
 const auditLog = []
 let denyCount = 0
@@ -289,6 +297,9 @@ let effectsWithoutGrant = 0
 export function resetBrokerForTests() {
   grants.clear()
   issuedGrantIds.clear()
+  sessionUnloaded.clear()
+  sessionCaps.clear()
+  contractProposals.clear()
   auditLog.length = 0
   denyCount = 0
   allowCount = 0
@@ -355,6 +366,8 @@ const DENY_SIGNAL_SEVERITY = {
   'schema-pin-unattested': 3,
   'schema-pin-locked': 3,
   'schema-missing': 3,
+  'inject-undeclared': 2,
+  'preload-not-allowlisted': 2,
 }
 
 /** Último seq del audit de cascada ya reenviado a provenance (idempotencia). */
@@ -423,9 +436,195 @@ export function resolveIdentity(channel) {
 function aPluginOk(pluginId) {
   if (!pluginId) return false
   if (DISABLED_PLUGINS.has(pluginId)) return false
+  if (sessionUnloaded.has(pluginId)) return false
   if (!PATCH_ENABLED.has(pluginId)) return false
   if (!MANIFEST_CAPS[pluginId]) return false
   return true
+}
+
+/** Own-id UI slot (T1 paint). Manifest may omit the slot resource. */
+function isOwnUiSlot(pluginId, resource) {
+  const r = String(resource || '')
+  return r === pluginId || r === `slot:${pluginId}` || r.startsWith(`${pluginId}:`)
+}
+
+function sealedPreloadKeys() {
+  try {
+    const graph = getAdmissionGraph()
+    if (graph && Array.isArray(graph.preloadKeys) && graph.preloadKeys.length) {
+      return graph.preloadKeys
+    }
+  } catch {
+    /* sealed snapshot unavailable — fall back to the compile-time trio */
+  }
+  return SEALED_PRELOAD_KEYS
+}
+
+/**
+ * Session unload of an admitted plugin. Revokes live grants. Does not write
+ * patch.yml, preload, or Application Support. Disabled-set rehab is refused.
+ */
+export function unloadAdmittedPlugin(pluginId) {
+  if (!pluginId || typeof pluginId !== 'string') {
+    return {
+      decision: 'deny',
+      reason: 'no-identity',
+      side_effect: false,
+      wrote_patch_yml: false,
+      wrote_dsh_desktop: false,
+      revoked: 0,
+    }
+  }
+  if (DISABLED_PLUGINS.has(pluginId)) {
+    return {
+      decision: 'deny',
+      reason: 'plugin-disabled',
+      side_effect: false,
+      wrote_patch_yml: false,
+      wrote_dsh_desktop: false,
+      revoked: 0,
+    }
+  }
+  if (!MANIFEST_CAPS[pluginId] && !PATCH_ENABLED.has(pluginId)) {
+    return {
+      decision: 'deny',
+      reason: 'plugin-disabled',
+      side_effect: false,
+      wrote_patch_yml: false,
+      wrote_dsh_desktop: false,
+      revoked: 0,
+    }
+  }
+  sessionUnloaded.add(pluginId)
+  let revoked = 0
+  for (const g of grants.values()) {
+    if (g.plugin_id === pluginId && !g.revoked) {
+      g.revoked = true
+      revoked += 1
+    }
+  }
+  return {
+    decision: 'ok',
+    plugin_id: pluginId,
+    revoked,
+    side_effect: false,
+    wrote_patch_yml: false,
+    wrote_dsh_desktop: false,
+  }
+}
+
+export function isSessionUnloaded(pluginId) {
+  return sessionUnloaded.has(pluginId)
+}
+
+const EVOLUTION_FORBIDDEN = new Set(['grant.mutate', 'compose.mutate'])
+
+function evolutionDeny(reason) {
+  return {
+    decision: 'deny',
+    reason,
+    side_effect: false,
+    wrote_patch_yml: false,
+    wrote_dsh_desktop: false,
+    applied: false,
+  }
+}
+
+/**
+ * Effective A_plugin caps = pinned manifest ∪ session ContractEvolution overlay.
+ * Pins stay frozen. Overlay is session-only and never rehabs DISABLED_PLUGINS.
+ */
+function effectiveCaps(pluginId) {
+  const base = MANIFEST_CAPS[pluginId]
+  if (!base) return null
+  const extra = sessionCaps.get(pluginId)
+  if (!extra) return base
+  return {
+    effects: [...new Set([...base.effects, ...extra.effects])],
+    resources: [...new Set([...base.resources, ...extra.resources])],
+    inject: base.inject,
+    trust_ceiling: base.trust_ceiling,
+  }
+}
+
+/**
+ * Propose a ContractEvolution. Does not apply, does not write disk.
+ * Disabled-set rehab is refused. Soft-apply: admitted plugins may evolve later
+ * via {@link acceptContractEvolution} + HITL.
+ */
+export function proposeContractEvolution(req) {
+  const pluginId = req && typeof req === 'object' ? req.pluginId : null
+  if (!pluginId || typeof pluginId !== 'string') return evolutionDeny('no-identity')
+  if (DISABLED_PLUGINS.has(pluginId)) return evolutionDeny('plugin-disabled')
+  if (sessionUnloaded.has(pluginId) || !MANIFEST_CAPS[pluginId]) {
+    return evolutionDeny('plugin-disabled')
+  }
+  const effects = Array.isArray(req.effects) ? req.effects.map(String) : []
+  const resources = Array.isArray(req.resources) ? req.resources.map(String) : []
+  if (effects.some((e) => EVOLUTION_FORBIDDEN.has(e))) {
+    return evolutionDeny('compose-mutate-forbidden')
+  }
+  const proposal_id = randomUUID()
+  contractProposals.set(proposal_id, {
+    proposal_id,
+    plugin_id: pluginId,
+    effects,
+    resources,
+    note: typeof req.note === 'string' ? req.note : '',
+    accepted: false,
+  })
+  return {
+    decision: 'proposed',
+    proposal_id,
+    plugin_id: pluginId,
+    side_effect: false,
+    wrote_patch_yml: false,
+    wrote_dsh_desktop: false,
+    applied: false,
+  }
+}
+
+/**
+ * HITL accept of a ContractEvolution. Session overlay only.
+ * `hitl` must be the boolean true — body claims are not enough without it.
+ * Does not rotate pins, does not write patch.yml, does not rehab disabled.
+ */
+export function acceptContractEvolution(req) {
+  if (!req || req.hitl !== true) return evolutionDeny('compose-mutate-forbidden')
+  const id = req.proposal_id
+  const p = typeof id === 'string' ? contractProposals.get(id) : null
+  if (!p) return evolutionDeny('no-identity')
+  if (DISABLED_PLUGINS.has(p.plugin_id) || sessionUnloaded.has(p.plugin_id)) {
+    return evolutionDeny('plugin-disabled')
+  }
+  if (!MANIFEST_CAPS[p.plugin_id]) return evolutionDeny('plugin-disabled')
+  const cur = sessionCaps.get(p.plugin_id) || { effects: new Set(), resources: new Set() }
+  for (const e of p.effects) {
+    if (!EVOLUTION_FORBIDDEN.has(e)) cur.effects.add(e)
+  }
+  for (const r of p.resources) cur.resources.add(r)
+  sessionCaps.set(p.plugin_id, cur)
+  p.accepted = true
+  return {
+    decision: 'ok',
+    proposal_id: p.proposal_id,
+    plugin_id: p.plugin_id,
+    side_effect: false,
+    wrote_patch_yml: false,
+    wrote_dsh_desktop: false,
+    applied: true,
+  }
+}
+
+export function getContractEvolution(proposalId) {
+  const p = contractProposals.get(proposalId)
+  return p ? { ...p, effects: [...p.effects], resources: [...p.resources] } : null
+}
+
+export function getSessionCapsForTests(pluginId) {
+  const extra = sessionCaps.get(pluginId)
+  if (!extra) return { effects: [], resources: [] }
+  return { effects: [...extra.effects], resources: [...extra.resources] }
 }
 
 /**
@@ -489,9 +688,14 @@ export function issueTaskGrant({
   if (!aPluginOk(pluginId)) {
     throw new Error('issueTaskGrant: plugin not in A_plugin')
   }
-  const caps = MANIFEST_CAPS[pluginId]
-  const eff = (effects || []).filter((e) => caps.effects.includes(e))
-  const res = (resources || []).filter((r) => caps.resources.includes(r))
+  const caps = effectiveCaps(pluginId)
+  const requested = effects || []
+  const eff = requested.filter((e) => caps.effects.includes(e) || (e === 'ui.slot' && caps.effects.length === 0))
+  const res = (resources || []).filter(
+    (r) =>
+      caps.resources.includes(r) ||
+      (requested.includes('ui.slot') && isOwnUiSlot(pluginId, r)),
+  )
   const grant = {
     grant_id: randomUUID(),
     plugin_id: pluginId,
@@ -606,6 +810,22 @@ export function authorize(req) {
     if (!req || typeof req !== 'object') {
       return deny('no-identity', null, null, null, null, started, monotonic)
     }
+    // Preload is TCB, not a plugin grantor. Unknown keys deny specifically.
+    if (req.channel && typeof req.channel === 'object' && req.channel.kind === 'preload') {
+      const key = typeof req.channel.preloadKey === 'string' ? req.channel.preloadKey : ''
+      if (key && !sealedPreloadKeys().includes(key)) {
+        return deny(
+          'preload-not-allowlisted',
+          null,
+          req.task_id || null,
+          req.effect || null,
+          null,
+          started,
+          monotonic,
+        )
+      }
+      return deny('no-identity', null, req.task_id || null, req.effect || null, null, started, monotonic)
+    }
     // Ignore forged body plugin_id — only channel.
     const pluginId = resolveIdentity(req.channel)
     if (!pluginId) {
@@ -660,6 +880,10 @@ export function authorize(req) {
       )
     }
     if (DISABLED_PLUGINS.has(pluginId)) {
+      f2.disabled = true
+      return deny('plugin-disabled', pluginId, req.task_id || null, req.effect || null, null, started, monotonic, {}, null, f2)
+    }
+    if (sessionUnloaded.has(pluginId)) {
       f2.disabled = true
       return deny('plugin-disabled', pluginId, req.task_id || null, req.effect || null, null, started, monotonic, {}, null, f2)
     }
@@ -803,12 +1027,9 @@ export function authorize(req) {
         )
       }
     }
-    if (
-      (effect.kind === 'compose.mutate' || effect.kind === 'grant.mutate') &&
-      (trustIn === 'untrusted' || trustIn === 'plugin-data')
-    ) {
+    if (effect.kind === 'compose.mutate') {
       return deny(
-        effect.kind === 'compose.mutate' ? 'compose-mutate-forbidden' : 'data-as-control',
+        'compose-mutate-forbidden',
         pluginId,
         req.task_id || null,
         effect,
@@ -819,18 +1040,52 @@ export function authorize(req) {
         trustCtx,
       )
     }
+    if (effect.kind === 'grant.mutate') {
+      return deny('data-as-control', pluginId, req.task_id || null, effect, null, started, monotonic, {}, trustCtx)
+    }
+    const hop =
+      effect.kind === 'ipc.invoke' ||
+      String(effect.resource).includes('send_to_agent') ||
+      String(effect.resource).startsWith('hop:')
     if (
-      (effect.kind === 'proc.spawn' || effect.kind === 'fs.write' || effect.kind === 'net.fetch') &&
+      (effect.kind === 'proc.spawn' ||
+        effect.kind === 'fs.write' ||
+        effect.kind === 'net.fetch' ||
+        hop) &&
       (trustIn === 'untrusted' || trustIn === 'plugin-data')
     ) {
       return deny('data-as-control', pluginId, req.task_id || null, effect, null, started, monotonic, {}, trustCtx)
     }
 
-    const caps = MANIFEST_CAPS[pluginId]
+    const injectClaim = req.channel && req.channel.inject
+    if (injectClaim != null) {
+      const capsInject = (MANIFEST_CAPS[pluginId] && MANIFEST_CAPS[pluginId].inject) || []
+      const list = Array.isArray(injectClaim) ? injectClaim : [injectClaim]
+      if (list.some((s) => !capsInject.includes(s))) {
+        return deny(
+          'inject-undeclared',
+          pluginId,
+          req.task_id || null,
+          effect,
+          null,
+          started,
+          monotonic,
+          { a_plugin_ok: false },
+          trustCtx,
+        )
+      }
+    }
+
+    const caps = effectiveCaps(pluginId)
+    const ownSlot =
+      effect.kind === 'ui.slot' &&
+      isOwnUiSlot(pluginId, effect.resource) &&
+      (caps.effects.includes('ui.slot') || caps.effects.length === 0)
     const aPlugin =
-      caps.effects.includes(effect.kind) &&
-      (caps.resources.includes(effect.resource) ||
-        caps.resources.some((r) => effect.resource.startsWith(r.replace(/\*$/, ''))))
+      ownSlot ||
+      (caps.effects.includes(effect.kind) &&
+        (caps.resources.includes(effect.resource) ||
+          caps.resources.some((r) => effect.resource.startsWith(r.replace(/\*$/, '')))))
 
     if (!aPlugin) {
       return deny('effect-not-in-grant', pluginId, req.task_id || null, effect, null, started, monotonic, {
@@ -847,6 +1102,28 @@ export function authorize(req) {
       grant = grants.get(req.grant_id) || null
     } else if (req.task_id) {
       grant = findActiveGrant(pluginId, req.task_id)
+    }
+
+    if (
+      !grant &&
+      ownSlot &&
+      (trustIn === 'user' || trustIn === 'host')
+    ) {
+      grant = issueTaskGrant({
+        pluginId,
+        effects: ['ui.slot'],
+        resources: [effect.resource],
+        ttlMs: 60_000,
+        trustCeiling: caps.trust_ceiling,
+        taskId: req.task_id || undefined,
+      })
+      grant.delegation = {
+        issuer: 'abaco-effect-broker',
+        basis: 'explicit.host',
+        subject: pluginId,
+        on_behalf_of: 'host',
+        channel_kind: req.channel.kind,
+      }
     }
 
     if (!grant && req.channel?.kind === 'host.fetch' && trustIn === 'user') {
@@ -1020,6 +1297,20 @@ function deny(reason, pluginId, taskId, effect, grantId, started, monotonic, fla
       /* noop: fail-closed ya está garantizado por el deny */
     }
   }
+  let breakerLabel = 'unchanged'
+  if (pluginId) {
+    try {
+      const after = breakerState(pluginId)
+      breakerLabel =
+        after.level >= BREAKER_LEVELS.QUARANTINE
+          ? 'OPEN'
+          : after.level === BREAKER_LEVELS.THROTTLE
+            ? 'HALF_OPEN'
+            : 'CLOSED'
+    } catch {
+      breakerLabel = 'unchanged'
+    }
+  }
   const ev = {
     ts: Date.now(),
     monotonic_ms: monotonic,
@@ -1038,7 +1329,7 @@ function deny(reason, pluginId, taskId, effect, grantId, started, monotonic, fla
     trust_downgraded: trust ? trust.downgraded : null, // P2: null when provenance was not evaluated
     side_effect: false,
     budget_after: null,
-    breaker: 'unchanged',
+    breaker: breakerLabel,
     f2: f2ctx ? { ...f2ctx } : null, // F2: contexto aditivo de las 4 consultas
     trace_id: randomUUID(),
   }
