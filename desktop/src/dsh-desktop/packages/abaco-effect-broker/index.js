@@ -35,6 +35,7 @@ import {
   resetCascadeForTests,
 } from './cascade.js'
 import { sealLiveAdmission, getAdmissionGraph, SEALED_PRELOAD_KEYS } from './admission.js'
+import { evaluatePluginTree } from './supply-chain-admission.mjs'
 import {
   isMcpPublicName,
   verifyMcpToolSchema,
@@ -160,6 +161,25 @@ const PINNED_MANIFEST_DIGEST = {
   'abaco-voice': 'd534ea78d9133ff560f6e6b585035ad395915092b03a47cecc21c5449fc48f00',
 }
 
+/**
+ * Artifact subject pins (sha256 of ARTIFACT_FILES bytes). A package.json
+ * version match does not satisfy this pin. Recompute with
+ * `node scripts/sign-manifest.mjs` from the repo root. Rotation is a review
+ * of this constant, not a runtime API.
+ *
+ * Missing `sbom.admission.json` fails closed (HOLD, broker admissionFailure).
+ */
+const PINNED_ARTIFACT = {
+  'abaco-mediacion-pilot': {
+    version: '0.1.0',
+    digest: 'c860d1f1787ddeb87567f5238b98bb784c7b21c42c00341a5cd561cc09468120',
+  },
+  'abaco-voice': {
+    version: '0.1.0',
+    digest: '4360dc2b6f6adaf3c69c28f15078416dbaf637d4529dddf000373f0d921d0e2a',
+  },
+}
+
 /** Fail-closed state: null = admissions verified OK; string = failure reason. */
 let admissionFailure = null
 
@@ -207,6 +227,30 @@ function verifyAdmissions() {
       admissionFailure =
         `manifest-integrity: digest mismatch for ${pluginId} ` +
         `(got ${digest.slice(0, 16)}…, pinned ${PINNED_MANIFEST_DIGEST[pluginId].slice(0, 16)}…)`
+      return {}
+    }
+    const pin = PINNED_ARTIFACT[pluginId]
+    if (!pin) {
+      admissionFailure = `supply-chain: artifact pin missing for ${pluginId}`
+      return {}
+    }
+    let supply
+    try {
+      supply = evaluatePluginTree(join(pkgDir, '..', pluginId), {
+        pluginId,
+        version: pin.version,
+        digest: pin.digest,
+        knownArtifactPins: Object.fromEntries(
+          Object.entries(PINNED_ARTIFACT).map(([id, row]) => [id, row.digest]),
+        ),
+      })
+    } catch (e) {
+      admissionFailure = `supply-chain: unreadable artifact for ${pluginId}: ${e.message}`
+      return {}
+    }
+    if (!supply || supply.decision !== 'admit') {
+      const why = supply ? `${supply.decision}:${supply.reason}` : 'no-decision'
+      admissionFailure = `supply-chain: ${why} for ${pluginId}`
       return {}
     }
     capsByPlugin[pluginId] = deepFreezeCaps(caps)
