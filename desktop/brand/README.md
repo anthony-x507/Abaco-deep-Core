@@ -13,13 +13,14 @@ Logo vectorial recreado a partir del render 3D original.
 
 | Archivo | Uso |
 |---|---|
-| `logo.svg` | Logo principal 480×480 para app icon y avatares. |
+| `abaco-harness-official.png` | Foto/logo oficial ABACO HARNESS 1536×1024 RGBA (A + aro + wordmark, bordes transparentes). Fuente del Dock y del watermark del composer. |
+| `logo.svg` | Logo vectorial 480×480 (marca interna / sidebar). |
 | `logo-wordmark.svg` | Versión horizontal 1200×360 para headers, README, firmas. |
-| `icon.icns` | Bundle nativo macOS (10 representaciones, 16→1024). **Regenerado desde `logo.svg`.** |
-| `icon.iconset/` | PNGs para icns en múltiples tamaños (16→1024 + @2x). **Regenerados desde `logo.svg`.** |
-| `logo-light.png`, `logo-dark.png` | Versiones raster 512×512 del mark transparente. **Regeneradas.** |
-| `app-icon.png`, `icon-1024.png` | Assets de icono (512 y 1024). **Regenerados.** |
-| `logo.svg.png` | Render PNG 480×480 del logo. **Regenerado.** |
+| `icon.icns` | Bundle nativo macOS (16→1024). **Regenerado desde el logo oficial, cara 1024 con margen 12%.** |
+| `icon.iconset/` | PNGs para icns en múltiples tamaños (16→1024 + @2x). |
+| `logo-light.png`, `logo-dark.png` | Mark raster transparente (recorte alpha). |
+| `app-icon.png`, `icon-1024.png` | Cara de Dock 1024×1024, fondo negro, logo completo con ~12% de margen. |
+| `logo.svg.png` | Render PNG 480×480 del logo vectorial. |
 | `logo-wordmark.png` | Wordmark horizontal 1200×360 (aspecto nativo del SVG). |
 
 > **Nota (2026-09):** todos los raster se regeneraron desde `logo.svg` @HEAD porque
@@ -40,7 +41,23 @@ Logo vectorial recreado a partir del render 3D original.
 - Letter-spacing generoso (6-8 px en títulos) para el look "tech".
 - Pesos: 700 (titular) + 400 (subtítulo).
 
-## Cómo regenerar el `.icns`
+## Cómo regenerar Dock / `.icns` desde el logo oficial
+
+Desde `desktop/src/dsh-desktop` (requiere Pillow):
+
+```bash
+python3 scripts/compose-abaco-icons.py
+```
+
+Eso escribe `build/app-icon.png`, `build/icon.icns`, `build/icon.ico` y
+sincroniza `desktop/brand/`. Encuadre: logo **completo** (no un recorte de
+la A) sobre negro, caja de contenido al **76%** del canvas (margen 12% por
+lado en el eje limitante). macOS aplica la máscara squircle; no se pre-redondea.
+
+Para reconstruir solo icns/ico en un Mac a partir de `build/app-icon.png`
+ya compuesto: `npm run icons:generate:mac`.
+
+## Cómo regenerar el `.icns` desde el SVG (legado)
 
 ```bash
 brew install librsvg

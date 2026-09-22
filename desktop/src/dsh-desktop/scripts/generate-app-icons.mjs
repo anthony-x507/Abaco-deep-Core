@@ -1,3 +1,6 @@
+// Rebuilds icns/ico from an already-composed build/app-icon.png (macOS sips
+// + iconutil). Prefer `python3 scripts/compose-abaco-icons.py` to regenerate
+// the dock face from the official ABACO HARNESS logo (full mark, 12% pad).
 import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
