@@ -84,7 +84,7 @@ El wrap muta el **servicio** `tools` (no un wrapper local), así un `dsh-mcp-cli
 | G6 | Wrap | `abaco_*` pasa; `mcp__*` sin pin lanza fail-closed (0 write); piloto `apply` instala el wrap |
 | G7 | Broker | `authorize(tool.register, mcp__*)` sin pin → deny + audit; M5 no-MCP intacto |
 | G8 | Naming | Atena ∉ `authorize()` ni `index.js` del pin; Janice = runtime |
-| G9 | Plugin-safe | disabled set intacto; patch **sin** `dsh-mcp-client`; compact lock; version 0.4.22 |
+| G9 | Plugin-safe | disabled set intacto; patch **sin** `dsh-mcp-client`; compact lock; version 0.4.24 |
 
 ## HOST WIRING NEXT (no este slice)
 
