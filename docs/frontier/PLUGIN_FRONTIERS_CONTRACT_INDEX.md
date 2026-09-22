@@ -116,6 +116,7 @@ Checklist de compañía (extraído de F1/F1.5 + curso + defaults Integrador). Al
 | Doc / fuente | Uso |
 |--------------|-----|
 | [`PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md`](PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md) | **PAPER unificado G47** (síntesis research A+B+C): plugins vs tradicional + Jev pulse; piloto Anthony 2026-09-22 |
+| [`FRONTIER-PLUGIN-DEFENSE-SUPPLYCHAIN-2026.md`](FRONTIER-PLUGIN-DEFENSE-SUPPLYCHAIN-2026.md) | Research: plugin isolation + supply chain (SBOM, provenance, pin, kill). No runtime; does not replace S1–S8 |
 | [`README.md`](README.md) | Índice frontier (paper + naming + G47 + research) |
 | [`TECH-plugin-loading.md`](../TECH-plugin-loading.md) | Teatro: cómo DSH carga UI plugins (Cordis patch) — **no** copiar a Python Core |
 | [`SECURITY.md`](../SECURITY.md) | Modelo seguridad app unsigned actual |
