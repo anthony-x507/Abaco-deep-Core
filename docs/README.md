@@ -32,6 +32,8 @@ Bienvenido a la documentación de **ABACO DEEP HARNES** (`appId` `io.abaco.deepc
 | [JEV-EVERYDAY-FIVE-MODES-2026.md](frontier/JEV-EVERYDAY-FIVE-MODES-2026.md) | Cinco modos diarios de Jev (mesa de ingeniería). Docs only. No otorga grants |
 | [JEV-EVERYDAY-SWEET-SPOT-FORMULA-2026.md](frontier/JEV-EVERYDAY-SWEET-SPOT-FORMULA-2026.md) | Sweet-spot / bandas / márgenes. Docs only. No authorize |
 | [JEV-EVERYDAY-POTENTIALITIES-TIP-OF-SPEAR-2026.md](frontier/JEV-EVERYDAY-POTENTIALITIES-TIP-OF-SPEAR-2026.md) | Potencialidades tip-of-spear. Advise-only. Docs only |
+| [JEV-INCORPORACION-ESENCIAL-PLAN-2026.md](frontier/JEV-INCORPORACION-ESENCIAL-PLAN-2026.md) | Plan incorporar Jev a lo esencial (E0–E4). Docs only |
+| [JEV-INCORPORACION-ESENCIAL-PROCEDIMIENTO-2026.md](frontier/JEV-INCORPORACION-ESENCIAL-PROCEDIMIENTO-2026.md) | Procedimiento Leader ~30 s. Docs only. Jev never grants |
 | [frontier/research/README.md](frontier/research/README.md) | Research A/B/C — fuentes del paper unificado |
 
 ## Contratos F1 / F2.1
