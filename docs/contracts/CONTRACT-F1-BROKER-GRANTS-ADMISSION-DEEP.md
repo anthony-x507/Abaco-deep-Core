@@ -33,3 +33,6 @@ El caller no se cree. Se deriva del **canal**. Cualquier `plugin_id` en el body 
 4 asserts en cada deny: `decision === 'deny'` · `side_effect === false` · `AuditEvent` emitido · contador (denyCount y/o breaker) movió.
 
 Canonical reason enum: `docs/contracts/f1-broker-deny-reasons.json`.
+
+## Doctrine delta — evolution without silent growth
+`proposeContractEvolution` + `acceptContractEvolution({ hitl: true })` is the only runtime widen of `A_plugin` (session overlay). It never writes `patch.yml`, never rotates pins, never rehabs `DISABLED_PLUGINS`. Soft-apply: disabled stay disabled; admitted plugins keep shipping. Unauthorized `compose.mutate` remains deny.

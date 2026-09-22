@@ -44,6 +44,14 @@ M10 is the throw path (poisoned channel getter) → `policy`. The old “M10 hap
 
 Re-enable requires a new process (admission graph stays sealed). This is not rehab of the disabled set.
 
+## Doctrine delta (Anthony 2026-09-21)
+Security ≠ stop evolution.
+
+- Unauthorized effects stay fail-closed (M1–M10).
+- Admitted plugins keep a **fast path** (voice status / own `ui.slot` / new grant after revoke).
+- Authority grows only via explicit `proposeContractEvolution` + `acceptContractEvolution({ hitl: true })`. Silent `compose.mutate` stays deny. Pins stay frozen. Disabled set is never rehabbed (soft-apply).
+- Pin rotation remains review-time (`scripts/sign-manifest.mjs`) — no `rotatePin` runtime API.
+
 ## Candados still green
 - Janice = runtime; **cero Atena** in `authorize()`
 - compact **0.90 / 0.12 / 8192** (`G-compact`)

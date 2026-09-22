@@ -15,8 +15,12 @@ import {
   issueTaskGrant,
   revokeGrant,
   unloadAdmittedPlugin,
+  proposeContractEvolution,
+  acceptContractEvolution,
+  getSessionCapsForTests,
   hashArgs,
   SEALED_PRELOAD_KEYS,
+  MANIFEST_CAPS,
 } from '../index.js'
 
 const STATUS = '/api/abaco-voice.local-status'
@@ -119,6 +123,60 @@ test('M10 throw → policy', () => {
   })
   assertDenyFour(d, denyBefore, allowBefore)
   assert.equal(d.reason, 'policy')
+})
+
+test('doctrine: silent compose.mutate stays forbidden; HITL evolves admitted voice', () => {
+  const silent = authorize({
+    channel: { kind: 'cordis.host', pluginId: 'abaco-voice' },
+    task_id: null,
+    effect: { kind: 'compose.mutate', resource: 'caps:abaco-voice', args_hash: 'x' },
+    trust_in: 'plugin-data',
+  })
+  assert.equal(silent.decision, 'deny')
+  assert.equal(silent.reason, 'compose-mutate-forbidden')
+  resetBrokerForTests()
+
+  const proposed = proposeContractEvolution({
+    pluginId: 'abaco-voice',
+    effects: ['host.fetch'],
+    resources: ['/api/abaco-voice.local-extra'],
+    note: 'HITL extra status route',
+  })
+  assert.equal(proposed.decision, 'proposed')
+  assert.equal(proposed.applied, false)
+  assert.equal(proposed.wrote_patch_yml, false)
+
+  const noHitl = acceptContractEvolution({ proposal_id: proposed.proposal_id, hitl: false })
+  assert.equal(noHitl.decision, 'deny')
+  assert.equal(noHitl.reason, 'compose-mutate-forbidden')
+  assert.equal(noHitl.applied, false)
+
+  const accepted = acceptContractEvolution({ proposal_id: proposed.proposal_id, hitl: true })
+  assert.equal(accepted.decision, 'ok')
+  assert.equal(accepted.applied, true)
+  assert.equal(accepted.wrote_patch_yml, false)
+  assert.equal(accepted.wrote_dsh_desktop, false)
+  assert.ok(!MANIFEST_CAPS['abaco-voice'].resources.includes('/api/abaco-voice.local-extra'))
+  const overlay = getSessionCapsForTests('abaco-voice')
+  assert.ok(overlay.resources.includes('/api/abaco-voice.local-extra'))
+  const d = authorize({
+    channel: { kind: 'host.fetch', path: STATUS, pluginId: 'abaco-voice' },
+    task_id: null,
+    effect: { kind: 'host.fetch', resource: '/api/abaco-voice.local-extra', args_hash: hashArgs({ method: 'GET' }) },
+    trust_in: 'user',
+  })
+  assert.equal(d.decision, 'allow', d.reason)
+})
+
+test('doctrine: ContractEvolution cannot rehab disabled plugins', () => {
+  const proposed = proposeContractEvolution({
+    pluginId: 'abaco-brand',
+    effects: ['ui.slot'],
+    resources: ['abaco-brand'],
+  })
+  assert.equal(proposed.decision, 'deny')
+  assert.equal(proposed.reason, 'plugin-disabled')
+  assert.equal(proposed.applied, false)
 })
 
 test('session unload does not write patch.yml', () => {

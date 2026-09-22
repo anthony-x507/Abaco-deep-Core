@@ -283,6 +283,10 @@ function denyDelegOk(grantId) {
 }
 /** Session-only unload overlay. Does not write patch.yml or a profile. */
 const sessionUnloaded = new Set()
+/** Session-only evolved caps (ContractEvolution + HITL). Never mutates pins. */
+const sessionCaps = new Map()
+/** @type {Map<string, object>} */
+const contractProposals = new Map()
 
 /** @type {any[]} */
 const auditLog = []
@@ -294,6 +298,8 @@ export function resetBrokerForTests() {
   grants.clear()
   issuedGrantIds.clear()
   sessionUnloaded.clear()
+  sessionCaps.clear()
+  contractProposals.clear()
   auditLog.length = 0
   denyCount = 0
   allowCount = 0
@@ -511,6 +517,116 @@ export function isSessionUnloaded(pluginId) {
   return sessionUnloaded.has(pluginId)
 }
 
+const EVOLUTION_FORBIDDEN = new Set(['grant.mutate', 'compose.mutate'])
+
+function evolutionDeny(reason) {
+  return {
+    decision: 'deny',
+    reason,
+    side_effect: false,
+    wrote_patch_yml: false,
+    wrote_dsh_desktop: false,
+    applied: false,
+  }
+}
+
+/**
+ * Effective A_plugin caps = pinned manifest ∪ session ContractEvolution overlay.
+ * Pins stay frozen. Overlay is session-only and never rehabs DISABLED_PLUGINS.
+ */
+function effectiveCaps(pluginId) {
+  const base = MANIFEST_CAPS[pluginId]
+  if (!base) return null
+  const extra = sessionCaps.get(pluginId)
+  if (!extra) return base
+  return {
+    effects: [...new Set([...base.effects, ...extra.effects])],
+    resources: [...new Set([...base.resources, ...extra.resources])],
+    inject: base.inject,
+    trust_ceiling: base.trust_ceiling,
+  }
+}
+
+/**
+ * Propose a ContractEvolution. Does not apply, does not write disk.
+ * Disabled-set rehab is refused. Soft-apply: admitted plugins may evolve later
+ * via {@link acceptContractEvolution} + HITL.
+ */
+export function proposeContractEvolution(req) {
+  const pluginId = req && typeof req === 'object' ? req.pluginId : null
+  if (!pluginId || typeof pluginId !== 'string') return evolutionDeny('no-identity')
+  if (DISABLED_PLUGINS.has(pluginId)) return evolutionDeny('plugin-disabled')
+  if (sessionUnloaded.has(pluginId) || !MANIFEST_CAPS[pluginId]) {
+    return evolutionDeny('plugin-disabled')
+  }
+  const effects = Array.isArray(req.effects) ? req.effects.map(String) : []
+  const resources = Array.isArray(req.resources) ? req.resources.map(String) : []
+  if (effects.some((e) => EVOLUTION_FORBIDDEN.has(e))) {
+    return evolutionDeny('compose-mutate-forbidden')
+  }
+  const proposal_id = randomUUID()
+  contractProposals.set(proposal_id, {
+    proposal_id,
+    plugin_id: pluginId,
+    effects,
+    resources,
+    note: typeof req.note === 'string' ? req.note : '',
+    accepted: false,
+  })
+  return {
+    decision: 'proposed',
+    proposal_id,
+    plugin_id: pluginId,
+    side_effect: false,
+    wrote_patch_yml: false,
+    wrote_dsh_desktop: false,
+    applied: false,
+  }
+}
+
+/**
+ * HITL accept of a ContractEvolution. Session overlay only.
+ * `hitl` must be the boolean true — body claims are not enough without it.
+ * Does not rotate pins, does not write patch.yml, does not rehab disabled.
+ */
+export function acceptContractEvolution(req) {
+  if (!req || req.hitl !== true) return evolutionDeny('compose-mutate-forbidden')
+  const id = req.proposal_id
+  const p = typeof id === 'string' ? contractProposals.get(id) : null
+  if (!p) return evolutionDeny('no-identity')
+  if (DISABLED_PLUGINS.has(p.plugin_id) || sessionUnloaded.has(p.plugin_id)) {
+    return evolutionDeny('plugin-disabled')
+  }
+  if (!MANIFEST_CAPS[p.plugin_id]) return evolutionDeny('plugin-disabled')
+  const cur = sessionCaps.get(p.plugin_id) || { effects: new Set(), resources: new Set() }
+  for (const e of p.effects) {
+    if (!EVOLUTION_FORBIDDEN.has(e)) cur.effects.add(e)
+  }
+  for (const r of p.resources) cur.resources.add(r)
+  sessionCaps.set(p.plugin_id, cur)
+  p.accepted = true
+  return {
+    decision: 'ok',
+    proposal_id: p.proposal_id,
+    plugin_id: p.plugin_id,
+    side_effect: false,
+    wrote_patch_yml: false,
+    wrote_dsh_desktop: false,
+    applied: true,
+  }
+}
+
+export function getContractEvolution(proposalId) {
+  const p = contractProposals.get(proposalId)
+  return p ? { ...p, effects: [...p.effects], resources: [...p.resources] } : null
+}
+
+export function getSessionCapsForTests(pluginId) {
+  const extra = sessionCaps.get(pluginId)
+  if (!extra) return { effects: [], resources: [] }
+  return { effects: [...extra.effects], resources: [...extra.resources] }
+}
+
 /**
  * P2 (F1-FIX): provenance binding for trust_in.
  *
@@ -572,7 +688,7 @@ export function issueTaskGrant({
   if (!aPluginOk(pluginId)) {
     throw new Error('issueTaskGrant: plugin not in A_plugin')
   }
-  const caps = MANIFEST_CAPS[pluginId]
+  const caps = effectiveCaps(pluginId)
   const requested = effects || []
   const eff = requested.filter((e) => caps.effects.includes(e) || (e === 'ui.slot' && caps.effects.length === 0))
   const res = (resources || []).filter(
@@ -960,7 +1076,7 @@ export function authorize(req) {
       }
     }
 
-    const caps = MANIFEST_CAPS[pluginId]
+    const caps = effectiveCaps(pluginId)
     const ownSlot =
       effect.kind === 'ui.slot' &&
       isOwnUiSlot(pluginId, effect.resource) &&

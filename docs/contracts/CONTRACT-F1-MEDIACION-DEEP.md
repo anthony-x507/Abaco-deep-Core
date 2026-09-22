@@ -20,6 +20,9 @@ Demostrar **mediación completa** en un recorrido piloto Janice: ningún efecto 
 - Plugin piloto retirable sin reiniciar el núcleo
 - Face/uso mínimo sin añadir autoridad al TCB
 
+## Doctrine delta (Anthony 2026-09-21)
+Tip-of-spear plugins: mediación fuerte **sin** matar evolución. Grants/admission evolve via explicit ContractEvolution + HITL, not silent authority growth. Soft-apply keeps disabled plugins disabled and does not freeze admitted plugins. Security ≠ stop evolution.
+
 ## Fuera de F1 (candado)
 Wasm masivo, CAPMAS hops, Atena en hot-path; Janice=runtime; no rehab disabled; compact 0.90/0.12/8192; never touch `~/Library/Application Support/dsh-desktop/`.
 

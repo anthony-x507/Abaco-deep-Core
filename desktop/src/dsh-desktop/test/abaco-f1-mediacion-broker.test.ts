@@ -9,6 +9,8 @@ import {
   resolveIdentity,
   unloadAdmittedPlugin,
   isSessionUnloaded,
+  proposeContractEvolution,
+  acceptContractEvolution,
   DISABLED_PLUGINS,
   PATCH_ENABLED,
   MANIFEST_CAPS,
@@ -405,6 +407,44 @@ describe('F1 broker fail-closed (M1–M10 + mediation closeout)', () => {
     }
     const graph = getAdmissionGraph()
     expect([...graph.admitted].sort()).toEqual(['abaco-mediacion-pilot', 'abaco-voice'])
+  })
+
+  it('doctrine: HITL ContractEvolution widens admitted plugin without pin write', () => {
+    const denyBefore = getBrokerStats().denyCount
+    const allowBefore = getBrokerStats().allowCount
+    const blocked = authorize({
+      channel: { kind: 'cordis.host', pluginId: 'abaco-brand' },
+      task_id: null,
+      effect: { kind: 'host.fetch', resource: '/x', args_hash: 'x' },
+      trust_in: 'user',
+    })
+    assertDenyFour(blocked, denyBefore, allowBefore)
+    expect(blocked.reason).toBe('plugin-disabled')
+    resetBrokerForTests()
+
+    const proposed = proposeContractEvolution({
+      pluginId: 'abaco-voice',
+      effects: ['host.fetch'],
+      resources: ['/api/abaco-voice.local-extra'],
+    })
+    expect(proposed.decision).toBe('proposed')
+    expect(acceptContractEvolution({ proposal_id: proposed.proposal_id }).decision).toBe('deny')
+    const accepted = acceptContractEvolution({ proposal_id: proposed.proposal_id, hitl: true })
+    expect(accepted.decision).toBe('ok')
+    expect(accepted.wrote_patch_yml).toBe(false)
+    expect(MANIFEST_CAPS['abaco-voice'].resources).not.toContain('/api/abaco-voice.local-extra')
+
+    const d = authorize({
+      channel: { kind: 'host.fetch', path: LOCAL_STATUS_PATH },
+      task_id: null,
+      effect: {
+        kind: 'host.fetch',
+        resource: '/api/abaco-voice.local-extra',
+        args_hash: hashArgs({ method: 'GET' }),
+      },
+      trust_in: 'user',
+    })
+    expect(d.decision).toBe('allow')
   })
 
   it('mutation: a swallowed deny cannot keep allowCount moving', () => {
