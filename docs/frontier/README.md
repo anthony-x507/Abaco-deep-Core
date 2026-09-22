@@ -25,6 +25,7 @@
 | [`JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md`](JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md) | Feasibility PILOT — CODE-first; never grants |
 | [`JEV_PLUGIN_VS_TRADITIONAL_SECURITY_G47.md`](JEV_PLUGIN_VS_TRADITIONAL_SECURITY_G47.md) | Compare: ROI Jev en host plugin vs monolito |
 | [`FRONTIER-JEV-ADVANCED-INTEGRATION-2026.md`](FRONTIER-JEV-ADVANCED-INTEGRATION-2026.md) | Wire audit TypeSafe advanced (state, EntryType, fan-out, confidence, composite) vs `decide_tech.py`. Docs only. No pulse rewrite |
+| [`JEV-EVERYDAY-FIVE-MODES-2026.md`](JEV-EVERYDAY-FIVE-MODES-2026.md) | Cinco modos de uso diario (fork, margen, potencial, PASS blando, cadencia). Receta Leader/Cloud/Desk/Deep/Python Core. Docs only. Jev rankea; no otorga |
 | [`research/README.md`](research/README.md) | Serie research A / B / C (fuentes del paper) |
 
 ## Portable / Python Core
