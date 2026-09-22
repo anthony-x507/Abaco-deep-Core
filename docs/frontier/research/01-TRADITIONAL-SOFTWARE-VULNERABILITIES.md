@@ -626,7 +626,7 @@ Este draft **no** implementa mediación. Solo fija el inventario de vulns tradic
 ## 10 Fuera de alcance
 
 - Implementar Security Pulse, adapters, o FeatureBag runtime.  
-- Editar drafts B/C (`02-PLUGIN-VULN-TRADEOFFS.md`, `03-JEV-RULES-CLEANER-FRONTIERS-PULSE.md`).  
+- Editar drafts B/C (`02-PLUGIN-VULN-TRADEOFFS-AND-WHY-BETTER.md`, `03-*`).  
 - Editar [`JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md`](../JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md), [`JEV_PLUGIN_VS_TRADITIONAL_SECURITY_G47.md`](../JEV_PLUGIN_VS_TRADITIONAL_SECURITY_G47.md), [`JANICE_ATENA_NAMING_LAW.md`](../JANICE_ATENA_NAMING_LAW.md).  
 - Merge a `main`; grants inventados para Jev; paper unificado.  
 - Exploit PoCs o código ofensivo — este doc es taxonomía y señales, no cookbook.
