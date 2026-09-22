@@ -27,6 +27,7 @@
 | [`FRONTIER-JEV-ADVANCED-INTEGRATION-2026.md`](FRONTIER-JEV-ADVANCED-INTEGRATION-2026.md) | Wire audit TypeSafe advanced (state, EntryType, fan-out, confidence, composite) vs `decide_tech.py`. Docs only. No pulse rewrite |
 | [`JEV-EVERYDAY-FIVE-MODES-2026.md`](JEV-EVERYDAY-FIVE-MODES-2026.md) | Cinco modos de uso diario (fork, margen, potencial, PASS blando, cadencia). Receta Leader/Cloud/Desk/Deep/Python Core. Docs only. Jev rankea; no otorga |
 | [`JEV-EVERYDAY-SWEET-SPOT-FORMULA-2026.md`](JEV-EVERYDAY-SWEET-SPOT-FORMULA-2026.md) | Sweet spot cotidiano: cuándo llamar, bandas encima de 0.55/0.5, márgenes, calibración, presupuesto de un día de Leader. Docs only. No authorize |
+| [`JEV-EVERYDAY-POTENTIALITIES-TIP-OF-SPEAR-2026.md`](JEV-EVERYDAY-POTENTIALITIES-TIP-OF-SPEAR-2026.md) | Cinco poderes cotidianos (ranker, márgenes, potentiabilities, honestidad, cadencia). Advise-only. Docs only. No reabre el pulse ni el wire |
 | [`research/README.md`](research/README.md) | Serie research A / B / C (fuentes del paper) |
 
 ## Portable / Python Core
