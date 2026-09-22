@@ -5,6 +5,16 @@ All notable changes to ABACO Deep Core are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.25] - 2026-09-22
+
+Release prep: official ABACO HARNESS dock icon + composer watermark from PR #30.
+
+### Changed
+- Dock / Finder / `.icns` uses the official ABACO HARNESS full logo (A + harness + wordmark) on black with ~12% Apple-style pad.
+- Composer writing area shows that logo at **70%** of the card, pulsing every **2s** while `SessionSnapshot.running`.
+
+Icons are on `main` after #30. This version bump is what electron-builder / the updater need so a tagged Release actually ships them. Notarize is a follow-up (nested `release.yml` on tag).
+
 ## [0.4.22] - 2026-09-18
 
 Release prep: packaging fix so F1/#15–#17 features actually ship in the binary.
