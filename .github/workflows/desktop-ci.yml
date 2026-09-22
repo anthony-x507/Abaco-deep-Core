@@ -57,6 +57,8 @@ jobs:
         run: |
           node --test \
             packages/abaco-effect-broker/tests/admission-immutable.test.mjs \
+            packages/abaco-effect-broker/tests/f1-day14-fail-closed.test.mjs \
+            packages/abaco-effect-broker/tests/f1-day14-retire-contain.test.mjs \
             packages/abaco-effect-broker/tests/cascade.test.mjs \
             packages/abaco-effect-broker/tests/breakers.test.mjs \
             packages/abaco-effect-broker/tests/provenance.test.mjs \
@@ -65,6 +67,7 @@ jobs:
             packages/abaco-mcp-schema-pin/tests/schema-pin.test.mjs \
             packages/abaco-memory/tests/quarantine.test.mjs \
             packages/abaco-memory/tests/packager-provenance.test.mjs \
+            packages/abaco-memory/tests/threat-model.test.mjs \
             packages/abaco-voice/tests/stt-mac-contract.test.mjs \
             packages/abaco-voice/tests/apply-degrade.test.mjs \
             packages/abaco-mediacion-pilot/tests/utility-cell.test.mjs
