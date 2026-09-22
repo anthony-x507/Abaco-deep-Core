@@ -13,15 +13,9 @@
 
 | Slot | Draft | Status | One-line |
 |------|-------|--------|----------|
-<<<<<<< HEAD
-| **A** | `01-TRADITIONAL-SOFTWARE-VULNERABILITIES.md` (parallel; sibling) | reserved — do not overwrite from B/C | Traditional monolith vulns deep-dive |
-| **B** | [`02-PLUGIN-VULN-TRADEOFFS-AND-WHY-BETTER.md`](02-PLUGIN-VULN-TRADEOFFS-AND-WHY-BETTER.md) | on main (PR #38) | What traditional vulns shrink under Janice/broker/caps/Bind; new surfaces + CODE mitigations; tip-of-spear vs monolith |
-| **C** | [`03-JEV-RULES-CLEANER-FRONTIERS-PULSE.md`](03-JEV-RULES-CLEANER-FRONTIERS-PULSE.md) | **this PR** | Jev rules → cleaner Frontiers pulse (CODE-first, doubt-band %, never grants, Bind checklist, anti-patterns, pilot gates) |
-=======
-| **A** | [`01-TRADITIONAL-SOFTWARE-VULNERABILITIES.md`](01-TRADITIONAL-SOFTWARE-VULNERABILITIES.md) | **LIVE** | Traditional monolith vulns: taxonomy T1–T12, chains, blast radius, remediation cost, FeatureBag bridge |
+| **A** | [`01-TRADITIONAL-SOFTWARE-VULNERABILITIES.md`](01-TRADITIONAL-SOFTWARE-VULNERABILITIES.md) | **LIVE** (this PR #39) | Traditional monolith vulns: taxonomy T1–T12, chains, blast radius, remediation cost, FeatureBag bridge |
 | **B** | [`02-PLUGIN-VULN-TRADEOFFS-AND-WHY-BETTER.md`](02-PLUGIN-VULN-TRADEOFFS-AND-WHY-BETTER.md) | **LIVE** (merged #38) | What traditional vulns shrink under Janice/broker/caps/Bind; new surfaces + CODE mitigations; tip-of-spear vs monolith |
-| **C** | `03-*` (parallel; sibling agent) | **reserved / pending** — do not overwrite from A/B | Jev rules / cleaner / Frontiers pulse |
->>>>>>> 16d16ee (docs(frontier): traditional software vulnerabilities research draft A)
+| **C** | [`03-JEV-RULES-CLEANER-FRONTIERS-PULSE.md`](03-JEV-RULES-CLEANER-FRONTIERS-PULSE.md) | **LIVE** (merged #40) | Jev rules → cleaner Frontiers pulse (CODE-first, doubt-band %, never grants, Bind checklist, anti-patterns, pilot gates) |
 
 ## Policy
 
