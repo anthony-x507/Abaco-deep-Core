@@ -12,6 +12,7 @@
 | Doc | Rol |
 |-----|-----|
 | **[`PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md`](PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md)** | **PAPER unificado G47** — plugins vs tradicional + Jev pulse (síntesis A+B+C) |
+| [`FRONTIER-PLUGIN-DEFENSE-SUPPLYCHAIN-2026.md`](FRONTIER-PLUGIN-DEFENSE-SUPPLYCHAIN-2026.md) | Defense frontier: isolation, SBOM/provenance/pin, kill switch. Complements the paper; does not restate S1–S8 |
 | [`JANICE_ATENA_NAMING_LAW.md`](JANICE_ATENA_NAMING_LAW.md) | Lock: Janice = runtime; Atena = advisory; Jev never grants; connectors HOLD |
 | [`PLUGIN_FRONTIERS_CONTRACT_INDEX.md`](PLUGIN_FRONTIERS_CONTRACT_INDEX.md) | Contratos F1 / F1.5 / F2.1 — ley vs teatro |
 
