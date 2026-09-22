@@ -26,6 +26,7 @@ Bienvenido a la documentación de **ABACO DEEP HARNES** (`appId` `io.abaco.deepc
 | [JANICE_ATENA_NAMING_LAW.md](frontier/JANICE_ATENA_NAMING_LAW.md) | Lock FINAL: Janice = runtime; Atena = advisory; connectors HOLD; código vs producto vs docs |
 | [PLUGIN_FRONTIERS_CONTRACT_INDEX.md](frontier/PLUGIN_FRONTIERS_CONTRACT_INDEX.md) | Índice F1 / F1.5 / F2.1 — qué es ley vs teatro; checklist al pluginizar |
 | [PORTABLE_RULES_FOR_PYTHON_CORE.md](frontier/PORTABLE_RULES_FOR_PYTHON_CORE.md) | Qué hereda el hub Python; qué no mezclar de Cordis/DSH |
+| [JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md](frontier/JEV_SECURITY_PULSE_PLUGIN_ANALYSIS_G47.md) | G47 docs-only: Jev Security Pulse feasibility (PILOT; never grants; CODE-first) |
 
 ## Contratos F1 / F2.1
 
