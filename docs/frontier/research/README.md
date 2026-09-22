@@ -10,9 +10,9 @@
 
 | Slot | Draft | Status | One-line |
 |------|-------|--------|----------|
-| **A** | `01-*` (parallel; sibling agent) | reserved — do not overwrite from B | Traditional security deep-dive |
-| **B** | [`02-PLUGIN-VULN-TRADEOFFS-AND-WHY-BETTER.md`](02-PLUGIN-VULN-TRADEOFFS-AND-WHY-BETTER.md) | **this PR** | What traditional vulns shrink under Janice/broker/caps/Bind; new surfaces + CODE mitigations; tip-of-spear vs monolith |
-| **C** | `03-*` (parallel; sibling agent) | reserved — do not overwrite from B | Jev rules |
+| **A** | `01-TRADITIONAL-SOFTWARE-VULNERABILITIES.md` (parallel; sibling) | reserved — do not overwrite from B/C | Traditional monolith vulns deep-dive |
+| **B** | [`02-PLUGIN-VULN-TRADEOFFS-AND-WHY-BETTER.md`](02-PLUGIN-VULN-TRADEOFFS-AND-WHY-BETTER.md) | on main (PR #38) | What traditional vulns shrink under Janice/broker/caps/Bind; new surfaces + CODE mitigations; tip-of-spear vs monolith |
+| **C** | [`03-JEV-RULES-CLEANER-FRONTIERS-PULSE.md`](03-JEV-RULES-CLEANER-FRONTIERS-PULSE.md) | **this PR** | Jev rules → cleaner Frontiers pulse (CODE-first, doubt-band %, never grants, Bind checklist, anti-patterns, pilot gates) |
 
 ## Policy
 
