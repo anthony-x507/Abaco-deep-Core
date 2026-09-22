@@ -14,6 +14,7 @@
 | Doc | Rol |
 |-----|-----|
 | [`../PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md`](../PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md) | **PAPER** unificado: tradicional T1–T12 · tradeoffs S1–S8 · adhesión Jev→pulse · Bind/piloto/anti-patterns/widen · piloto Anthony 2026-09-22 |
+| [`../FRONTIER-PERMISSIONS-CAPABILITIES-2026.md`](../FRONTIER-PERMISSIONS-CAPABILITIES-2026.md) | Nota hermana (no slot A/B/C): permisos, capabilities y attestation públicos → checklist Bind/Janice. No reescribe 01/02/03 ni el paper. |
 
 ## Index (fuentes)
 
