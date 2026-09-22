@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 /**
- * F1 control-3 — run F1 + F2 + F2.1 A/B + Pack C + admission-immutable.
+ * F1 day-14 acceptance — run the historical F1 recorrido plus the day-14
+ * lock suites (fail-closed / revoke / retire / containment) and the
+ * already-on-main control-3 + F1.5 + F2.1 contracts.
+ *
  * Exit 0 only if every suite that can run is green.
- *
- * F1 histórica uses vitest when desktop/node_modules has it; otherwise that
- * row is SKIP (node:test G-broker covers the M10 happy path + deny-by-default).
- *
- * ESM, only node built-in (child_process). No network.
+ * ESM, only node built-in (child_process). No network. No Electron GUI.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -74,6 +73,18 @@ const SUITES = [
     name: 'F1 control-3 admission-immutable',
     cmd: 'node',
     args: ['--test', 'packages/abaco-effect-broker/tests/admission-immutable.test.mjs'],
+    cwd: DESK,
+  },
+  {
+    name: 'F1.5 MCP schema pin',
+    cmd: 'node',
+    args: ['--test', 'packages/abaco-mcp-schema-pin/tests/schema-pin.test.mjs'],
+    cwd: DESK,
+  },
+  {
+    name: 'F1.5 memory packager provenance',
+    cmd: 'node',
+    args: ['--test', 'packages/abaco-memory/tests/packager-provenance.test.mjs'],
     cwd: DESK,
   },
 ]

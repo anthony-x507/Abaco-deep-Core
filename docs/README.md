@@ -24,8 +24,10 @@ Bienvenido a la documentación de **ABACO DEEP HARNES** (`appId` `io.abaco.deepc
 | Documento | Para qué sirve |
 |---|---|
 | [CONTRACT-F1-ADMISSION-IMMUTABLE.md](contracts/CONTRACT-F1-ADMISSION-IMMUTABLE.md) | F1 control-3: session admission graph sealed; skills/docs/memory/tool-results cannot enter, activate preload, or add patch.yml rows |
+| [CONTRACT-F1.5-MCP-SCHEMA-PIN.md](contracts/CONTRACT-F1.5-MCP-SCHEMA-PIN.md) | F1.5: fail-closed pin/witness for `mcp__*` tool schemas |
 | [CONTRACT-F1.5-MEMORY-PACKAGER.md](contracts/CONTRACT-F1.5-MEMORY-PACKAGER.md) | F1.5: procedencia fail-closed del packager de memoria 3 fases (profile/log/note); Pack A quarantine intacta |
 | [CONTRACT-F2.1-C-STT-MAC.md](contracts/CONTRACT-F2.1-C-STT-MAC.md) | Pack C: STT Mac-only, Whisper local, cero fallback cloud silencioso. Linux §15/16 = hint fail-closed |
+| [MATRIX-F1-DAY14-ACCEPTANCE.md](contracts/MATRIX-F1-DAY14-ACCEPTANCE.md) | F1 day-14 acceptance matrix (PASS/PARTIAL/N-A + evidence + Mac LIVE smoke) |
 
 ## Decisiones arquitectónicas
 
