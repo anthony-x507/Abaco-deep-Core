@@ -58,6 +58,7 @@ jobs:
           node --test \
             packages/abaco-effect-broker/tests/admission-immutable.test.mjs \
             packages/abaco-effect-broker/tests/f1-day14-fail-closed.test.mjs \
+            packages/abaco-effect-broker/tests/f1-day14-retire-contain.test.mjs \
             packages/abaco-effect-broker/tests/cascade.test.mjs \
             packages/abaco-effect-broker/tests/breakers.test.mjs \
             packages/abaco-effect-broker/tests/provenance.test.mjs \
@@ -69,8 +70,7 @@ jobs:
             packages/abaco-memory/tests/threat-model.test.mjs \
             packages/abaco-voice/tests/stt-mac-contract.test.mjs \
             packages/abaco-voice/tests/apply-degrade.test.mjs \
-            packages/abaco-mediacion-pilot/tests/utility-cell.test.mjs \
-            packages/abaco-mediacion-pilot/tests/f1-day14-retire-contain.test.mjs
+            packages/abaco-mediacion-pilot/tests/utility-cell.test.mjs
 
       - name: Pin package is a root file dependency
         run: |

@@ -1,11 +1,11 @@
 /**
  * F1 day-14 · plugin piloto retirable + contención (crash/block/OOM) + face mínima.
  *
- * Locks CONTRACT-F1-MEDIACION-DEEP: worker death does not take the host;
- * revoke stops new ops without restarting the core; Janice face adds no TCB.
+ * Lives under abaco-effect-broker/tests so F1.5 G9.3 stay-out (memory packager
+ * must not add piloto-tree files) stays green. Imports the Janice cell only.
  *
- * Run: node --test tests/f1-day14-retire-contain.test.mjs
- * (from desktop/src/dsh-desktop/packages/abaco-mediacion-pilot)
+ * Run: node --test packages/abaco-effect-broker/tests/f1-day14-retire-contain.test.mjs
+ * (from desktop/src/dsh-desktop)
  */
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
@@ -20,22 +20,23 @@ import {
   revokeGrant,
   inspectGrant,
   hashArgs,
-} from '../../abaco-effect-broker/index.js'
+} from '../index.js'
 import {
   executeAuthorized,
   getCellStats,
   resetCellStatsForTests,
   CELL_KIND,
   apply as applyPilot,
-} from '../index.js'
+} from '../../abaco-mediacion-pilot/index.js'
 
 const THIS_DIR = dirname(fileURLToPath(import.meta.url))
-const PKG_DIR = resolve(THIS_DIR, '..')
-const DESK = resolve(PKG_DIR, '../..')
+const DESK = resolve(THIS_DIR, '../../..')
+const PILOT_DIR = join(DESK, 'packages/abaco-mediacion-pilot')
+const PILOT_FIXTURES = join(PILOT_DIR, 'tests/fixtures')
 const OOM_WORKER = join(THIS_DIR, 'fixtures/oom-worker.js')
-const CRASH_WORKER = join(THIS_DIR, 'fixtures/crash-worker.js')
-const HANG_WORKER = join(THIS_DIR, 'fixtures/hang-worker.js')
-const ECHO_WORKER = join(THIS_DIR, 'fixtures/echo-worker.js')
+const CRASH_WORKER = join(PILOT_FIXTURES, 'crash-worker.js')
+const HANG_WORKER = join(PILOT_FIXTURES, 'hang-worker.js')
+const ECHO_WORKER = join(PILOT_FIXTURES, 'echo-worker.js')
 const STATUS_PATH = '/api/abaco-voice.local-status'
 
 const VOICE_GRANT = {
@@ -118,9 +119,9 @@ test('D14-T2 apply() del piloto no registra rutas ni emite grants (face mínima)
 
 test('D14-T3 face/uso mínimo: no client.js, no issueTaskGrant, no Atena, no utilityProcess fake', async () => {
   assert.equal(CELL_KIND, 'strangler-fork')
-  await assert.rejects(access(join(PKG_DIR, 'client.js'), fsConstants.F_OK), /ENOENT/)
-  const host = await readFile(join(PKG_DIR, 'index.js'), 'utf8')
-  const worker = await readFile(join(PKG_DIR, 'worker.js'), 'utf8')
+  await assert.rejects(access(join(PILOT_DIR, 'client.js'), fsConstants.F_OK), /ENOENT/)
+  const host = await readFile(join(PILOT_DIR, 'index.js'), 'utf8')
+  const worker = await readFile(join(PILOT_DIR, 'worker.js'), 'utf8')
   const hostCode = host.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const workerCode = worker
     .split('\n')

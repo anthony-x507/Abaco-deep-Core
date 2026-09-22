@@ -58,8 +58,8 @@ const SUITES = [
   {
     name: 'F1 day-14 retire/contain',
     cmd: 'node',
-    args: ['--test', 'tests/f1-day14-retire-contain.test.mjs'],
-    cwd: PILOT,
+    args: ['--test', 'packages/abaco-effect-broker/tests/f1-day14-retire-contain.test.mjs'],
+    cwd: DESK,
   },
   { name: 'F2-W1 cascada', cmd: 'node', args: ['--test', 'packages/abaco-effect-broker/tests/cascade.test.mjs'], cwd: DESK },
   { name: 'F2-W2 breakers', cmd: 'node', args: ['--test', 'packages/abaco-effect-broker/tests/breakers.test.mjs'], cwd: DESK },

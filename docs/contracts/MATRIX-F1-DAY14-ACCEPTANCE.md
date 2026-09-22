@@ -3,7 +3,7 @@
 | Campo | Valor |
 |-------|--------|
 | **fecha** | 2026-09-22 |
-| **repo / tip** | `anthony-x507/Abaco-deep-Core` `main` `465edd5` (v0.4.24) + this docs+test PR |
+| **repo / tip** | `anthony-x507/Abaco-deep-Core` `main` `93c5f19` (v0.4.25, after logo #30) + this docs+test PR |
 | **contrato** | `CONTRACT-F1-MEDIACION-DEEP.md` (2026-09-11) |
 | **alcance** | Parallel track to the broker closeout agent. **No broker re-implementation.** Tests lock current `authorize()` / Janice cell behavior. Closeout PR #5 is closed; product broker already landed via F2/#6 + F1/#15 + F1.5/#16–#17 + F2.1/#7–#9. |
 | **cómo correr** | `node reports/run-f1-day14-suite.mjs` from repo root (after `npm ci` in `desktop/src/dsh-desktop`). CI: `.github/workflows/desktop-ci.yml` (`npm test` + `node --test` contract list). |
@@ -17,7 +17,7 @@ Verdicts are **PASS / PARTIAL / FAIL / N-A** on the product tip. Evidence paths 
 | E1 | Recorrido TS (Janice / desktop) | **PASS** | `desktop/src/dsh-desktop/test/abaco-f1-mediacion-broker.test.ts` (M1–M10 subset) · `desktop/src/dsh-desktop/test/abaco-f1-day14-acceptance.test.ts` (D14-1…D14-6) |
 | E2 | Espejo Python del **mismo** efecto | **N-A** | F1-mediated STT is the TS voice route + broker + strangler cell. `core/voice/` is a separate FastAPI/whisper-cli path and does not call `authorize()`. Locked by `packages/abaco-effect-broker/tests/f1-day14-fail-closed.test.mjs` **D14-P**. |
 | E3 | Suite fail-closed: denegó · 0 side-effect · audit · contador | **PASS** | Historical `assertDenyFour` in `test/abaco-f1-mediacion-broker.test.ts` · **D14-Q** + **D14-A\*** in `packages/abaco-effect-broker/tests/f1-day14-fail-closed.test.mjs` |
-| E4 | Plugin piloto retirable sin reiniciar el núcleo | **PASS** (in-process) | `packages/abaco-mediacion-pilot/tests/f1-day14-retire-contain.test.mjs` **D14-T1**: revoke → 0 fork → same `process.pid` → voice `authorize` still allow. Live Cordis disable in the packaged app is **LIVE smoke L3**. |
+| E4 | Plugin piloto retirable sin reiniciar el núcleo | **PASS** (in-process) | `packages/abaco-effect-broker/tests/f1-day14-retire-contain.test.mjs` **D14-T1**: revoke → 0 fork → same `process.pid` → voice `authorize` still allow. Live Cordis disable in the packaged app is **LIVE smoke L3**. |
 | E5 | Face / uso mínimo sin añadir autoridad al TCB | **PASS** | **D14-T2/T3** + vitest **D14-4**: piloto has no `client.js`, `apply()` registers 0 fetch routes, no `issueTaskGrant`, no `utilityProcess.fork`. Voice remains route owner. |
 
 ## Criterios de aceptación (Astra adaptados)
@@ -25,6 +25,7 @@ Verdicts are **PASS / PARTIAL / FAIL / N-A** on the product tip. Evidence paths 
 | # | Criterion | Verdict | Evidence |
 |---|-----------|---------|----------|
 | A1 | Mediación: 0 efectos no autorizados en suite adversarial del alcance | **PASS** | Intersection `A_efectiva = A_tarea ∩ A_plugin ∩ A_delegación ∩ A_política`: **D14-A1…A8** (plugin / task / resource / forged grant / data≠control / compose.mutate / budget / TTL) + historical M1/M2/M5/M6/M7/M8 + F2 `f2-integration.test.mjs` unknown/disabled/breaker |
+| A1b | Doctrine delta: admitted plugins still evolve / ship after denies | **PASS** | Unauthorized deny does not freeze voice. New grant after revoke still allows. Pin rotation is review-time (`scripts/sign-manifest.mjs`), not a runtime lockout. **D14-E1…E3**, vitest **D14-7**, admission **G7.4** |
 | A2 | Contención: crash / block / OOM del worker no reinicia el core | **PASS** (cell) / **PARTIAL** (Electron) | Crash **D14-K1** + Pack B `utility-cell.test.mjs` **B4**. Hang/timeout **D14-K2** / **B5**. OOM-killer simulation (worker `SIGKILL`, no CI heap exhaust) **D14-K3**. Host here is the Node test process. Packaged Electron host survival is **LIVE smoke L4**. |
 | A3 | Revocación: nuevas ops deny ≤1s (piloto local) | **PASS** | **D14-R** + vitest **D14-2**: `revokeGrant` then next `authorize` / `executeAuthorized` deny in ≤1000ms (sync). UI-visible revoke in the installed app is **LIVE smoke L5**. |
 | A4 | Compact Deep **0.90 / 0.12** (and 8192) intact | **PASS** | `packages/abaco-context/presets/abaco/agent.cordis.yml` compaction-basic row. Locked by **D14-3**, Pack B **B10**, admission **G-compact**, STT **G5**, schema-pin **G9**. |
@@ -54,7 +55,7 @@ Verdicts are **PASS / PARTIAL / FAIL / N-A** on the product tip. Evidence paths 
 |-------|----------------|
 | Vitest F1 histórica + day-14 recorrido | `npm test` → `test/abaco-f1-*.test.ts` |
 | Day-14 fail-closed / stay-out / Python N-A | `node --test packages/abaco-effect-broker/tests/f1-day14-fail-closed.test.mjs` |
-| Day-14 retire + crash/hang/OOM sim | `node --test packages/abaco-mediacion-pilot/tests/f1-day14-retire-contain.test.mjs` |
+| Day-14 retire + crash/hang/OOM sim | `node --test packages/abaco-effect-broker/tests/f1-day14-retire-contain.test.mjs` |
 | F2-W5 threat-model (was in local runner, missing from root CI) | `node --test packages/abaco-memory/tests/threat-model.test.mjs` |
 | Prior F1 / F1.5 / F2.1 contracts | unchanged rows in `.github/workflows/desktop-ci.yml` |
 
