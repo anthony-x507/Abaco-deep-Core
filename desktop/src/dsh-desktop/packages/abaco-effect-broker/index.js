@@ -172,7 +172,7 @@ const PINNED_MANIFEST_DIGEST = {
 const PINNED_ARTIFACT = {
   'abaco-mediacion-pilot': {
     version: '0.1.0',
-    digest: 'c860d1f1787ddeb87567f5238b98bb784c7b21c42c00341a5cd561cc09468120',
+    digest: 'e5271dd4ad0214d778c75cbb12e2c6b2a552676daf211780c9650c583498863e',
   },
   'abaco-voice': {
     version: '0.1.0',
@@ -341,6 +341,24 @@ let effectsWithoutGrant = 0
 let ttlClampCount = 0
 
 /* ------------------------------------------------------------------ */
+/* INV-GRANT-MAP-CAP (Ola 1 / Bloque 3 item 3.3 — deep half)            */
+/* openGrants ≤ MAX_OPEN_GRANTS; per-plugin mint rate ≤ R/s. Excess →  */
+/* throw at mint + audit. Advisors never mint.                         */
+/* ------------------------------------------------------------------ */
+export let MAX_OPEN_GRANTS = 64
+export let MAX_MINT_RATE_PER_SEC = 8
+/** @type {Map<string, number[]>} pluginId → mint timestamps (ms), pruned window */
+const mintTimestampsByPlugin = new Map()
+let grantMapCapDenyCount = 0
+let mintRateDenyCount = 0
+
+/** Test-only: override grant-map caps. Pass nulls to restore defaults. */
+export function setGrantMapLimitsForTests(openMax, ratePerSec) {
+  MAX_OPEN_GRANTS = openMax == null ? 64 : openMax
+  MAX_MINT_RATE_PER_SEC = ratePerSec == null ? 8 : ratePerSec
+}
+
+/* ------------------------------------------------------------------ */
 /* INV-DURABLE-AUDIT-FAIL-CLOSED (Ola 1 / Bloque 1 item 1.3)            */
 /* After K consecutive durable effects.jsonl append failures, authorize */
 /* denies NEW effects with reason `audit-unavailable`. Tip-of-spear:    */
@@ -470,6 +488,11 @@ export function resetBrokerForTests() {
   allowCount = 0
   effectsWithoutGrant = 0
   ttlClampCount = 0
+  mintTimestampsByPlugin.clear()
+  grantMapCapDenyCount = 0
+  mintRateDenyCount = 0
+  MAX_OPEN_GRANTS = 64
+  MAX_MINT_RATE_PER_SEC = 8
   resetDurableAuditForTests()
   // F2: breakers y audit de la cascada viven por plugin/proceso; se reinician
   // con el broker para que los tests sean deterministas.
@@ -492,6 +515,14 @@ export function getBrokerStats() {
     durableAudit: getDurableAuditStatus(),
     // INV-TTL-BOUNDED operator surface.
     ttl: { clampCount: ttlClampCount, maxTaskTtlMs: MAX_TASK_TTL_MS },
+    // INV-GRANT-MAP-CAP operator surface.
+    grantMap: {
+      openGrants: [...grants.values()].filter((g) => !g.revoked).length,
+      maxOpenGrants: MAX_OPEN_GRANTS,
+      maxMintRatePerSec: MAX_MINT_RATE_PER_SEC,
+      grantMapCapDenyCount,
+      mintRateDenyCount,
+    },
   }
 }
 
@@ -523,6 +554,9 @@ const DENY_SIGNAL_SEVERITY = {
   'grant-revoked': 2,
   'ttl-expired': 2,
   'ttl-unbounded': 3,
+  'grant-map-cap': 2,
+  'mint-rate': 2,
+  'caps-widen-requires-pin-revision': 3,
   'budget-exceeded': 2,
   'trust-ceiling': 2,
   'resource-not-in-grant': 2,
@@ -704,8 +738,29 @@ function evolutionDeny(reason) {
 }
 
 /**
+ * INV-NO-WIDEN: true when every requested effect/resource is already in the pin.
+ * @param {string} pluginId
+ * @param {string[]} effects
+ * @param {string[]} resources
+ */
+export function sessionCapsSubsetOfPin(pluginId, effects, resources) {
+  const base = MANIFEST_CAPS[pluginId]
+  if (!base) return false
+  const pinEffects = new Set(base.effects || [])
+  const pinResources = new Set(base.resources || [])
+  for (const e of effects || []) {
+    if (!pinEffects.has(e)) return false
+  }
+  for (const r of resources || []) {
+    if (!pinResources.has(r)) return false
+  }
+  return true
+}
+
+/**
  * Effective A_plugin caps = pinned manifest ∪ session ContractEvolution overlay.
- * Pins stay frozen. Overlay is session-only and never rehabs DISABLED_PLUGINS.
+ * Pins stay frozen at import. Overlay is session-only and never rehabs DISABLED.
+ * INV-NO-WIDEN: overlay beyond the pin is only applied after HITL + pinRevision.
  */
 function effectiveCaps(pluginId) {
   const base = MANIFEST_CAPS[pluginId]
@@ -723,7 +778,7 @@ function effectiveCaps(pluginId) {
 /**
  * Propose a ContractEvolution. Does not apply, does not write disk.
  * Disabled-set rehab is refused. Soft-apply: admitted plugins may evolve later
- * via {@link acceptContractEvolution} + HITL.
+ * via {@link acceptContractEvolution} + HITL (+ pinRevision when widening).
  */
 export function proposeContractEvolution(req) {
   const pluginId = req && typeof req === 'object' ? req.pluginId : null
@@ -737,6 +792,7 @@ export function proposeContractEvolution(req) {
   if (effects.some((e) => EVOLUTION_FORBIDDEN.has(e))) {
     return evolutionDeny('compose-mutate-forbidden')
   }
+  const widen = !sessionCapsSubsetOfPin(pluginId, effects, resources)
   const proposal_id = randomUUID()
   contractProposals.set(proposal_id, {
     proposal_id,
@@ -744,12 +800,14 @@ export function proposeContractEvolution(req) {
     effects,
     resources,
     note: typeof req.note === 'string' ? req.note : '',
+    widen,
     accepted: false,
   })
   return {
     decision: 'proposed',
     proposal_id,
     plugin_id: pluginId,
+    widen,
     side_effect: false,
     wrote_patch_yml: false,
     wrote_dsh_desktop: false,
@@ -760,7 +818,9 @@ export function proposeContractEvolution(req) {
 /**
  * HITL accept of a ContractEvolution. Session overlay only.
  * `hitl` must be the boolean true — body claims are not enough without it.
- * Does not rotate pins, does not write patch.yml, does not rehab disabled.
+ * INV-NO-WIDEN: if the proposal widens beyond the pin, also require
+ * `pinRevision === true` (HITL alone is not enough). Does not write patch.yml,
+ * does not rehab disabled, does not mutate import-time pin constants.
  */
 export function acceptContractEvolution(req) {
   if (!req || req.hitl !== true) return evolutionDeny('compose-mutate-forbidden')
@@ -771,17 +831,48 @@ export function acceptContractEvolution(req) {
     return evolutionDeny('plugin-disabled')
   }
   if (!MANIFEST_CAPS[p.plugin_id]) return evolutionDeny('plugin-disabled')
-  const cur = sessionCaps.get(p.plugin_id) || { effects: new Set(), resources: new Set() }
+  const widen = p.widen === true || !sessionCapsSubsetOfPin(p.plugin_id, p.effects, p.resources)
+  if (widen && req.pinRevision !== true) {
+    pushAudit({
+      kind: 'contract.widen_denied',
+      decision: 'deny',
+      reason: 'caps-widen-requires-pin-revision',
+      plugin_id: p.plugin_id,
+      proposal_id: p.proposal_id,
+      ts: Date.now(),
+      side_effect: false,
+    })
+    return evolutionDeny('caps-widen-requires-pin-revision')
+  }
+  const cur = sessionCaps.get(p.plugin_id) || {
+    effects: new Set(),
+    resources: new Set(),
+    pin_revision: false,
+  }
   for (const e of p.effects) {
     if (!EVOLUTION_FORBIDDEN.has(e)) cur.effects.add(e)
   }
   for (const r of p.resources) cur.resources.add(r)
+  if (widen) cur.pin_revision = true
   sessionCaps.set(p.plugin_id, cur)
   p.accepted = true
+  if (widen) {
+    pushAudit({
+      kind: 'contract.pin_revision',
+      decision: 'ok',
+      plugin_id: p.plugin_id,
+      proposal_id: p.proposal_id,
+      effects: [...p.effects],
+      resources: [...p.resources],
+      ts: Date.now(),
+      side_effect: false,
+    })
+  }
   return {
     decision: 'ok',
     proposal_id: p.proposal_id,
     plugin_id: p.plugin_id,
+    pin_revision: widen,
     side_effect: false,
     wrote_patch_yml: false,
     wrote_dsh_desktop: false,
@@ -791,13 +882,48 @@ export function acceptContractEvolution(req) {
 
 export function getContractEvolution(proposalId) {
   const p = contractProposals.get(proposalId)
-  return p ? { ...p, effects: [...p.effects], resources: [...p.resources] } : null
+  return p
+    ? {
+        ...p,
+        effects: [...p.effects],
+        resources: [...p.resources],
+        widen: !!p.widen,
+      }
+    : null
 }
 
 export function getSessionCapsForTests(pluginId) {
   const extra = sessionCaps.get(pluginId)
-  if (!extra) return { effects: [], resources: [] }
-  return { effects: [...extra.effects], resources: [...extra.resources] }
+  if (!extra) return { effects: [], resources: [], pin_revision: false }
+  return {
+    effects: [...extra.effects],
+    resources: [...extra.resources],
+    pin_revision: !!extra.pin_revision,
+  }
+}
+
+/**
+ * INV-NO-WIDEN: digest / pin identity change clears session overlays.
+ * Call when an admitted plugin's artifact digest changes (reload/upgrade).
+ */
+export function clearSessionCapsForDigestChange(pluginId) {
+  if (!pluginId || typeof pluginId !== 'string') return false
+  const had = sessionCaps.has(pluginId)
+  sessionCaps.delete(pluginId)
+  for (const [id, p] of contractProposals) {
+    if (p.plugin_id === pluginId) contractProposals.delete(id)
+  }
+  if (had) {
+    pushAudit({
+      kind: 'contract.session_caps_cleared',
+      decision: 'ok',
+      plugin_id: pluginId,
+      reason: 'digest-change',
+      ts: Date.now(),
+      side_effect: false,
+    })
+  }
+  return had
 }
 
 /**
@@ -907,8 +1033,38 @@ export function boundTaskTtlMs(rawTtlMs, effects) {
 }
 
 /**
+ * Count non-revoked open grants (INV-GRANT-MAP-CAP).
+ */
+function countOpenGrants() {
+  let n = 0
+  for (const g of grants.values()) {
+    if (!g.revoked) n += 1
+  }
+  return n
+}
+
+/**
+ * Per-plugin mint rate window (1s). Returns false if mint would exceed rate.
+ * @param {string} pluginId
+ * @param {number} now
+ */
+function noteMintOrRateDeny(pluginId, now) {
+  const windowMs = 1000
+  const stamps = mintTimestampsByPlugin.get(pluginId) || []
+  const fresh = stamps.filter((t) => now - t < windowMs)
+  if (fresh.length >= MAX_MINT_RATE_PER_SEC) {
+    mintTimestampsByPlugin.set(pluginId, fresh)
+    return false
+  }
+  fresh.push(now)
+  mintTimestampsByPlugin.set(pluginId, fresh)
+  return true
+}
+
+/**
  * Issue a short-lived task grant (host/HITL only — not from untrusted data).
  * INV-TTL-BOUNDED: ttlMs is clamped to MAX_TASK_TTL_MS; immortal/missing rejected.
+ * INV-GRANT-MAP-CAP: openGrants ≤ MAX_OPEN_GRANTS; mint rate ≤ MAX_MINT_RATE_PER_SEC / plugin.
  */
 export function issueTaskGrant({
   pluginId,
@@ -924,6 +1080,35 @@ export function issueTaskGrant({
   }
   if (!aPluginOk(pluginId)) {
     throw new Error('issueTaskGrant: plugin not in A_plugin')
+  }
+  const open = countOpenGrants()
+  if (open >= MAX_OPEN_GRANTS) {
+    grantMapCapDenyCount += 1
+    pushAudit({
+      kind: 'grant.map_cap',
+      decision: 'deny',
+      reason: 'grant-map-cap',
+      plugin_id: pluginId,
+      open_grants: open,
+      max_open_grants: MAX_OPEN_GRANTS,
+      ts: Date.now(),
+      side_effect: false,
+    })
+    throw new Error('issueTaskGrant: grant-map-cap')
+  }
+  const now = Date.now()
+  if (!noteMintOrRateDeny(pluginId, now)) {
+    mintRateDenyCount += 1
+    pushAudit({
+      kind: 'grant.mint_rate',
+      decision: 'deny',
+      reason: 'mint-rate',
+      plugin_id: pluginId,
+      max_mint_rate_per_sec: MAX_MINT_RATE_PER_SEC,
+      ts: now,
+      side_effect: false,
+    })
+    throw new Error('issueTaskGrant: mint-rate')
   }
   const caps = effectiveCaps(pluginId)
   const requested = effects || []

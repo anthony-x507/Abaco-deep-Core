@@ -9,11 +9,21 @@ import {
   withRegistryLock,
   writeDesired
 } from 'dsh-desktop-market-installer/generations/registry'
+import { assertUpgradeDirection } from './plugin-upgrade-policy.mjs'
+
+export { assertUpgradeDirection }
 
 export interface PluginUpgradeOptions {
   dshHome: string
   pluginName: string
   targetVersion: string
+  /** Installed / current generation version. Required to detect downgrade. */
+  currentVersion?: string
+  /**
+   * INV-DOWNGRADE-HITL: explicit grant to install targetVersion < currentVersion.
+   * Must be the boolean true — omit/false denies downgrade.
+   */
+  allowDowngrade?: boolean
   nodeExecutablePath: string
   pnpmEntryPath: string
   note?: (line: string) => void
@@ -27,11 +37,30 @@ export interface PluginUpgradeResult {
 /**
  * Install the target version of a plugin as an immutable generation and project
  * it into the web profile, replacing any older generation of that plugin.
+ *
+ * INV-DOWNGRADE-HITL: refuses targetVersion < currentVersion unless
+ * `allowDowngrade === true` (explicit grant / HITL).
  */
 export async function upgradePluginToGeneration(
   options: PluginUpgradeOptions
 ): Promise<PluginUpgradeResult> {
-  const { dshHome, pluginName, targetVersion, nodeExecutablePath, pnpmEntryPath, note } = options
+  const {
+    dshHome,
+    pluginName,
+    targetVersion,
+    currentVersion,
+    allowDowngrade,
+    nodeExecutablePath,
+    pnpmEntryPath,
+    note
+  } = options
+
+  const direction = assertUpgradeDirection({ currentVersion, targetVersion, allowDowngrade })
+  if (!direction.ok) {
+    note?.(`[plugin-upgrade] denied: ${direction.detail}`)
+    return { ok: false, detail: direction.detail }
+  }
+
   const spec = `${pluginName}@${targetVersion}`
 
   return withRegistryLock(dshHome, async () => {

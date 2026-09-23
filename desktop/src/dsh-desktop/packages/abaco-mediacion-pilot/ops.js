@@ -54,6 +54,14 @@ export async function resolveLocalWhisperTools() {
   return { engine, bin, ffmpeg, available: !!(bin && ffmpeg) }
 }
 
+/**
+ * INV-KILL-DRAINS (Ola 1 / Bloque 3 item 3.3 — deep runner path):
+ * Always attach stdout/stderr readers BEFORE waiting on close. Never
+ * `wait`/`await exit` then drain — full PIPE can hang the child.
+ * Output is size-capped so a noisy child cannot unbounded-buffer the host.
+ */
+export const MAX_CHILD_OUTPUT_BYTES = 2 * 1024 * 1024
+
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
@@ -69,10 +77,24 @@ function run(cmd, args) {
     })
     let stdout = ''
     let stderr = ''
-    child.stdout.on('data', (c) => { stdout += String(c) })
-    child.stderr.on('data', (c) => { stderr += String(c) })
+    let truncated = false
+    const onChunk = (which) => (c) => {
+      const s = String(c)
+      if (which === 'out') {
+        if (stdout.length < MAX_CHILD_OUTPUT_BYTES) {
+          stdout += s.slice(0, MAX_CHILD_OUTPUT_BYTES - stdout.length)
+        } else truncated = true
+      } else if (stderr.length < MAX_CHILD_OUTPUT_BYTES) {
+        stderr += s.slice(0, MAX_CHILD_OUTPUT_BYTES - stderr.length)
+      } else truncated = true
+    }
+    // Drain concurrently — do not wait-before-drain (INV-KILL-DRAINS).
+    child.stdout.on('data', onChunk('out'))
+    child.stderr.on('data', onChunk('err'))
     child.on('error', reject)
-    child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }))
+    child.on('close', (code) =>
+      resolve({ code: code ?? 1, stdout, stderr, truncated }),
+    )
   })
 }
 

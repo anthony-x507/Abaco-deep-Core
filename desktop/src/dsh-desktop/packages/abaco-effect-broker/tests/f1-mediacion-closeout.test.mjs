@@ -151,14 +151,26 @@ test('doctrine: silent compose.mutate stays forbidden; HITL evolves admitted voi
   assert.equal(noHitl.reason, 'compose-mutate-forbidden')
   assert.equal(noHitl.applied, false)
 
-  const accepted = acceptContractEvolution({ proposal_id: proposed.proposal_id, hitl: true })
+  // INV-NO-WIDEN: HITL alone cannot widen beyond pin — need pinRevision.
+  const hitlOnly = acceptContractEvolution({ proposal_id: proposed.proposal_id, hitl: true })
+  assert.equal(hitlOnly.decision, 'deny')
+  assert.equal(hitlOnly.reason, 'caps-widen-requires-pin-revision')
+  assert.equal(hitlOnly.applied, false)
+
+  const accepted = acceptContractEvolution({
+    proposal_id: proposed.proposal_id,
+    hitl: true,
+    pinRevision: true,
+  })
   assert.equal(accepted.decision, 'ok')
   assert.equal(accepted.applied, true)
+  assert.equal(accepted.pin_revision, true)
   assert.equal(accepted.wrote_patch_yml, false)
   assert.equal(accepted.wrote_dsh_desktop, false)
   assert.ok(!MANIFEST_CAPS['abaco-voice'].resources.includes('/api/abaco-voice.local-extra'))
   const overlay = getSessionCapsForTests('abaco-voice')
   assert.ok(overlay.resources.includes('/api/abaco-voice.local-extra'))
+  assert.equal(overlay.pin_revision, true)
   const d = authorize({
     channel: { kind: 'host.fetch', path: STATUS, pluginId: 'abaco-voice' },
     task_id: null,
