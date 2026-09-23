@@ -337,6 +337,8 @@ const auditLog = []
 let denyCount = 0
 let allowCount = 0
 let effectsWithoutGrant = 0
+/** INV-TTL-BOUNDED: how many mints were clamped to MAX_TASK_TTL_MS. */
+let ttlClampCount = 0
 
 /* ------------------------------------------------------------------ */
 /* INV-DURABLE-AUDIT-FAIL-CLOSED (Ola 1 / Bloque 1 item 1.3)            */
@@ -467,6 +469,7 @@ export function resetBrokerForTests() {
   denyCount = 0
   allowCount = 0
   effectsWithoutGrant = 0
+  ttlClampCount = 0
   resetDurableAuditForTests()
   // F2: breakers y audit de la cascada viven por plugin/proceso; se reinician
   // con el broker para que los tests sean deterministas.
@@ -487,6 +490,8 @@ export function getBrokerStats() {
     openGrants: [...grants.values()].filter((g) => !g.revoked).length,
     // Operator alert/counter surface for INV-DURABLE-AUDIT-FAIL-CLOSED.
     durableAudit: getDurableAuditStatus(),
+    // INV-TTL-BOUNDED operator surface.
+    ttl: { clampCount: ttlClampCount, maxTaskTtlMs: MAX_TASK_TTL_MS },
   }
 }
 
@@ -517,6 +522,7 @@ const DENY_SIGNAL_SEVERITY = {
   'delegation-invalid': 3,
   'grant-revoked': 2,
   'ttl-expired': 2,
+  'ttl-unbounded': 3,
   'budget-exceeded': 2,
   'trust-ceiling': 2,
   'resource-not-in-grant': 2,
@@ -837,14 +843,78 @@ export function deriveChannelTrust(channel) {
   return 'untrusted'
 }
 
+/* ------------------------------------------------------------------ */
+/* INV-TTL-BOUNDED (Ola 1 / Bloque 2 item 2.2 — deep half)             */
+/* No immortal task grants. Finite positive ttlMs required at mint;    */
+/* oversize clamped to MAX_TASK_TTL_MS with audit. Medium/high effects */
+/* reject missing (null) / immortal (Infinity, ≤0, non-finite).        */
+/* Advisors (Jev/Atena) never live in authorize or mint.               */
+/* ------------------------------------------------------------------ */
+
+/** Absolute ceiling for any task-grant TTL (ms). Oversize is clamped. */
+export const MAX_TASK_TTL_MS = 5 * 60_000
+
+/** Default when caller omits ttlMs (still bounded — never immortal). */
+export const DEFAULT_TASK_TTL_MS = 60_000
+
+/**
+ * Medium/high for TTL policy: any effect beyond presentation-only ui.slot.
+ * Empty effect list is treated as medium/high (fail-closed).
+ * @param {string[] | undefined | null} effects
+ */
+export function effectsRequireBoundedTtl(effects) {
+  const list = Array.isArray(effects) ? effects : []
+  if (list.length === 0) return true
+  return list.some((e) => e !== 'ui.slot')
+}
+
+/**
+ * True when a stored grant's ttl_ms is finite, positive, and ≤ MAX.
+ * @param {any} grant
+ */
+export function isGrantTtlBounded(grant) {
+  if (!grant || typeof grant !== 'object') return false
+  const t = grant.ttl_ms
+  return typeof t === 'number' && Number.isFinite(t) && t > 0 && t <= MAX_TASK_TTL_MS
+}
+
+/**
+ * Normalize mint TTL. Rejects missing/immortal for medium-high; clamps oversize.
+ * @param {unknown} rawTtlMs
+ * @param {string[] | undefined | null} effects
+ * @returns {{ ttlMs: number, clamped: boolean, requested: number | null }}
+ */
+export function boundTaskTtlMs(rawTtlMs, effects) {
+  const mediumHigh = effectsRequireBoundedTtl(effects)
+
+  // Omitted undefined → default (bounded). Never immortal by omission.
+  if (rawTtlMs === undefined) {
+    return { ttlMs: DEFAULT_TASK_TTL_MS, clamped: false, requested: null }
+  }
+  // Explicit null = missing. Required reject for medium/high; low (ui.slot-only) → default.
+  if (rawTtlMs === null) {
+    if (mediumHigh) throw new Error('issueTaskGrant: ttl-missing')
+    return { ttlMs: DEFAULT_TASK_TTL_MS, clamped: false, requested: null }
+  }
+  if (typeof rawTtlMs !== 'number' || !Number.isFinite(rawTtlMs) || rawTtlMs <= 0) {
+    // Infinity / NaN / ≤0 / non-number → immortal or invalid (always reject).
+    throw new Error('issueTaskGrant: ttl-immortal')
+  }
+  if (rawTtlMs > MAX_TASK_TTL_MS) {
+    return { ttlMs: MAX_TASK_TTL_MS, clamped: true, requested: rawTtlMs }
+  }
+  return { ttlMs: rawTtlMs, clamped: false, requested: rawTtlMs }
+}
+
 /**
  * Issue a short-lived task grant (host/HITL only — not from untrusted data).
+ * INV-TTL-BOUNDED: ttlMs is clamped to MAX_TASK_TTL_MS; immortal/missing rejected.
  */
 export function issueTaskGrant({
   pluginId,
   effects,
   resources,
-  ttlMs = 60_000,
+  ttlMs,
   budget = { calls: 4, bytes: 25 * 1024 * 1024 },
   trustCeiling = 'user',
   taskId = null,
@@ -863,13 +933,14 @@ export function issueTaskGrant({
       caps.resources.includes(r) ||
       (requested.includes('ui.slot') && isOwnUiSlot(pluginId, r)),
   )
+  const bound = boundTaskTtlMs(ttlMs, requested)
   const grant = {
     grant_id: randomUUID(),
     plugin_id: pluginId,
     task_id: taskId || randomUUID(),
     effects: eff,
     resources: res,
-    ttl_ms: ttlMs,
+    ttl_ms: bound.ttlMs,
     budget: { calls: budget.calls, bytes: budget.bytes },
     trust_ceiling: trustCeiling,
     issued_at: Date.now(),
@@ -884,6 +955,20 @@ export function issueTaskGrant({
       subject: pluginId,
       on_behalf_of: 'host',
     },
+  }
+  if (bound.clamped) {
+    ttlClampCount += 1
+    pushAudit({
+      kind: 'grant.ttl_clamped',
+      decision: 'clamp',
+      plugin_id: pluginId,
+      grant_id: grant.grant_id,
+      requested_ttl_ms: bound.requested,
+      ttl_ms: bound.ttlMs,
+      max_ttl_ms: MAX_TASK_TTL_MS,
+      ts: Date.now(),
+      side_effect: false,
+    })
   }
   grants.set(grant.grant_id, grant)
   issuedGrantIds.add(grant.grant_id)
@@ -1347,6 +1432,10 @@ export function authorize(req) {
     }
     if (grant.revoked) {
       return deny('grant-revoked', pluginId, grant.task_id, effect, grant.grant_id, started, monotonic, {}, trustCtx)
+    }
+    if (!isGrantTtlBounded(grant)) {
+      // Tip-of-spear: never allow a grant that escaped mint without a bound TTL.
+      return deny('ttl-unbounded', pluginId, grant.task_id, effect, grant.grant_id, started, monotonic, {}, trustCtx)
     }
     if (Date.now() - grant.issued_at > grant.ttl_ms) {
       return deny('ttl-expired', pluginId, grant.task_id, effect, grant.grant_id, started, monotonic, {}, trustCtx)
