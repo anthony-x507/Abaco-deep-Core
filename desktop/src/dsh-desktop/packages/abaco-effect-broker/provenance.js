@@ -2,7 +2,7 @@
  * provenance.js — F2-W3 · reusable provenance module.
  *
  * claim → channel → effective provenance with integrity hash, plus an
- * append-only audit log with hash chaining.
+ * append-only audit log with hash chaining (INV-AUDIT-CHAIN).
  *
  * RULE (same as F1-P2, now reusable): effective = min(claim, channel) by
  * trust ordinal. The channel is what the *broker* vouches for; a caller can

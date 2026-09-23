@@ -64,6 +64,14 @@ jobs:
             packages/abaco-effect-broker/tests/breakers.test.mjs \
             packages/abaco-effect-broker/tests/provenance.test.mjs \
             packages/abaco-effect-broker/tests/tiers.test.mjs \
+            packages/abaco-effect-broker/tests/ttl-bounded.test.mjs \
+            packages/abaco-effect-broker/tests/durable-audit-fail-closed.test.mjs \
+            packages/abaco-effect-broker/tests/grant-map-cap.test.mjs \
+            packages/abaco-effect-broker/tests/no-widen-sessioncaps.test.mjs \
+            packages/abaco-effect-broker/tests/compatible-core-policy.test.mjs \
+            packages/abaco-effect-broker/tests/inv-12-contracts.test.mjs \
+            packages/abaco-mediacion-pilot/tests/kill-drains.test.mjs \
+            src/main/state/tests/plugin-upgrade-downgrade.test.mjs \
             packages/abaco-effect-broker/tests/f2-integration.test.mjs \
             packages/abaco-mcp-schema-pin/tests/schema-pin.test.mjs \
             packages/abaco-memory/tests/quarantine.test.mjs \

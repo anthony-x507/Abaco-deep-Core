@@ -1,5 +1,5 @@
 /**
- * F1 control-3 — immutable session admission graph.
+ * F1 control-3 — immutable session admission graph (INV-BOOTSTRAP-SEAL).
  *
  * The graph is sealed once from the host control plane:
  *   - pinned `manifest.f1.yml` (already verified by the broker TCB)
@@ -265,6 +265,7 @@ function readControlFile(absPath) {
  * unless {@link resetAdmissionForTests} ran first.
  * @param {object} opts
  */
+/** INV-BOOTSTRAP-SEAL: seal admission graph before first authorize. */
 export function sealLiveAdmission(opts) {
   if (liveGraph && liveGraph.sealed) {
     return liveGraph
