@@ -135,3 +135,10 @@ Checklist de compañía (extraído de F1/F1.5 + curso + defaults Integrador). Al
 - **Solo markdown.** No cambia runtime Electron.
 - **No reabre F1.** Extrae ley portable para Python Core Phase A (rediseño) y futuros productos.
 - **Merge a main:** solo vía PR de docs; no merge automático por este agente.
+
+
+## Ola 1 / Bloque 1 (observation)
+
+| Doc | Role |
+|-----|------|
+| [`OLA1-BLOQUE1-DURABLE-AUDIT.md`](OLA1-BLOQUE1-DURABLE-AUDIT.md) | **INV-DURABLE-AUDIT-FAIL-CLOSED** — K durable append failures → authorize `audit-unavailable` (tip-of-spear; in-memory trail kept) |

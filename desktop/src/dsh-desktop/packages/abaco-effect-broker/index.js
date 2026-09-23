@@ -338,6 +338,125 @@ let denyCount = 0
 let allowCount = 0
 let effectsWithoutGrant = 0
 
+/* ------------------------------------------------------------------ */
+/* INV-DURABLE-AUDIT-FAIL-CLOSED (Ola 1 / Bloque 1 item 1.3)            */
+/* After K consecutive durable effects.jsonl append failures, authorize */
+/* denies NEW effects with reason `audit-unavailable`. Tip-of-spear:    */
+/* already-admitted ui.slot may continue — do not freeze the UI fleet,  */
+/* do not mass-unload/revoke. In-memory auditLog + provenance stay live.*/
+/* Operator counters/alerts via getBrokerStats(). Advisors never gated. */
+/* ------------------------------------------------------------------ */
+
+/** Consecutive durable-append failures before authorize fail-closes. */
+export const DURABLE_AUDIT_FAIL_THRESHOLD = 5
+
+let durableAppendConsecutiveFailures = 0
+let durableAppendFailureTotal = 0
+let durableAuditUnavailable = false
+let durableAuditAlertCount = 0
+let durableAuditLastError = null
+
+/**
+ * Default durable sink: best-effort JSONL under harness home.
+ * Missing home = durable not configured (not a failure).
+ * @param {object} ev
+ * @returns {Promise<void> | void}
+ */
+function defaultDurableAppend(ev) {
+  const home = process.env.DSH_HOME || process.env.HOME
+  if (!home) return
+  const dir = join(home, 'abaco-deep-core-audit-f1')
+  const line = JSON.stringify(ev) + '\n'
+  return mkdir(dir, { recursive: true }).then(() =>
+    appendFile(join(dir, 'effects.jsonl'), line),
+  )
+}
+
+/** @type {(ev: object) => (Promise<void> | void)} */
+let durableAppendImpl = defaultDurableAppend
+
+function noteDurableAppendSuccess() {
+  durableAppendConsecutiveFailures = 0
+  durableAuditUnavailable = false
+  durableAuditLastError = null
+}
+
+function noteDurableAppendFailure(err) {
+  durableAppendConsecutiveFailures += 1
+  durableAppendFailureTotal += 1
+  durableAuditLastError =
+    err && typeof err === 'object' && err.message
+      ? String(err.message)
+      : String(err || 'durable-append-failed')
+  if (durableAppendConsecutiveFailures >= DURABLE_AUDIT_FAIL_THRESHOLD) {
+    if (!durableAuditUnavailable) durableAuditAlertCount += 1
+    durableAuditUnavailable = true
+  }
+}
+
+function scheduleDurableAppend(ev) {
+  let result
+  try {
+    result = durableAppendImpl(ev)
+  } catch (err) {
+    noteDurableAppendFailure(err)
+    return
+  }
+  if (result != null && typeof result.then === 'function') {
+    result.then(
+      () => noteDurableAppendSuccess(),
+      (err) => noteDurableAppendFailure(err),
+    )
+    return
+  }
+  noteDurableAppendSuccess()
+}
+
+/** True when authorize must fail-close new (non tip-of-spear UI) effects. */
+export function isDurableAuditUnavailable() {
+  return durableAuditUnavailable === true
+}
+
+/**
+ * Operator / test snapshot of the durable-audit breaker.
+ * @returns {{
+ *   consecutiveFailures: number,
+ *   failureTotal: number,
+ *   unavailable: boolean,
+ *   threshold: number,
+ *   alertCount: number,
+ *   lastError: string | null,
+ * }}
+ */
+export function getDurableAuditStatus() {
+  return {
+    consecutiveFailures: durableAppendConsecutiveFailures,
+    failureTotal: durableAppendFailureTotal,
+    unavailable: durableAuditUnavailable,
+    threshold: DURABLE_AUDIT_FAIL_THRESHOLD,
+    alertCount: durableAuditAlertCount,
+    lastError: durableAuditLastError,
+  }
+}
+
+/**
+ * Test-only: replace durable append implementation (stub FS errors).
+ * Pass null/undefined to restore the default JSONL sink.
+ * @param {null | undefined | ((ev: object) => (Promise<void> | void))} fn
+ */
+export function setDurableAppendForTests(fn) {
+  durableAppendImpl = typeof fn === 'function' ? fn : defaultDurableAppend
+}
+
+function resetDurableAuditForTests() {
+  durableAppendConsecutiveFailures = 0
+  durableAppendFailureTotal = 0
+  durableAuditUnavailable = false
+  durableAuditAlertCount = 0
+  durableAuditLastError = null
+  durableAppendImpl = defaultDurableAppend
+}
+
 export function resetBrokerForTests() {
   grants.clear()
   issuedGrantIds.clear()
@@ -348,6 +467,7 @@ export function resetBrokerForTests() {
   denyCount = 0
   allowCount = 0
   effectsWithoutGrant = 0
+  resetDurableAuditForTests()
   // F2: breakers y audit de la cascada viven por plugin/proceso; se reinician
   // con el broker para que los tests sean deterministas.
   resetBreakersForTests()
@@ -365,6 +485,8 @@ export function getBrokerStats() {
     effectsWithoutGrant,
     auditSize: auditLog.length,
     openGrants: [...grants.values()].filter((g) => !g.revoked).length,
+    // Operator alert/counter surface for INV-DURABLE-AUDIT-FAIL-CLOSED.
+    durableAudit: getDurableAuditStatus(),
   }
 }
 
@@ -412,6 +534,7 @@ const DENY_SIGNAL_SEVERITY = {
   'schema-missing': 3,
   'inject-undeclared': 2,
   'preload-not-allowlisted': 2,
+  'audit-unavailable': 3,
 }
 
 /** Último seq del audit de cascada ya reenviado a provenance (idempotencia). */
@@ -818,15 +941,11 @@ function findActiveGrant(pluginId, taskId) {
 }
 
 function pushAudit(ev) {
+  // In-memory provenance / audit trail always grows (never muted).
   auditLog.push(ev)
-  // Best-effort durable audit under harness home (never dsh-desktop).
-  const home = process.env.DSH_HOME || process.env.HOME
-  if (!home) return
-  const dir = join(home, 'abaco-deep-core-audit-f1')
-  const line = JSON.stringify(ev) + '\n'
-  mkdir(dir, { recursive: true }).then(() =>
-    appendFile(join(dir, 'effects.jsonl'), line).catch(() => {})
-  ).catch(() => {})
+  // Durable JSONL under harness home (never dsh-desktop). Failures are
+  // counted — empty .catch(() => {}) is forbidden (INV-DURABLE-AUDIT-FAIL-CLOSED).
+  scheduleDurableAppend(ev)
 }
 
 /**
@@ -983,6 +1102,28 @@ export function authorize(req) {
     const effect = req.effect
     if (!effect || !effect.kind || !effect.resource) {
       return deny('effect-not-in-grant', pluginId, req.task_id || null, effect || null, null, started, monotonic)
+    }
+
+    // INV-DURABLE-AUDIT-FAIL-CLOSED: after K consecutive durable append
+    // failures, deny NEW effects that need a durable trail. Tip-of-spear:
+    // already-admitted ui.slot may continue (do not freeze the UI fleet /
+    // mass-unload / mass-revoke). Advisors are never consulted on this gate.
+    if (isDurableAuditUnavailable()) {
+      const admittedUiFleet = effect.kind === 'ui.slot' && aPluginOk(pluginId)
+      if (!admittedUiFleet) {
+        return deny(
+          'audit-unavailable',
+          pluginId,
+          req.task_id || null,
+          effect,
+          null,
+          started,
+          monotonic,
+          {},
+          null,
+          f2,
+        )
+      }
     }
 
     // P2: trust_in is a CLAIM, not a fact. Provenance is bound to the channel:
