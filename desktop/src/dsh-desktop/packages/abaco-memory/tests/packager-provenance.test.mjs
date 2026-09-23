@@ -464,8 +464,15 @@ test('G9.3 stay out of MCP pin wiring, patch.yml, and compact preset', () => {
     'desktop/src/dsh-desktop/packages/abaco-mcp-schema-pin/tests/schema-pin.test.mjs',
     'docs/contracts/CONTRACT-F1.5-MCP-SCHEMA-PIN.md',
   ])
+  // Ola 1 / Bloque 3 INV-KILL-DRAINS (deep): concurrent pipe drain in ops.js +
+  // defensive test. Admission SBOM remains the only other piloto exception.
+  const b3KillDrains = new Set([
+    'desktop/src/dsh-desktop/packages/abaco-mediacion-pilot/ops.js',
+    'desktop/src/dsh-desktop/packages/abaco-mediacion-pilot/tests/kill-drains.test.mjs',
+  ])
   for (const file of changed) {
     if (versionAlign.has(file)) continue
+    if (b3KillDrains.has(file)) continue
     assert.ok(!file.includes('abaco-mcp-schema-pin'), `MCP pin stay-out: ${file}`)
     assert.ok(!file.endsWith('run-f15-suite.mjs'), `MCP suite stay-out: ${file}`)
     assert.ok(!file.includes('CONTRACT-F1.5-MCP-SCHEMA-PIN'), `MCP contract stay-out: ${file}`)

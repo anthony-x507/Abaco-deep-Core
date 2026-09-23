@@ -11,6 +11,7 @@ import {
   isSessionUnloaded,
   proposeContractEvolution,
   acceptContractEvolution,
+  getSessionCapsForTests,
   DISABLED_PLUGINS,
   PATCH_ENABLED,
   MANIFEST_CAPS,
@@ -428,14 +429,25 @@ describe('F1 broker fail-closed (M1–M10 + mediation closeout)', () => {
       resources: ['/api/abaco-voice.local-extra'],
     })
     expect(proposed.decision).toBe('proposed')
+    expect(proposed.widen).toBe(true)
     expect(acceptContractEvolution({ proposal_id: proposed.proposal_id }).decision).toBe('deny')
-    const accepted = acceptContractEvolution({ proposal_id: proposed.proposal_id, hitl: true })
+    // INV-NO-WIDEN: HITL alone cannot widen beyond pin — need pinRevision.
+    const hitlOnly = acceptContractEvolution({ proposal_id: proposed.proposal_id, hitl: true })
+    expect(hitlOnly.decision).toBe('deny')
+    expect(hitlOnly.reason).toBe('caps-widen-requires-pin-revision')
+    const accepted = acceptContractEvolution({
+      proposal_id: proposed.proposal_id,
+      hitl: true,
+      pinRevision: true,
+    })
     expect(accepted.decision).toBe('ok')
+    expect(accepted.pin_revision).toBe(true)
     expect(accepted.wrote_patch_yml).toBe(false)
     expect(MANIFEST_CAPS['abaco-voice'].resources).not.toContain('/api/abaco-voice.local-extra')
+    expect(getSessionCapsForTests('abaco-voice').resources).toContain('/api/abaco-voice.local-extra')
 
     const d = authorize({
-      channel: { kind: 'host.fetch', path: LOCAL_STATUS_PATH },
+      channel: { kind: 'host.fetch', path: LOCAL_STATUS_PATH, pluginId: 'abaco-voice' },
       task_id: null,
       effect: {
         kind: 'host.fetch',

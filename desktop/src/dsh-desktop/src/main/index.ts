@@ -2102,6 +2102,8 @@ async function showPluginRecovery(options?: {
           dshHome,
           pluginName: upgradeCandidate.packageName,
           targetVersion: upgradeCandidate.targetVersion,
+          currentVersion: upgradeCandidate.installedVersion,
+          allowDowngrade: false,
           nodeExecutablePath: bundledNodePath(),
           pnpmEntryPath: bundledPnpmEntryPath(),
           note: (line) => runtime.note(line)
@@ -2710,6 +2712,8 @@ async function showSafeModeManager(initial?: {
             dshHome,
             pluginName: pkg,
             targetVersion: report.upgradeVersion!,
+            currentVersion: report.installedVersion,
+            allowDowngrade: false,
             nodeExecutablePath: bundledNodePath(),
             pnpmEntryPath: bundledPnpmEntryPath(),
             note: (line) => runtime.note(line)
