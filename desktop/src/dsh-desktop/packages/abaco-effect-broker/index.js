@@ -64,6 +64,7 @@ const TRUST_RANK = { untrusted: 0, 'plugin-data': 1, user: 2, host: 3 }
 /** Rank → label, same order as TRUST_RANK (P2 provenance: do not reorder). */
 const TRUST_LABELS = ['untrusted', 'plugin-data', 'user', 'host']
 
+/* INV-ISOLATION-CLASS (piloto): face/UI in-process; high-risk provider subprocess (python); F1-pilot → UtilityProcess (mediacion-pilot). */
 /* ------------------------------------------------------------------ */
 /* F2 — integración (W6).                                              */
 /*                                                                     */
@@ -974,7 +975,7 @@ export function deriveChannelTrust(channel) {
 /* No immortal task grants. Finite positive ttlMs required at mint;    */
 /* oversize clamped to MAX_TASK_TTL_MS with audit. Medium/high effects */
 /* reject missing (null) / immortal (Infinity, ≤0, non-finite).        */
-/* Advisors (Jev/Atena) never live in authorize or mint.               */
+/* INV-JEV-NEVER-GRANTS: Advisors (Jev/Atena) never live in authorize/mint. */
 /* ------------------------------------------------------------------ */
 
 /** Absolute ceiling for any task-grant TTL (ms). Oversize is clamped. */
@@ -1738,6 +1739,7 @@ export function authorize(req) {
   }
 }
 
+/* INV-DENY-OBSERVED: every deny increments denyCount and pushAudit. */
 function deny(reason, pluginId, taskId, effect, grantId, started, monotonic, flags = {}, trust = null, f2ctx = null) {
   denyCount += 1
   // F2: el broker alimenta los breakers con sus denies (telemetría, fuente
