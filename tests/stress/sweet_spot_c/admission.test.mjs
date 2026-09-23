@@ -33,7 +33,7 @@ const PACKAGES = join(HERE, '../../../desktop/src/dsh-desktop/packages')
 
 const PILOT = 'abaco-mediacion-pilot'
 const VOICE = 'abaco-voice'
-const PILOT_DIGEST = 'c860d1f1787ddeb87567f5238b98bb784c7b21c42c00341a5cd561cc09468120'
+const PILOT_DIGEST = 'e5271dd4ad0214d778c75cbb12e2c6b2a552676daf211780c9650c583498863e'
 const VOICE_DIGEST = '4360dc2b6f6adaf3c69c28f15078416dbaf637d4529dddf000373f0d921d0e2a'
 const OTHER = 'a'.repeat(64)
 
