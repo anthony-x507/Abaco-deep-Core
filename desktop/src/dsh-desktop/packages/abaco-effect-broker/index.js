@@ -7,7 +7,16 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -410,8 +419,54 @@ export function getDurableEffectsPath() {
  * (fail-closed; scheduleDurableAppend counts as durable failure → breaker).
  * @param {string} filePath
  */
-function loadDurableTipFromFile(filePath) {
-  if (durableFileTipLoaded && durableFileLoadedPath === filePath) return
+/**
+ * Exclusive lock for effects.jsonl tip load + append (INV-AUDIT-CHAIN).
+ * Parallel node --test workers share $HOME and must not race seq/prev_hash.
+ * Stale locks (>10s) are broken so a crashed peer cannot freeze authorize.
+ * @param {string} filePath
+ * @param {() => void} fn
+ */
+function withDurableFileLock(filePath, fn) {
+  const lockPath = `${filePath}.lock`
+  mkdirSync(dirname(filePath), { recursive: true })
+  const started = Date.now()
+  let fd = null
+  for (;;) {
+    try {
+      fd = openSync(lockPath, 'wx')
+      break
+    } catch (err) {
+      if (!err || err.code !== 'EEXIST') throw err
+      try {
+        const age = Date.now() - statSync(lockPath).mtimeMs
+        if (age > 10_000) unlinkSync(lockPath)
+      } catch {
+        /* ignore race on stale cleanup */
+      }
+      if (Date.now() - started > 5_000) {
+        throw new Error('durable-effects-lock-timeout')
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)
+    }
+  }
+  try {
+    fn()
+  } finally {
+    try {
+      if (fd != null) closeSync(fd)
+    } catch {
+      /* ignore */
+    }
+    try {
+      unlinkSync(lockPath)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function loadDurableTipFromFile(filePath, { force = false } = {}) {
+  if (!force && durableFileTipLoaded && durableFileLoadedPath === filePath) return
   if (!existsSync(filePath)) {
     durableFileSeq = 0
     durableFileTipHash = DURABLE_GENESIS
@@ -441,16 +496,18 @@ function loadDurableTipFromFile(filePath) {
 function defaultDurableAppend(ev) {
   const filePath = getDurableEffectsPath()
   if (!filePath) return
-  mkdirSync(dirname(filePath), { recursive: true })
-  loadDurableTipFromFile(filePath)
-  const sealed = sealDurableLine({
-    seq: durableFileSeq,
-    entry: ev,
-    prev_hash: durableFileTipHash,
+  withDurableFileLock(filePath, () => {
+    // Always re-read tip under the lock so parallel workers never reuse a stale seq.
+    loadDurableTipFromFile(filePath, { force: true })
+    const sealed = sealDurableLine({
+      seq: durableFileSeq,
+      entry: ev,
+      prev_hash: durableFileTipHash,
+    })
+    appendFileSync(filePath, JSON.stringify(sealed) + '\n')
+    durableFileSeq += 1
+    durableFileTipHash = sealed.hash
   })
-  appendFileSync(filePath, JSON.stringify(sealed) + '\n')
-  durableFileSeq += 1
-  durableFileTipHash = sealed.hash
 }
 
 /**

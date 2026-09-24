@@ -55,7 +55,9 @@ jobs:
 
       - name: Contract tests
         run: |
-          node --test \
+          # Serial: durable effects.jsonl is under shared $HOME; parallel
+          # workers raced seq/prev_hash and tripped audit-unavailable (PR #55).
+          node --test --test-concurrency=1 \
             packages/abaco-effect-broker/tests/admission-immutable.test.mjs \
             packages/abaco-effect-broker/tests/f1-day14-fail-closed.test.mjs \
             packages/abaco-effect-broker/tests/f1-day14-retire-contain.test.mjs \
