@@ -38,6 +38,11 @@ Market plugins must not default to same-process main. Call `admitMarketPluginLoa
 
 ## Residual (GAP dated, not soft-PASS)
 
+- **D6 / Sigstore publisher attestation:** **HOLD** (stamp-only) — dated GAP `docs/frontier/GAP-SIGSTORE-STAMP-ONLY-2026-09-23.md`. Subject bind (artifact digest + configured builder id) is CODE (`d6-provenance-stamp.mjs`). **NOT soft-PASS.** Never claim Sigstore-attested while GAP open.
+- **Pin rotation release gate:** CODE + CI — `docs/frontier/PIN-ROTATION-RELEASE-GATE.md` + `tests/pin-rotation-gate.test.mjs`.
+- **Marketplace open:** checklist `docs/frontier/MARKETPLACE-OPEN-CHECKLIST.md` (go/no-go; Sigstore GAP blocks full open).
+
+
 - **INV-AUDIT-CHAIN / durable file:** **CLOSED** by Ola 2 Bloque 2.A — on-disk `effects.jsonl` lines carry independent `prev_hash` + `hash`; `verifyDurable*` fail-closed. See `docs/frontier/OLA2-BLOQUE-A.md`. Mute path remains **INV-DURABLE-AUDIT-FAIL-CLOSED**.
 - **Update feed digest pin / refuse-launch:** **CLOSED** (code gate) by Ola 2 Bloque 2.C.1 — `update-feed-digest-pin.mjs`; broker pins != binary stamp refuses launch/authorize. See `docs/frontier/OLA2-BLOQUE-C.md`.
 - **Desk F7 / Apple notarize:** HOLD (GH artifact quota / creds) — dated GAP `docs/frontier/GAP-NOTARIZE-2026-09-23.md`. **NOT soft-PASS.** Outside INV-12 until F7 frees.

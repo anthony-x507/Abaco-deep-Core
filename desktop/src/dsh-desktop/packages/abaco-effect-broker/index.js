@@ -110,6 +110,30 @@ export {
   pinMapsEqual,
   isSha256Hex,
 } from './update-feed-digest-pin.mjs'
+import {
+  OLA3_BLOQUE,
+  PROVENANCE_MODE_STAMP_ONLY,
+  CONFIGURED_BUILDER_IDS,
+  decideD6Provenance,
+  stampProvenance,
+  computeProvenanceStamp,
+  sealD6Provenance,
+  getD6ProvenanceStatus,
+  resetD6ProvenanceForTests,
+  gateAuthorizeD6Provenance,
+} from './d6-provenance-stamp.mjs'
+export {
+  OLA3_BLOQUE,
+  PROVENANCE_MODE_STAMP_ONLY,
+  CONFIGURED_BUILDER_IDS,
+  decideD6Provenance,
+  stampProvenance,
+  computeProvenanceStamp,
+  sealD6Provenance,
+  getD6ProvenanceStatus,
+  resetD6ProvenanceForTests,
+  gateAuthorizeD6Provenance,
+} from './d6-provenance-stamp.mjs'
 import { evaluatePluginTree } from './supply-chain-admission.mjs'
 import {
   isMcpPublicName,
@@ -693,6 +717,7 @@ export function resetBrokerForTests() {
   resetCascadeForTests()
   cascadeForwardedSeq = 0
   resetUpdateFeedLaunchPinForTests()
+  resetD6ProvenanceForTests()
   // NOTA: el hash-chain de provenance.audit() NO se reinicia aquí: es el
   // registro tamper-evident de durabilidad. Los tests lo reinician con
   // resetProvenanceAuditForTests() cuando lo necesitan.
@@ -1511,6 +1536,24 @@ export function authorize(req) {
       if (!pinGate.ok) {
         return deny(
           pinGate.reason,
+          pluginId,
+          req.task_id || null,
+          req.effect || null,
+          null,
+          started,
+          monotonic,
+        )
+      }
+    }
+
+
+    // Ola 3.1 — D6 provenance stamp (digest + builder id). Stamp-only; never
+    // claim Sigstore. Unconfigured = allow (dev); sealed refuse = deny.
+    {
+      const d6Gate = gateAuthorizeD6Provenance()
+      if (!d6Gate.ok) {
+        return deny(
+          d6Gate.reason || 'd6-provenance-refuse',
           pluginId,
           req.task_id || null,
           req.effect || null,
