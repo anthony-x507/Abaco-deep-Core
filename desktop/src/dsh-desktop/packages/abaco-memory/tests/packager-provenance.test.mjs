@@ -470,9 +470,16 @@ test('G9.3 stay out of MCP pin wiring, patch.yml, and compact preset', () => {
     'desktop/src/dsh-desktop/packages/abaco-mediacion-pilot/ops.js',
     'desktop/src/dsh-desktop/packages/abaco-mediacion-pilot/tests/kill-drains.test.mjs',
   ])
+  // Ola 2 / Bloque 2.B INV-ISOLATION-CLASS: CELL.md documents market reuse of
+  // strangler-fork. isolation-class lives under effect-broker (not piloto).
+  // Do not touch MCP pin / patch.yml / compact preset.
+  const ola2bIsolation = new Set([
+    'desktop/src/dsh-desktop/packages/abaco-mediacion-pilot/CELL.md',
+  ])
   for (const file of changed) {
     if (versionAlign.has(file)) continue
     if (b3KillDrains.has(file)) continue
+    if (ola2bIsolation.has(file)) continue
     assert.ok(!file.includes('abaco-mcp-schema-pin'), `MCP pin stay-out: ${file}`)
     assert.ok(!file.endsWith('run-f15-suite.mjs'), `MCP suite stay-out: ${file}`)
     assert.ok(!file.includes('CONTRACT-F1.5-MCP-SCHEMA-PIN'), `MCP contract stay-out: ${file}`)
