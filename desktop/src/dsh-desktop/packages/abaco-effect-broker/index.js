@@ -56,6 +56,30 @@ import {
   resetCascadeForTests,
 } from './cascade.js'
 import { sealLiveAdmission, getAdmissionGraph, SEALED_PRELOAD_KEYS } from './admission.js'
+import {
+  gateAuthorizeIsolation,
+  admitMarketPluginLoad,
+  assertMarketIsolation,
+  ISOLATION_CLASS_TABLE,
+  MARKET_ALLOWED_ISOLATION,
+  INV_ISOLATION_CLASS,
+  isMarketOrigin,
+  claimedIsolationClass,
+  normalizeIsolationClass,
+  isLabInprocessMarketAllowed,
+} from './isolation-class.mjs'
+export {
+  gateAuthorizeIsolation,
+  admitMarketPluginLoad,
+  assertMarketIsolation,
+  ISOLATION_CLASS_TABLE,
+  MARKET_ALLOWED_ISOLATION,
+  INV_ISOLATION_CLASS,
+  isMarketOrigin,
+  claimedIsolationClass,
+  normalizeIsolationClass,
+  isLabInprocessMarketAllowed,
+} from './isolation-class.mjs'
 import { evaluatePluginTree } from './supply-chain-admission.mjs'
 import {
   isMcpPublicName,
@@ -85,7 +109,7 @@ const TRUST_RANK = { untrusted: 0, 'plugin-data': 1, user: 2, host: 3 }
 /** Rank → label, same order as TRUST_RANK (P2 provenance: do not reorder). */
 const TRUST_LABELS = ['untrusted', 'plugin-data', 'user', 'host']
 
-/* INV-ISOLATION-CLASS (piloto): face/UI in-process; high-risk provider subprocess (python); F1-pilot → UtilityProcess (mediacion-pilot). */
+/* INV-ISOLATION-CLASS (piloto+market): face/UI in-process; high-risk provider subprocess (python); F1-pilot → UtilityProcess/strangler-fork (mediacion-pilot); market ≠ in-process unless ABACO_LAB_ALLOW_INPROCESS_MARKET (fail-closed deny). */
 /* ------------------------------------------------------------------ */
 /* F2 — integración (W6).                                              */
 /*                                                                     */
@@ -1404,6 +1428,25 @@ export function authorize(req) {
     if (!pluginId) {
       return deny('no-identity', null, req.task_id || null, req.effect || null, null, started, monotonic)
     }
+
+    // INV-ISOLATION-CLASS (Ola 2.B): market/Cordis community must not run
+    // same-process main. UtilityProcess / strangler-fork, or fail-closed deny.
+    // Lab flag ABACO_LAB_ALLOW_INPROCESS_MARKET is the only soft escape.
+    {
+      const isoGate = gateAuthorizeIsolation(req)
+      if (!isoGate.ok) {
+        return deny(
+          isoGate.reason,
+          pluginId,
+          req.task_id || null,
+          req.effect || null,
+          null,
+          started,
+          monotonic,
+        )
+      }
+    }
+
 
     // F2: contexto aditivo de las 4 consultas. Nunca cambia razones F1
     // existentes; solo añade el campo `f2` al audit y razones nuevas en

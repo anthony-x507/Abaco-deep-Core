@@ -53,3 +53,13 @@ later slice. Until then, `CELL_KIND === 'strangler-fork'`.
 
 Janice = plugin runtime (this fiber + F1.5 register wrap). Atena = advisory SLM, **never** in
 `authorize()`, never in the schema-pin verify/wrap, and never in this cell.
+
+## Market reuse (Ola 2.B)
+
+Cordis / market community plugins **must not** default to same-process main.
+They reuse this cell's isolation class (`strangler-fork`) or a true Electron
+`UtilityProcess` worker. Admission is enforced by
+`abaco-effect-broker/isolation-class.mjs` (`admitMarketPluginLoad` /
+`gateAuthorizeIsolation`). In-process market load is fail-closed deny unless
+`ABACO_LAB_ALLOW_INPROCESS_MARKET=1`.
+
