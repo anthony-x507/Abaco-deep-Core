@@ -28,7 +28,7 @@ const DEEP_INV_HOUSES = {
   'INV-DENY-OBSERVED': ['index.js'],
   'INV-TTL-BOUNDED': ['index.js'],
   'INV-NO-WIDEN': ['index.js'],
-  'INV-ISOLATION-CLASS': ['index.js'],
+  'INV-ISOLATION-CLASS': ['index.js', 'isolation-class.mjs'],
   'INV-GRANT-MAP-CAP': ['index.js'],
   'INV-KILL-DRAINS': [join('..', 'abaco-mediacion-pilot', 'ops.js')],
   'INV-DOWNGRADE-HITL': [
@@ -119,4 +119,13 @@ test('INV-ISOLATION-CLASS · UtilityProcess row for F1-pilot', () => {
   const contract = readFileSync(CONTRACT, 'utf8')
   assert.match(contract, /UtilityProcess/)
   assert.match(readPkg('index.js'), /INV-ISOLATION-CLASS/)
+})
+
+
+test('INV-ISOLATION-CLASS · market ≠ in-process unless lab flag', () => {
+  const contract = readFileSync(CONTRACT, 'utf8')
+  assert.match(contract, /market/i)
+  assert.match(contract, /ABACO_LAB_ALLOW_INPROCESS_MARKET/)
+  assert.match(readPkg('isolation-class.mjs'), /INV-ISOLATION-CLASS/)
+  assert.match(readPkg('isolation-class.mjs'), /market-in-process-denied/)
 })

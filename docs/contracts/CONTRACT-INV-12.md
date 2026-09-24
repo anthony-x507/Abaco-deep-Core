@@ -24,13 +24,17 @@
 | **INV-JEV-NEVER-GRANTS** | yes | no Jev/Atena in authorize/mint | F1 + ola1 tests + inv-12 |
 | **INV-DURABLE-AUDIT-FAIL-CLOSED** | yes | durable `effects.jsonl` breaker | `durable-audit-fail-closed.test.mjs` |
 
-## INV-ISOLATION-CLASS table (piloto cerrado)
+## INV-ISOLATION-CLASS table (piloto + Ola 2.B market)
 
 | Kind | Isolation | Owner |
 |------|-----------|-------|
 | face (renderer / FacePlugin) | in-process TCB | python-core faces; Desk UI |
 | high-risk provider | subprocess sandbox | python-core Phase S |
-| F1-pilot mediation cell | UtilityProcess | `abaco-mediacion-pilot` |
+| F1-pilot mediation cell | UtilityProcess / strangler-fork | `abaco-mediacion-pilot` |
+| **market / Cordis community** | **≠ in-process** (utility-process or strangler-fork; else **fail-closed deny**) | `isolation-class.mjs`; lab flag `ABACO_LAB_ALLOW_INPROCESS_MARKET` only |
+
+Market plugins must not default to same-process main. Call `admitMarketPluginLoad` / `gateAuthorizeIsolation` before load or authorize. Soft-PASS forbidden.
+
 
 ## Residual (GAP dated, not soft-PASS)
 
