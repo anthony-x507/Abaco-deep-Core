@@ -74,6 +74,7 @@ jobs:
             packages/abaco-effect-broker/tests/compatible-core-policy.test.mjs \
             packages/abaco-effect-broker/tests/inv-12-contracts.test.mjs \
             packages/abaco-effect-broker/tests/isolation-class.test.mjs \
+            packages/abaco-effect-broker/tests/update-feed-digest-pin.test.mjs \
             packages/abaco-mediacion-pilot/tests/kill-drains.test.mjs \
             src/main/state/tests/plugin-upgrade-downgrade.test.mjs \
             packages/abaco-effect-broker/tests/f2-integration.test.mjs \

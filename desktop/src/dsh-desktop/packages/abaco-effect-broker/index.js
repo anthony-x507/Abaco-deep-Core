@@ -80,6 +80,36 @@ export {
   normalizeIsolationClass,
   isLabInprocessMarketAllowed,
 } from './isolation-class.mjs'
+import {
+  OLA2_BLOQUE_C,
+  REFUSE_LAUNCH_REASON,
+  decideUpdateFeedLaunch,
+  decideUpdateFeedArtifactPin,
+  gateAuthorizeUpdateFeedPin,
+  sealUpdateFeedLaunchPin,
+  getUpdateFeedLaunchStatus,
+  getUpdateFeedLaunchFailure,
+  getSealedUpdateFeedLaunchPin,
+  resetUpdateFeedLaunchPinForTests,
+  normalizePinMap,
+  pinMapsEqual,
+  isSha256Hex,
+} from './update-feed-digest-pin.mjs'
+export {
+  OLA2_BLOQUE_C,
+  REFUSE_LAUNCH_REASON,
+  decideUpdateFeedLaunch,
+  decideUpdateFeedArtifactPin,
+  gateAuthorizeUpdateFeedPin,
+  sealUpdateFeedLaunchPin,
+  getUpdateFeedLaunchStatus,
+  getUpdateFeedLaunchFailure,
+  getSealedUpdateFeedLaunchPin,
+  resetUpdateFeedLaunchPinForTests,
+  normalizePinMap,
+  pinMapsEqual,
+  isSha256Hex,
+} from './update-feed-digest-pin.mjs'
 import { evaluatePluginTree } from './supply-chain-admission.mjs'
 import {
   isMcpPublicName,
@@ -662,6 +692,7 @@ export function resetBrokerForTests() {
   resetBreakersForTests()
   resetCascadeForTests()
   cascadeForwardedSeq = 0
+  resetUpdateFeedLaunchPinForTests()
   // NOTA: el hash-chain de provenance.audit() NO se reinicia aquí: es el
   // registro tamper-evident de durabilidad. Los tests lo reinician con
   // resetProvenanceAuditForTests() cuando lo necesitan.
@@ -738,6 +769,14 @@ const DENY_SIGNAL_SEVERITY = {
   'inject-undeclared': 2,
   'preload-not-allowlisted': 2,
   'audit-unavailable': 3,
+  'refuse-launch': 3,
+  'binary-digest-missing': 3,
+  'binary-digest-mismatch': 3,
+  'broker-pins-missing': 3,
+  'broker-pin-mismatch': 3,
+  'broker-pin-unexpected': 3,
+  'tag-only-insufficient': 3,
+  'feed-digest-missing': 3,
 }
 
 /** Último seq del audit de cascada ya reenviado a provenance (idempotencia). */
@@ -1241,6 +1280,12 @@ export function issueTaskGrant({
   if (admissionFailure) {
     throw new Error(`issueTaskGrant: ${admissionFailure}`)
   }
+  {
+    const launchFail = getUpdateFeedLaunchFailure()
+    if (launchFail) {
+      throw new Error(`issueTaskGrant: ${REFUSE_LAUNCH_REASON}:${launchFail}`)
+    }
+  }
   if (!aPluginOk(pluginId)) {
     throw new Error('issueTaskGrant: plugin not in A_plugin')
   }
@@ -1447,6 +1492,34 @@ export function authorize(req) {
       }
     }
 
+    // Ola 2.C — update feed digest pin / refuse-launch when sealed stamp or
+    // req.update_feed says broker pins != binary (extends partial plugin pins).
+    {
+      const sealedFail = getUpdateFeedLaunchFailure()
+      if (sealedFail) {
+        return deny(
+          sealedFail,
+          pluginId,
+          req.task_id || null,
+          req.effect || null,
+          null,
+          started,
+          monotonic,
+        )
+      }
+      const pinGate = gateAuthorizeUpdateFeedPin(req, getSealedUpdateFeedLaunchPin())
+      if (!pinGate.ok) {
+        return deny(
+          pinGate.reason,
+          pluginId,
+          req.task_id || null,
+          req.effect || null,
+          null,
+          started,
+          monotonic,
+        )
+      }
+    }
 
     // F2: contexto aditivo de las 4 consultas. Nunca cambia razones F1
     // existentes; solo añade el campo `f2` al audit y razones nuevas en
