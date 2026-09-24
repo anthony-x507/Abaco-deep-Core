@@ -36,6 +36,7 @@ import {
   verifyDurableLine,
   verifyDurableChain,
   verifyDurableEffectsFile,
+  setGrantMapLimitsForTests,
 } from '../index.js'
 
 const THIS_DIR = dirname(fileURLToPath(import.meta.url))
@@ -167,6 +168,56 @@ test('OLA2-A · corrupt existing file → durable failures → audit-unavailable
   const denied = authorize(voiceStatusReq())
   assert.equal(denied.decision, 'deny')
   assert.equal(denied.reason, 'audit-unavailable')
+})
+
+test('OLA2-A · parallel writers under shared path keep chain valid (lock)', async () => {
+  // Mirrors Desktop CI: multiple node --test workers share HOME and append
+  // concurrently. Exclusive lock keeps the hash-chain contiguous.
+  const { spawn } = await import('node:child_process')
+  const { once } = await import('node:events')
+  const indexPath = join(PKG_DIR, 'index.js')
+  const workerSrc = `
+    import {
+      authorize, resetBrokerForTests, hashArgs, setDurableAppendForTests,
+      setGrantMapLimitsForTests,
+    } from ${JSON.stringify(indexPath)};
+    resetBrokerForTests();
+    setDurableAppendForTests(null);
+    setGrantMapLimitsForTests(64, 1000);
+    const STATUS = '/api/abaco-voice.local-status';
+    const req = () => ({
+      channel: { kind: 'host.fetch', path: STATUS },
+      task_id: null,
+      effect: { kind: 'host.fetch', resource: STATUS, args_hash: hashArgs({ method: 'GET' }) },
+      trust_in: 'user',
+    });
+    for (let i = 0; i < 10; i++) {
+      const d = authorize(req());
+      if (d.decision !== 'allow') {
+        console.error('deny', d.reason);
+        process.exit(2);
+      }
+    }
+  `
+  const kids = []
+  for (let i = 0; i < 3; i++) {
+    kids.push(
+      spawn(process.execPath, ['--input-type=module', '-e', workerSrc], {
+        env: { ...process.env, DSH_HOME: tmpHome },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    )
+  }
+  const codes = await Promise.all(
+    kids.map(async (kid) => {
+      const [code] = await once(kid, 'exit')
+      return code
+    }),
+  )
+  assert.deepEqual(codes, [0, 0, 0], `worker exit codes ${codes}`)
+  assert.equal(verifyDurableEffectsOnDisk(getDurableEffectsPath()), true)
+  const lines = readFileSync(getDurableEffectsPath(), 'utf8').trim().split('\n')
+  assert.equal(lines.length, 30)
 })
 
 test('OLA2-A · product markers present (INV-AUDIT-CHAIN file seal)', () => {

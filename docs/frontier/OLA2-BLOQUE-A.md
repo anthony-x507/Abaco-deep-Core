@@ -16,7 +16,8 @@
 3. Genesis tip = `GENESIS` / `DURABLE_GENESIS`. Chain links: line N `prev_hash` = line N-1 `hash`.
 4. `verifyDurableLine` / `verifyDurableChain` / `verifyDurableEffectsFile` / `verifyDurableEffectsOnDisk` are **fail-closed** (tamper / bad JSON / broken link → `false`).
 5. On append, if an existing file fails verify → throw `durable-effects-chain-invalid` → counted as durable failure → existing authorize `audit-unavailable` breaker (no empty catch).
-6. In-memory `auditLog` + provenance hash-chain unchanged. Advisors never enter `authorize()`.
+6. Append uses exclusive `effects.jsonl.lock` (tip reload + write) so parallel `node --test` workers sharing `HOME` cannot fork the chain; Desktop CI also sets `--test-concurrency=1`.
+7. In-memory `auditLog` + provenance hash-chain unchanged. Advisors never enter `authorize()`.
 
 ## Tests / CI
 
