@@ -131,3 +131,87 @@ export function verifyAudit() {
 export function resetAuditForTests() {
   auditLog.length = 0
 }
+
+/* ------------------------------------------------------------------ */
+/* On-disk effects.jsonl seal (Ola 2 / Bloque 2.A · INV-AUDIT-CHAIN)  */
+/* Parity with in-memory audit(): each durable line carries            */
+/* prev_hash + hash; verifyDurable* fail-closed.                       */
+/* Wire form uses snake_case prev_hash; in-memory keeps prevHash.      */
+/* ------------------------------------------------------------------ */
+
+/** Genesis sentinel for durable effects.jsonl (same as in-memory). */
+export const DURABLE_GENESIS = GENESIS
+
+/** Normalize entry the same way audit() does. */
+function normalizeEntry(entry) {
+  return canonicalize(entry) === 'null' ? entry : JSON.parse(canonicalize(entry))
+}
+
+/**
+ * sealDurableLine({ seq, entry, prev_hash }) -> sealed durable record.
+ * hash = sha256(seq ‖ entry ‖ prev_hash). Does not mutate any log.
+ */
+export function sealDurableLine({ seq, entry, prev_hash }) {
+  const rec = {
+    seq: Number(seq),
+    entry: normalizeEntry(entry),
+    prev_hash: typeof prev_hash === 'string' ? prev_hash : DURABLE_GENESIS,
+  }
+  rec.hash = digestOf({ seq: rec.seq, entry: rec.entry, prev_hash: rec.prev_hash })
+  return rec
+}
+
+/**
+ * verifyDurableLine(record) -> bool
+ * Recomputes hash over {seq, entry, prev_hash}. Tamper → false.
+ */
+export function verifyDurableLine(record) {
+  if (!record || typeof record !== 'object') return false
+  if (typeof record.hash !== 'string' || !/^[0-9a-f]{64}$/.test(record.hash)) return false
+  if (typeof record.prev_hash !== 'string') return false
+  if (typeof record.seq !== 'number' || !Number.isInteger(record.seq) || record.seq < 0) {
+    return false
+  }
+  const expected = digestOf({
+    seq: record.seq,
+    entry: record.entry,
+    prev_hash: record.prev_hash,
+  })
+  return expected === record.hash
+}
+
+/**
+ * verifyDurableChain(records) -> bool (fail-closed)
+ * Contiguous seq from 0, prev_hash links, each line verifies.
+ * Empty chain is valid. Malformed / tampered → false (never throws).
+ */
+export function verifyDurableChain(records) {
+  if (!Array.isArray(records)) return false
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i]
+    if (!verifyDurableLine(rec)) return false
+    if (rec.seq !== i) return false
+    const expectedPrev = i === 0 ? DURABLE_GENESIS : records[i - 1].hash
+    if (rec.prev_hash !== expectedPrev) return false
+  }
+  return true
+}
+
+/**
+ * verifyDurableEffectsFile(text) -> bool
+ * Parse JSONL text and verifyDurableChain. Bad JSON / tamper → false.
+ */
+export function verifyDurableEffectsFile(text) {
+  if (typeof text !== 'string') return false
+  const lines = text.split('\n').filter((l) => l.length > 0)
+  const records = []
+  for (const line of lines) {
+    try {
+      records.push(JSON.parse(line))
+    } catch {
+      return false
+    }
+  }
+  return verifyDurableChain(records)
+}
+

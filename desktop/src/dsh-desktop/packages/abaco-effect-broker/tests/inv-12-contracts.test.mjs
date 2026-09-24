@@ -24,7 +24,7 @@ const CONTRACT = join(REPO, 'docs', 'contracts', 'CONTRACT-INV-12.md')
 const STATUS_PATH = '/api/abaco-voice.local-status'
 
 const DEEP_INV_HOUSES = {
-  'INV-AUDIT-CHAIN': ['provenance.js'],
+  'INV-AUDIT-CHAIN': ['provenance.js', 'index.js'],
   'INV-DENY-OBSERVED': ['index.js'],
   'INV-TTL-BOUNDED': ['index.js'],
   'INV-NO-WIDEN': ['index.js'],
@@ -70,6 +70,13 @@ test('INV-AUDIT-CHAIN · provenance verifyAudit fail-closed', () => {
   provenanceAudit({ kind: 'inv12-probe' })
   assert.equal(verifyAudit(), true)
   assert.match(readPkg('provenance.js'), /INV-AUDIT-CHAIN/)
+})
+
+test('INV-AUDIT-CHAIN · durable effects.jsonl prev_hash markers', () => {
+  const blob = readPkg('provenance.js', 'index.js')
+  assert.match(blob, /prev_hash/)
+  assert.match(blob, /verifyDurableChain|verifyDurableEffectsFile/)
+  assert.match(blob, /sealDurableLine/)
 })
 
 test('INV-DENY-OBSERVED · deny increments counter and grows audit', () => {

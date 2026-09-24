@@ -11,7 +11,7 @@
 
 | INV | Applies | Primary house | CI lock |
 |-----|---------|---------------|---------|
-| **INV-AUDIT-CHAIN** | yes (provenance) | `abaco-effect-broker/provenance.js` | `provenance.test.mjs` + `inv-12-contracts` |
+| **INV-AUDIT-CHAIN** | yes (provenance + durable file) | `provenance.js` + durable seal in `index.js` | `provenance.test.mjs` + `effects-jsonl-seal.test.mjs` + `inv-12-contracts` |
 | **INV-DENY-OBSERVED** | yes | `index.js` `deny()` → `denyCount` + `pushAudit` | `inv-12-contracts` |
 | **INV-TTL-BOUNDED** | yes | `issueTaskGrant` / authorize | `ttl-bounded.test.mjs` |
 | **INV-NO-WIDEN** | yes | sessionCaps ⊆ pin + pinRevision | `no-widen-sessioncaps.test.mjs` |
@@ -34,7 +34,7 @@
 
 ## Residual (GAP dated, not soft-PASS)
 
-- **INV-AUDIT-CHAIN / durable file:** in-memory `provenance.audit` is hash-chained + `verifyAudit` fail-closed. On-disk `effects.jsonl` lines are not independently prev_hash-chained; mute is covered by **INV-DURABLE-AUDIT-FAIL-CLOSED**. File-level seal = Ola 2 backlog if needed.
+- **INV-AUDIT-CHAIN / durable file:** **CLOSED** by Ola 2 Bloque 2.A — on-disk `effects.jsonl` lines carry independent `prev_hash` + `hash`; `verifyDurable*` fail-closed. See `docs/frontier/OLA2-BLOQUE-A.md`. Mute path remains **INV-DURABLE-AUDIT-FAIL-CLOSED**.
 - **Desk F7:** HOLD (GH artifact quota) — outside INV-12.
 
 ## Rules

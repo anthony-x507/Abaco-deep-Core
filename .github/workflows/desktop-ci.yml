@@ -66,6 +66,7 @@ jobs:
             packages/abaco-effect-broker/tests/tiers.test.mjs \
             packages/abaco-effect-broker/tests/ttl-bounded.test.mjs \
             packages/abaco-effect-broker/tests/durable-audit-fail-closed.test.mjs \
+            packages/abaco-effect-broker/tests/effects-jsonl-seal.test.mjs \
             packages/abaco-effect-broker/tests/grant-map-cap.test.mjs \
             packages/abaco-effect-broker/tests/no-widen-sessioncaps.test.mjs \
             packages/abaco-effect-broker/tests/compatible-core-policy.test.mjs \
