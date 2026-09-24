@@ -7,8 +7,16 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { appendFile, mkdir } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -28,7 +36,20 @@ import {
   audit as provenanceAudit,
   verifyAudit as verifyProvenanceAudit,
   resetAuditForTests,
+  DURABLE_GENESIS,
+  sealDurableLine,
+  verifyDurableLine,
+  verifyDurableChain,
+  verifyDurableEffectsFile,
 } from './provenance.js'
+
+export {
+  DURABLE_GENESIS,
+  sealDurableLine,
+  verifyDurableLine,
+  verifyDurableChain,
+  verifyDurableEffectsFile,
+}
 import {
   evaluate as cascadeEvaluate,
   getCascadeAudit,
@@ -377,20 +398,133 @@ let durableAuditUnavailable = false
 let durableAuditAlertCount = 0
 let durableAuditLastError = null
 
+/* Ola 2 / Bloque 2.A — on-disk effects.jsonl independent hash-chain (INV-AUDIT-CHAIN). */
+let durableFileSeq = 0
+let durableFileTipHash = DURABLE_GENESIS
+let durableFileTipLoaded = false
+let durableFileLoadedPath = null
+
 /**
- * Default durable sink: best-effort JSONL under harness home.
+ * Resolve harness durable effects.jsonl path (never dsh-desktop Application Support).
+ * @returns {string | null}
+ */
+export function getDurableEffectsPath() {
+  const home = process.env.DSH_HOME || process.env.HOME
+  if (!home) return null
+  return join(home, 'abaco-deep-core-audit-f1', 'effects.jsonl')
+}
+
+/**
+ * Load tip from existing effects.jsonl. Corrupt / unlinked chain → throw
+ * (fail-closed; scheduleDurableAppend counts as durable failure → breaker).
+ * @param {string} filePath
+ */
+/**
+ * Exclusive lock for effects.jsonl tip load + append (INV-AUDIT-CHAIN).
+ * Parallel node --test workers share $HOME and must not race seq/prev_hash.
+ * Stale locks (>10s) are broken so a crashed peer cannot freeze authorize.
+ * @param {string} filePath
+ * @param {() => void} fn
+ */
+function withDurableFileLock(filePath, fn) {
+  const lockPath = `${filePath}.lock`
+  mkdirSync(dirname(filePath), { recursive: true })
+  const started = Date.now()
+  let fd = null
+  for (;;) {
+    try {
+      fd = openSync(lockPath, 'wx')
+      break
+    } catch (err) {
+      if (!err || err.code !== 'EEXIST') throw err
+      try {
+        const age = Date.now() - statSync(lockPath).mtimeMs
+        if (age > 10_000) unlinkSync(lockPath)
+      } catch {
+        /* ignore race on stale cleanup */
+      }
+      if (Date.now() - started > 5_000) {
+        throw new Error('durable-effects-lock-timeout')
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)
+    }
+  }
+  try {
+    fn()
+  } finally {
+    try {
+      if (fd != null) closeSync(fd)
+    } catch {
+      /* ignore */
+    }
+    try {
+      unlinkSync(lockPath)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function loadDurableTipFromFile(filePath, { force = false } = {}) {
+  if (!force && durableFileTipLoaded && durableFileLoadedPath === filePath) return
+  if (!existsSync(filePath)) {
+    durableFileSeq = 0
+    durableFileTipHash = DURABLE_GENESIS
+    durableFileTipLoaded = true
+    durableFileLoadedPath = filePath
+    return
+  }
+  const text = readFileSync(filePath, 'utf8')
+  if (!verifyDurableEffectsFile(text)) {
+    throw new Error('durable-effects-chain-invalid')
+  }
+  const lines = text.split('\n').filter((l) => l.length > 0)
+  const last = lines.length ? JSON.parse(lines[lines.length - 1]) : null
+  durableFileSeq = lines.length
+  durableFileTipHash = last && typeof last.hash === 'string' ? last.hash : DURABLE_GENESIS
+  durableFileTipLoaded = true
+  durableFileLoadedPath = filePath
+}
+
+/**
+ * Default durable sink: sealed JSONL under harness home (prev_hash + hash).
  * Missing home = durable not configured (not a failure).
+ * Sync write so tip/seq stay consistent with the on-disk chain.
  * @param {object} ev
- * @returns {Promise<void> | void}
+ * @returns {void}
  */
 function defaultDurableAppend(ev) {
-  const home = process.env.DSH_HOME || process.env.HOME
-  if (!home) return
-  const dir = join(home, 'abaco-deep-core-audit-f1')
-  const line = JSON.stringify(ev) + '\n'
-  return mkdir(dir, { recursive: true }).then(() =>
-    appendFile(join(dir, 'effects.jsonl'), line),
-  )
+  const filePath = getDurableEffectsPath()
+  if (!filePath) return
+  withDurableFileLock(filePath, () => {
+    // Always re-read tip under the lock so parallel workers never reuse a stale seq.
+    loadDurableTipFromFile(filePath, { force: true })
+    const sealed = sealDurableLine({
+      seq: durableFileSeq,
+      entry: ev,
+      prev_hash: durableFileTipHash,
+    })
+    appendFileSync(filePath, JSON.stringify(sealed) + '\n')
+    durableFileSeq += 1
+    durableFileTipHash = sealed.hash
+  })
+}
+
+/**
+ * Verify on-disk effects.jsonl at the harness path (or explicit path).
+ * Missing file = empty chain = valid. Fail-closed on tamper.
+ * @param {string} [explicitPath]
+ * @returns {boolean}
+ */
+export function verifyDurableEffectsOnDisk(explicitPath) {
+  const filePath = explicitPath || getDurableEffectsPath()
+  if (!filePath) return true
+  if (!existsSync(filePath)) return true
+  try {
+    return verifyDurableEffectsFile(readFileSync(filePath, 'utf8'))
+  } catch {
+    return false
+  }
 }
 
 /** @type {(ev: object) => (Promise<void> | void)} */
@@ -476,6 +610,10 @@ function resetDurableAuditForTests() {
   durableAuditAlertCount = 0
   durableAuditLastError = null
   durableAppendImpl = defaultDurableAppend
+  durableFileSeq = 0
+  durableFileTipHash = DURABLE_GENESIS
+  durableFileTipLoaded = false
+  durableFileLoadedPath = null
 }
 
 export function resetBrokerForTests() {
@@ -1214,7 +1352,8 @@ function findActiveGrant(pluginId, taskId) {
 function pushAudit(ev) {
   // In-memory provenance / audit trail always grows (never muted).
   auditLog.push(ev)
-  // Durable JSONL under harness home (never dsh-desktop). Failures are
+  // Durable JSONL under harness home (never dsh-desktop). Each line is
+  // sealed with prev_hash + hash (INV-AUDIT-CHAIN / Ola 2.A). Failures are
   // counted — empty .catch(() => {}) is forbidden (INV-DURABLE-AUDIT-FAIL-CLOSED).
   scheduleDurableAppend(ev)
 }

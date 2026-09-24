@@ -142,3 +142,9 @@ Checklist de compañía (extraído de F1/F1.5 + curso + defaults Integrador). Al
 | Doc | Role |
 |-----|------|
 | [`OLA1-BLOQUE1-DURABLE-AUDIT.md`](OLA1-BLOQUE1-DURABLE-AUDIT.md) | **INV-DURABLE-AUDIT-FAIL-CLOSED** — K durable append failures → authorize `audit-unavailable` (tip-of-spear; in-memory trail kept) |
+
+## Ola 2 / Bloque 2.A (audit file seal)
+
+| Doc | Role |
+|-----|------|
+| [`OLA2-BLOQUE-A.md`](OLA2-BLOQUE-A.md) | **INV-AUDIT-CHAIN** durable `effects.jsonl` `prev_hash` + verify fail-closed (closes V1 GAP 2026-09-23) |
