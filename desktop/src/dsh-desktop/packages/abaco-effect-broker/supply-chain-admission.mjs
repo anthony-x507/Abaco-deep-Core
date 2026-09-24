@@ -9,7 +9,7 @@
  * {@link ARTIFACT_FILES} (this module is broker TCB). `sbom.admission.json`
  * is a predicate over that subject, not part of the hashed bytes.
  *
- * `author_signature` is a digest-binding stamp
+ * `author_signature` is a digest-binding stamp (Ola 3 D6 adds builder-id bind in d6-provenance-stamp.mjs; still not Sigstore)
  * (sha256 of producer, plugin id, and component hash). It is not a Sigstore
  * or in-toto signature. Cryptographic author authentication stays a GAP.
  *
