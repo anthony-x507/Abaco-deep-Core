@@ -3,9 +3,12 @@
 | Campo | Valor |
 |-------|--------|
 | **pack** | Plugin Frontiers Law Pack (Janice naming recovery) |
-| **fecha** | 2026-09-22 |
+| **fecha** | 2026-09-25 |
 | **tip producto** | ABACO DEEP HARNES **v0.4.26** — F1 day-14 + broker + F1.5 + F2.1 cerrados; **no reabrir F1** |
+| **tip main** | `97c1943` — Ola 3 D6 + Sigstore GAP + pin gate (#58); **Ola 1–3 CLOSED on main** |
 | **naming** | [`JANICE_ATENA_NAMING_LAW.md`](JANICE_ATENA_NAMING_LAW.md) |
+| **ops handoff** | [`EVOLUTION-MAP-2026-09-25.md`](EVOLUTION-MAP-2026-09-25.md) — SSOT what worked / not / HOLD |
+| **GAP HOLD** | Sigstore stamp-only + Apple notarize (Desk F7) — **NOT soft-PASS** |
 
 ## Cómo leer este índice
 
@@ -118,7 +121,8 @@ Checklist de compañía (extraído de F1/F1.5 + curso + defaults Integrador). Al
 | [`PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md`](PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md) | **PAPER unificado G47** (síntesis research A+B+C): plugins vs tradicional + Jev pulse; piloto Anthony 2026-09-22 |
 | [`FRONTIER-PLUGIN-DEFENSE-SUPPLYCHAIN-2026.md`](FRONTIER-PLUGIN-DEFENSE-SUPPLYCHAIN-2026.md) | Research: plugin isolation + supply chain (SBOM, provenance, pin, kill). No runtime; does not replace S1–S8 |
 | [`FRONTIER-PERMISSIONS-CAPABILITIES-2026.md`](FRONTIER-PERMISSIONS-CAPABILITIES-2026.md) | Frontier pública 2023–2026 (WASI, Capsicum, seL4, MV3, Deno, OPA, SPIFFE) aplicada a Bind/Janice. No reabre F1. |
-| [`README.md`](README.md) | Índice frontier (paper + naming + G47 + research) |
+| [`README.md`](README.md) | Índice frontier (evolution map + Ola + paper + naming + G47 + research) |
+| [`EVOLUTION-MAP-2026-09-25.md`](EVOLUTION-MAP-2026-09-25.md) | SSOT handoff ops: worked / not-worked / HOLD / next rules |
 | [`TECH-plugin-loading.md`](../TECH-plugin-loading.md) | Teatro: cómo DSH carga UI plugins (Cordis patch) — **no** copiar a Python Core |
 | [`SECURITY.md`](../SECURITY.md) | Modelo seguridad app unsigned actual |
 | Mind: plugin = contrato; curso 10 vs Cordis; catorce defaults; frontier dónde estamos | Contexto Leader / rediseño plan |
@@ -137,14 +141,39 @@ Checklist de compañía (extraído de F1/F1.5 + curso + defaults Integrador). Al
 - **Merge a main:** solo vía PR de docs; no merge automático por este agente.
 
 
-## Ola 1 / Bloque 1 (observation)
+## Ola 1–3 (runtime CLOSED on main)
 
-| Doc | Role |
-|-----|------|
-| [`OLA1-BLOQUE1-DURABLE-AUDIT.md`](OLA1-BLOQUE1-DURABLE-AUDIT.md) | **INV-DURABLE-AUDIT-FAIL-CLOSED** — K durable append failures → authorize `audit-unavailable` (tip-of-spear; in-memory trail kept) |
+Ops narrative and anti-patterns: [`EVOLUTION-MAP-2026-09-25.md`](EVOLUTION-MAP-2026-09-25.md). Tip `97c1943`. Do not reopen F1. Do not fake Sigstore/notarize.
 
-## Ola 2 / Bloque 2.A (audit file seal)
+### Ola 1 — Bloques 1–3 + INV-12
 
-| Doc | Role |
-|-----|------|
-| [`OLA2-BLOQUE-A.md`](OLA2-BLOQUE-A.md) | **INV-AUDIT-CHAIN** durable `effects.jsonl` `prev_hash` + verify fail-closed (closes V1 GAP 2026-09-23) |
+| Doc | PR | Role |
+|-----|----|------|
+| [`OLA1-BLOQUE1-DURABLE-AUDIT.md`](OLA1-BLOQUE1-DURABLE-AUDIT.md) | #51 | **INV-DURABLE-AUDIT-FAIL-CLOSED** — K durable append failures → authorize `audit-unavailable` (tip-of-spear; in-memory trail kept) |
+| [`OLA1-BLOQUE2-TTL.md`](OLA1-BLOQUE2-TTL.md) | #52 | **INV-TTL-BOUNDED** — finite positive `ttlMs`; clamp oversize; reject immortal / null-on-medium-high |
+| [`OLA1-BLOQUE3.md`](OLA1-BLOQUE3.md) | #53 | **INV-NO-WIDEN** · **INV-DOWNGRADE-HITL** · **INV-GRANT-MAP-CAP** (sessionCaps ⊆ pin; HITL downgrade; grant-map bound) |
+| INV-12 CI gates | #54 | Named INV-12 contracts + desktop-ci ola1 merge blockers |
+
+### Ola 2 — A / B / C
+
+| Doc | PR | Role |
+|-----|----|------|
+| [`OLA2-BLOQUE-A.md`](OLA2-BLOQUE-A.md) | #55 | **INV-AUDIT-CHAIN** durable `effects.jsonl` `prev_hash` + lock + verify fail-closed |
+| [`OLA2-BLOQUE-B.md`](OLA2-BLOQUE-B.md) | #56 | **INV-ISOLATION-CLASS** — market UtilityProcess or strangler-fork, else deny |
+| [`OLA2-BLOQUE-C.md`](OLA2-BLOQUE-C.md) | #57 | Update-feed digest pin refuse-launch; notarize dated GAP |
+
+### Ola 3 — D6 + gates
+
+| Doc | PR | Role |
+|-----|----|------|
+| [`OLA3-BLOQUE.md`](OLA3-BLOQUE.md) | #58 | D6 stamp-only subject bind + pin/marketplace gates |
+| [`PIN-ROTATION-RELEASE-GATE.md`](PIN-ROTATION-RELEASE-GATE.md) | #58 | Pin rotation = release gate only (no runtime rotate API) |
+| [`MARKETPLACE-OPEN-CHECKLIST.md`](MARKETPLACE-OPEN-CHECKLIST.md) | #58 | Go / no-go for marketplace open |
+
+### GAPs HOLD (dated, NOT soft-PASS)
+
+| Doc | Status |
+|-----|--------|
+| [`GAP-SIGSTORE-STAMP-ONLY-2026-09-23.md`](GAP-SIGSTORE-STAMP-ONLY-2026-09-23.md) | HOLD — stamp-only; `sigstoreClaim` always false until keys |
+| [`GAP-NOTARIZE-2026-09-23.md`](GAP-NOTARIZE-2026-09-23.md) | HOLD — Desk F7 / Apple notary credentials |
+| [`SWEET-SPOT-STRESS-C.md`](SWEET-SPOT-STRESS-C.md) | #46 on main — digest pin + SBOM admission (KEEP) |

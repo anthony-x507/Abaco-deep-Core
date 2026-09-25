@@ -2,20 +2,40 @@
 
 | Campo | Valor |
 |-------|--------|
-| **pack** | Plugin Frontiers (naming + G47 + research) |
-| **fecha** | 2026-09-22 |
-| **teatro** | ABACO DEEP HARNES ≤ v0.4.26 — tip-of-spear |
+| **pack** | Plugin Frontiers (naming + G47 + research + Ola 1–3) |
+| **fecha** | 2026-09-25 |
+| **teatro** | ABACO DEEP HARNES ≤ v0.4.26 — tip-of-spear; Ola 1–3 CLOSED on main (`97c1943`) |
 | **política** | Docs-only en este árbol salvo PRs de runtime explícitos |
 
 ## Empezar aquí
 
 | Doc | Rol |
 |-----|-----|
+| **[`EVOLUTION-MAP-2026-09-25.md`](EVOLUTION-MAP-2026-09-25.md)** | **SSOT handoff** — what worked / what did not / HOLD / next rules (cold agent) |
 | **[`PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md`](PAPER-PLUGINS-VS-TRADITIONAL-JEV-PULSE.md)** | **PAPER unificado G47** — plugins vs tradicional + Jev pulse (síntesis A+B+C) |
 | [`FRONTIER-PLUGIN-DEFENSE-SUPPLYCHAIN-2026.md`](FRONTIER-PLUGIN-DEFENSE-SUPPLYCHAIN-2026.md) | Defense frontier: isolation, SBOM/provenance/pin, kill switch. Complements the paper; does not restate S1–S8 |
 | [`FRONTIER-PERMISSIONS-CAPABILITIES-2026.md`](FRONTIER-PERMISSIONS-CAPABILITIES-2026.md) | Frontier pública (caps, attestation, least-privilege) → refuerzos Bind/Janice. Complementa el paper; no lo reescribe. |
 | [`JANICE_ATENA_NAMING_LAW.md`](JANICE_ATENA_NAMING_LAW.md) | Lock: Janice = runtime; Atena = advisory; Jev never grants; connectors HOLD |
-| [`PLUGIN_FRONTIERS_CONTRACT_INDEX.md`](PLUGIN_FRONTIERS_CONTRACT_INDEX.md) | Contratos F1 / F1.5 / F2.1 — ley vs teatro |
+| [`PLUGIN_FRONTIERS_CONTRACT_INDEX.md`](PLUGIN_FRONTIERS_CONTRACT_INDEX.md) | Contratos F1 / F1.5 / F2.1 + Ola 1–3 — ley vs teatro |
+
+## Ola 1–3 / GAPs (runtime closed on main)
+
+Runtime Ola 1–3 is **CLOSED on `main`** (PRs #51–#58). GAPs below are dated HOLD — **NOT soft-PASS**.
+
+| Doc | Rol |
+|-----|-----|
+| [`OLA1-BLOQUE1-DURABLE-AUDIT.md`](OLA1-BLOQUE1-DURABLE-AUDIT.md) | INV-DURABLE-AUDIT-FAIL-CLOSED (#51) |
+| [`OLA1-BLOQUE2-TTL.md`](OLA1-BLOQUE2-TTL.md) | INV-TTL-BOUNDED (#52) |
+| [`OLA1-BLOQUE3.md`](OLA1-BLOQUE3.md) | INV-NO-WIDEN / INV-DOWNGRADE-HITL / INV-GRANT-MAP-CAP (#53) |
+| [`OLA2-BLOQUE-A.md`](OLA2-BLOQUE-A.md) | INV-AUDIT-CHAIN effects.jsonl prev_hash (#55) |
+| [`OLA2-BLOQUE-B.md`](OLA2-BLOQUE-B.md) | INV-ISOLATION-CLASS market UtilityProcess or deny (#56) |
+| [`OLA2-BLOQUE-C.md`](OLA2-BLOQUE-C.md) | Update-feed digest pin refuse-launch (#57) |
+| [`OLA3-BLOQUE.md`](OLA3-BLOQUE.md) | D6 provenance stamp + pin/marketplace gates (#58) |
+| [`GAP-NOTARIZE-2026-09-23.md`](GAP-NOTARIZE-2026-09-23.md) | Apple notarize / Desk F7 HOLD |
+| [`GAP-SIGSTORE-STAMP-ONLY-2026-09-23.md`](GAP-SIGSTORE-STAMP-ONLY-2026-09-23.md) | Sigstore stamp-only HOLD |
+| [`MARKETPLACE-OPEN-CHECKLIST.md`](MARKETPLACE-OPEN-CHECKLIST.md) | Go / no-go marketplace open |
+| [`PIN-ROTATION-RELEASE-GATE.md`](PIN-ROTATION-RELEASE-GATE.md) | Pin rotation = release gate only |
+| [`SWEET-SPOT-STRESS-C.md`](SWEET-SPOT-STRESS-C.md) | Digest pin + SBOM admission (#46) |
 
 ## G47 — Jev / Security Pulse
 
